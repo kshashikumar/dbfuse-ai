@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  dbfuse-ai:
+    container_name: "dbfuse-ai"
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - MYSQL_URL=mysql://root:root@host.docker.internal:3306
