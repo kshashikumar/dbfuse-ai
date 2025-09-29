@@ -59,7 +59,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     paginatedData: any[] = [];
 
     currentResultTabs: any[] = [];
-  activeResultIndex: number = 0;
+    activeResultIndex: number = 0;
 
     private darkModeObserver: MutationObserver | null = null;
     Math = Math;
@@ -68,8 +68,8 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
 
     constructor(
         private cdr: ChangeDetectorRef,
-        private dbService: BackendService
-    ) { }
+        private dbService: BackendService,
+    ) {}
 
     ngOnInit() {
         if (this.InitDBInfo) {
@@ -107,46 +107,45 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
             });
             this.darkModeObserver.observe(this.document.documentElement, {
                 attributes: true,
-                attributeFilter: ['class']
+                attributeFilter: ['class'],
             });
         }
     }
 
     trackByResultIndex(index: number, _item: any): number {
-    return index;
-  }
-
-  onResultsChanged(results: any[]) {
-  const safe = Array.isArray(results) ? results : [];
-  // Attach a displayName to each result so the template can use it directly
-  this.currentResultTabs = safe.map((r, idx) => ({
-    ...r,
-    displayName: this.getResultTabLabel(r, idx),
-  }));
-
-  // Keep active index in range
-  this.activeResultIndex = Math.min(this.activeResultIndex, this.currentResultTabs.length - 1);
-  if (this.activeResultIndex < 0) this.activeResultIndex = 0;
-
-  this.cdr.markForCheck();
-}
-
-
-  // Clicking a mini-tab: tell child to switch
-  onSelectResultTab(index: number) {
-    this.activeResultIndex = index;
-    if (this.resultGrid) {
-      this.resultGrid.setActiveResultIndex(index);
+        return index;
     }
-  }
 
-  // Closing a mini-tab: tell child to remove it (child will emit resultsChanged back)
-  onCloseResultTab(index: number) {
-    if (this.resultGrid) {
-      this.resultGrid.closeResultTab(index);
-      // activeResultIndex will be corrected by child's emit -> onResultsChanged
+    onResultsChanged(results: any[]) {
+        const safe = Array.isArray(results) ? results : [];
+        // Attach a displayName to each result so the template can use it directly
+        this.currentResultTabs = safe.map((r, idx) => ({
+            ...r,
+            displayName: this.getResultTabLabel(r, idx),
+        }));
+
+        // Keep active index in range
+        this.activeResultIndex = Math.min(this.activeResultIndex, this.currentResultTabs.length - 1);
+        if (this.activeResultIndex < 0) this.activeResultIndex = 0;
+
+        this.cdr.markForCheck();
     }
-  }
+
+    // Clicking a mini-tab: tell child to switch
+    onSelectResultTab(index: number) {
+        this.activeResultIndex = index;
+        if (this.resultGrid) {
+            this.resultGrid.setActiveResultIndex(index);
+        }
+    }
+
+    // Closing a mini-tab: tell child to remove it (child will emit resultsChanged back)
+    onCloseResultTab(index: number) {
+        if (this.resultGrid) {
+            this.resultGrid.closeResultTab(index);
+            // activeResultIndex will be corrected by child's emit -> onResultsChanged
+        }
+    }
 
     private updateEditorTheme() {
         if (!this.editorInstance) return;
@@ -174,7 +173,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
                 next: (tableInfoArray: MultipleTablesInfo) => {
                     tableInfoArray.tables.forEach((tableInfo: any) => {
                         const tableIndex = selectedDatabase.tables.findIndex(
-                            (t: any) => t.name === tableInfo.table_name
+                            (t: any) => t.name === tableInfo.table_name,
                         );
                         if (tableIndex > -1) {
                             selectedDatabase.tables[tableIndex] = {
@@ -190,7 +189,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
                 },
                 error: (error) => {
                     console.error('Error fetching table information for selected database:', error);
-                }
+                },
             });
         } else {
             console.warn(`No tables found for selected database: ${this.selectedDB}`);
@@ -414,7 +413,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         const selectedDatabase = this.InitDBInfo?.find((db: any) => db.name === dbName);
         if (selectedDatabase) {
             const allTablesPopulated = selectedDatabase.tables.every(
-                (table: any) => table.columns && table.columns.length > 0
+                (table: any) => table.columns && table.columns.length > 0,
             );
             if (!allTablesPopulated) {
                 console.log(`Calling updateDatabaseInfo for ${dbName} as not all tables have columns populated.`);
@@ -438,8 +437,8 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         this.executeTriggered = false;
         this.editingTabIndex = null;
         this.activeResultIndex = 0;
-    this.currentResultTabs = [];
-    this.cdr.markForCheck();
+        this.currentResultTabs = [];
+        this.cdr.markForCheck();
     }
 
     closeTab(tabIndex: number) {
@@ -462,8 +461,8 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         }
         this.editingTabIndex = null;
         this.activeResultIndex = 0;
-    this.currentResultTabs = [];
-    this.cdr.markForCheck();
+        this.currentResultTabs = [];
+        this.cdr.markForCheck();
     }
 
     closeAllTabs() {
@@ -530,50 +529,51 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     }
 
     handleExecQueryClick() {
-  this.triggerQuery = this.tabContent[this.selectedTab] || '';
-  // flip the boolean so ngOnChanges in child sees a change every click
-  this.executeTriggered = !this.executeTriggered;
-  this.cdr.markForCheck();
-}
+        this.triggerQuery = this.tabContent[this.selectedTab] || '';
+        // flip the boolean so ngOnChanges in child sees a change every click
+        this.executeTriggered = !this.executeTriggered;
+        this.cdr.markForCheck();
+    }
 
-// Build a display name for a result (dbname.table or sensible fallback)
-getResultTabLabel(r: any, index: number): string {
-  if (r?.displayName && typeof r.displayName === 'string') return r.displayName;
+    // Build a display name for a result (dbname.table or sensible fallback)
+    getResultTabLabel(r: any, index: number): string {
+        if (r?.displayName && typeof r.displayName === 'string') return r.displayName;
 
-  const db = (r?.dbName || this.selectedDB || '').toString();
-  const table = (r?.tableName || this.extractFirstIdentifier(r?.query || '') || '').toString();
+        const db = (r?.dbName || this.selectedDB || '').toString();
+        const table = (r?.tableName || this.extractFirstIdentifier(r?.query || '') || '').toString();
 
-  if (db && table) return `${db}.${table}`;
-  if (table) return table;
-  if (db) return `${db}_Q${index + 1}`;
-  return `Query ${index + 1}`;
-}
+        if (db && table) return `${db}.${table}`;
+        if (table) return table;
+        if (db) return `${db}_Q${index + 1}`;
+        return `Query ${index + 1}`;
+    }
 
-// Try to infer the first table-like identifier from a SQL statement
-private extractFirstIdentifier(sql: string): string | null {
-  if (!sql) return null;
-  // Look after FROM / JOIN / INTO / UPDATE (first hit wins)
-  const m = sql.match(/\b(FROM|JOIN|INTO|UPDATE)\s+([`"'[\]]?[\w.]+[`"'[\]]?)/i);
-  if (!m || !m[2]) return null;
+    // Try to infer the first table-like identifier from a SQL statement
+    private extractFirstIdentifier(sql: string): string | null {
+        if (!sql) return null;
+        // Look after FROM / JOIN / INTO / UPDATE (first hit wins)
+        const m = sql.match(/\b(FROM|JOIN|INTO|UPDATE)\s+([`"'[\]]?[\w.]+[`"'[\]]?)/i);
+        if (!m || !m[2]) return null;
 
-  // Clean quotes/brackets
-  return m[2].replace(/^[`"'[\]]+|[`"'[\]]+$/g, '');
-}
-
+        // Clean quotes/brackets
+        return m[2].replace(/^[`"'[\]]+|[`"'[\]]+$/g, '');
+    }
 
     handleOpenAIPrompt() {
-        this.dbService.executeOpenAIPrompt(this.InitDBInfo, this.selectedDB, this.tabContent[this.selectedTab]).subscribe({
-            next: (data) => {
-                if (this.editorInstance) {
-                    this.editorInstance.setValue(data.query);
-                    this.tabContent[this.selectedTab] = data.query;
-                }
-                this.cdr.markForCheck();
-            },
-            error: (error) => {
-                console.error('AI prompt error:', error);
-            }
-        });
+        this.dbService
+            .executeOpenAIPrompt(this.InitDBInfo, this.selectedDB, this.tabContent[this.selectedTab])
+            .subscribe({
+                next: (data) => {
+                    if (this.editorInstance) {
+                        this.editorInstance.setValue(data.query);
+                        this.tabContent[this.selectedTab] = data.query;
+                    }
+                    this.cdr.markForCheck();
+                },
+                error: (error) => {
+                    console.error('AI prompt error:', error);
+                },
+            });
     }
 
     onDiscQueryClick() {

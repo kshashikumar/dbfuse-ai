@@ -24,7 +24,7 @@ import { newTabData, TableInfo } from '@lib/utils/storage/storage.types';
 export class SideBarComponent implements OnInit {
     private readonly _router = inject(Router);
     private readonly _cdr = inject(ChangeDetectorRef);
-    
+
     @Output() newTabEmitter = new EventEmitter<newTabData>();
     @Output() initDBInfoEmitter = new EventEmitter<any>();
     @Output() databaseSelected = new EventEmitter<string>(); // New output for database selection
@@ -65,27 +65,25 @@ export class SideBarComponent implements OnInit {
         this.isLoading = true;
         this._cdr.markForCheck();
 
-        this.dbService
-            .getDatabases()
-            .subscribe({
-                next: (data) => {
-                    this.databases = data;
-                    this.filteredDatabases = data['databases'] || [];
-                    console.log('Databases loaded:', data);
-                    this.initDBInfoEmitter.emit(this.filteredDatabases);
-                    this._cdr.markForCheck();
-                },
-                error: (error) => {
-                    console.error('Error fetching databases', error);
-                    this.filteredDatabases = [];
-                    this._cdr.markForCheck();
-                },
-                complete: () => {
-                    this.isLoading = false;
-                    this.isRefreshing = false;
-                    this._cdr.markForCheck();
-                }
-            });
+        this.dbService.getDatabases().subscribe({
+            next: (data) => {
+                this.databases = data;
+                this.filteredDatabases = data['databases'] || [];
+                console.log('Databases loaded:', data);
+                this.initDBInfoEmitter.emit(this.filteredDatabases);
+                this._cdr.markForCheck();
+            },
+            error: (error) => {
+                console.error('Error fetching databases', error);
+                this.filteredDatabases = [];
+                this._cdr.markForCheck();
+            },
+            complete: () => {
+                this.isLoading = false;
+                this.isRefreshing = false;
+                this._cdr.markForCheck();
+            },
+        });
     }
 
     filterDatabases() {
@@ -100,13 +98,11 @@ export class SideBarComponent implements OnInit {
 
         this.filteredDatabases = (this.databases.databases || [])
             .map((db: any) => {
-                const filteredTables = (db.tables || []).filter((table: any) => 
-                    table.name.toLowerCase().includes(filter)
+                const filteredTables = (db.tables || []).filter((table: any) =>
+                    table.name.toLowerCase().includes(filter),
                 );
 
-                const filteredViews = (db.views || []).filter((view: any) => 
-                    view.name.toLowerCase().includes(filter)
-                );
+                const filteredViews = (db.views || []).filter((view: any) => view.name.toLowerCase().includes(filter));
 
                 if (db.name.toLowerCase().includes(filter) || filteredTables.length || filteredViews.length) {
                     return {
@@ -176,7 +172,7 @@ export class SideBarComponent implements OnInit {
                         },
                         error: (error) => {
                             console.error('Error fetching table information:', error);
-                        }
+                        },
                     });
                 }
             } else {

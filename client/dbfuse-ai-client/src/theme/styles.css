@@ -1,6 +1,6 @@
-@import "tailwindcss/base";
-@import "tailwindcss/components";
-@import "tailwindcss/utilities";
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
 
 /* Custom Imports */
 @import './01-base/variables.css';
@@ -14,9 +14,9 @@
 /* Custom Tailwind Layer and Other Styles */
 @layer components {
     .btn-execute {
-      @apply relative z-10 !bg-green-500 text-white px-4 py-2 rounded hover:!bg-green-600;
+        @apply relative z-10 !bg-green-500 text-white px-4 py-2 rounded hover:!bg-green-600;
     }
     .btn-discard {
-      @apply relative z-10 !bg-gray-500 text-white px-4 py-2 rounded hover:!bg-gray-600;
+        @apply relative z-10 !bg-gray-500 text-white px-4 py-2 rounded hover:!bg-gray-600;
     }
 }

@@ -21,108 +21,86 @@ export class ConnectionService {
     constructor(private _http: HttpClient) {}
 
     // Get all connections
-    getConnections(): Observable<{ 
-        connections: Connection[], 
-        count: number, 
-        retrievedAt: string 
+    getConnections(): Observable<{
+        connections: Connection[];
+        count: number;
+        retrievedAt: string;
     }> {
-        return this._http.get<{ 
-            connections: Connection[], 
-            count: number, 
-            retrievedAt: string 
-        }>(
-            `${this.BASE_URL}/api/connections`, 
-            { headers: this.getHeaders() }
-        );
+        return this._http.get<{
+            connections: Connection[];
+            count: number;
+            retrievedAt: string;
+        }>(`${this.BASE_URL}/api/connections`, { headers: this.getHeaders() });
     }
 
     // Add a new connection with enhanced validation
-    addConnection(connection: ConnectionConfig): Observable<{ 
-        message: string, 
-        connection: Connection 
+    addConnection(connection: ConnectionConfig): Observable<{
+        message: string;
+        connection: Connection;
     }> {
-        return this._http.post<{ 
-            message: string, 
-            connection: Connection 
-        }>(
-            `${this.BASE_URL}/api/connections/add`, 
-            connection, 
-            { headers: this.getHeaders() }
-        );
+        return this._http.post<{
+            message: string;
+            connection: Connection;
+        }>(`${this.BASE_URL}/api/connections/add`, connection, { headers: this.getHeaders() });
     }
 
     // Edit an existing connection
     editConnection(
-        id: number, 
-        updatedConnection: Partial<ConnectionConfig>
-    ): Observable<{ 
-        message: string, 
-        connection: Connection 
+        id: number,
+        updatedConnection: Partial<ConnectionConfig>,
+    ): Observable<{
+        message: string;
+        connection: Connection;
     }> {
-        return this._http.post<{ 
-            message: string, 
-            connection: Connection 
-        }>(
-            `${this.BASE_URL}/api/connections/edit/${id}`, 
-            updatedConnection, 
-            { headers: this.getHeaders() }
-        );
+        return this._http.post<{
+            message: string;
+            connection: Connection;
+        }>(`${this.BASE_URL}/api/connections/edit/${id}`, updatedConnection, { headers: this.getHeaders() });
     }
 
     // Delete a connection
-    deleteConnection(id: number): Observable<{ 
-        message: string, 
-        deletedId: number, 
-        deletedAt: string 
+    deleteConnection(id: number): Observable<{
+        message: string;
+        deletedId: number;
+        deletedAt: string;
     }> {
-        return this._http.delete<{ 
-            message: string, 
-            deletedId: number, 
-            deletedAt: string 
-        }>(
-            `${this.BASE_URL}/api/connections/delete/${id}`, 
-            { headers: this.getHeaders() }
-        );
+        return this._http.delete<{
+            message: string;
+            deletedId: number;
+            deletedAt: string;
+        }>(`${this.BASE_URL}/api/connections/delete/${id}`, { headers: this.getHeaders() });
     }
 
     // Save multiple connections (bulk operation)
-    saveConnections(connections: Connection[]): Observable<{ 
-        message: string, 
-        count: number, 
-        savedAt: string 
+    saveConnections(connections: Connection[]): Observable<{
+        message: string;
+        count: number;
+        savedAt: string;
     }> {
-        return this._http.post<{ 
-            message: string, 
-            count: number, 
-            savedAt: string 
-        }>(
-            `${this.BASE_URL}/api/connections/save-connections`, 
-            { connections }, 
-            { headers: this.getHeaders() }
-        );
+        return this._http.post<{
+            message: string;
+            count: number;
+            savedAt: string;
+        }>(`${this.BASE_URL}/api/connections/save-connections`, { connections }, { headers: this.getHeaders() });
     }
 
     // Test a connection
-    testConnection(id: number): Observable<{ 
-        message: string, 
-        connection: Partial<Connection>, 
-        testedAt: string 
+    testConnection(id: number): Observable<{
+        message: string;
+        connection: Partial<Connection>;
+        testedAt: string;
     }> {
-        return this._http.post<{ 
-            message: string, 
-            connection: Partial<Connection>, 
-            testedAt: string 
-        }>(
-            `${this.BASE_URL}/api/connections/test/${id}`, 
-            {}, 
-            { headers: this.getHeaders() }
-        );
+        return this._http.post<{
+            message: string;
+            connection: Partial<Connection>;
+            testedAt: string;
+        }>(`${this.BASE_URL}/api/connections/test/${id}`, {}, { headers: this.getHeaders() });
     }
 
     // Utility methods for connection management
-    validateConnectionConfig(config: ConnectionConfig): { isValid: boolean, errors: string[] } {
+    validateConnectionConfig(config: ConnectionConfig): { isValid: boolean; errors: string[] } {
         const errors: string[] = [];
-        
+
         if (!config.dbType?.trim()) {
             errors.push('Database type is required');
         }
@@ -165,7 +143,7 @@ export class ConnectionService {
 
         return {
             isValid: errors.length === 0,
-            errors
+            errors,
         };
     }
 
@@ -183,7 +161,7 @@ export class ConnectionService {
                 connectionTimeout: 60000,
                 poolSize: 10,
                 charset: 'UTF8_GENERAL_CI',
-                timezone: 'local'
+                timezone: 'local',
             },
             pg: {
                 dbType: 'pg',
@@ -196,14 +174,14 @@ export class ConnectionService {
                 connectionTimeout: 60000,
                 poolSize: 10,
                 application_name: 'dbfuse-ai-App',
-                schema: 'public'
+                schema: 'public',
             },
             sqlite3: {
                 dbType: 'sqlite3',
                 database: './data/database.db',
                 journalMode: 'WAL',
                 synchronous: 'NORMAL',
-                foreignKeys: true
+                foreignKeys: true,
             },
             mssql: {
                 dbType: 'mssql',
@@ -215,7 +193,7 @@ export class ConnectionService {
                 encrypt: true,
                 trustServerCertificate: true,
                 connectionTimeout: 60000,
-                poolSize: 10
+                poolSize: 10,
             },
             oracledb: {
                 dbType: 'oracledb',
@@ -226,8 +204,8 @@ export class ConnectionService {
                 password: '',
                 connectionTimeout: 60000,
                 poolSize: 10,
-                poolTimeout: 30
-            }
+                poolTimeout: 30,
+            },
         };
 
         return defaults[dbType] || {};
@@ -235,7 +213,7 @@ export class ConnectionService {
 
     // Get connection by ID
     getConnectionById(connections: Connection[], id: number): Connection | undefined {
-        return connections.find(conn => conn.id === id);
+        return connections.find((conn) => conn.id === id);
     }
 
     // Check if connection has required fields for testing
@@ -255,17 +233,17 @@ export class ConnectionService {
 
     // Get connections by database type
     getConnectionsByType(connections: Connection[], dbType: string): Connection[] {
-        return connections.filter(conn => conn.dbType === dbType);
+        return connections.filter((conn) => conn.dbType === dbType);
     }
 
     // Check if connection is recently used (within last 24 hours)
     isRecentlyUsed(connection: Connection): boolean {
         if (!connection.lastUsed) return false;
-        
+
         const lastUsed = new Date(connection.lastUsed);
         const now = new Date();
         const hoursDiff = (now.getTime() - lastUsed.getTime()) / (1000 * 60 * 60);
-        
+
         return hoursDiff <= 24;
     }
 

@@ -1,4 +1,5 @@
 const express = require("express");
+
 const configController = require("../controllers/configController");
 const configRouter = express.Router();
 

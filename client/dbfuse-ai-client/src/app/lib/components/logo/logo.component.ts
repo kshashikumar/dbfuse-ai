@@ -9,7 +9,7 @@ import { RouterModule } from '@angular/router';
     templateUrl: './logo.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LogoComponent implements OnInit{
+export class LogoComponent implements OnInit {
     constructor() {}
 
     ngOnInit(): void {

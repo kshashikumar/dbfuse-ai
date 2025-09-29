@@ -6,7 +6,6 @@
 [![Known Vulnerabilities](https://snyk.io/test/github/kshashikumar/dbfuse-ai/badge.svg)](https://snyk.io/test/github/kshashikumar/dbfuse-ai)
 [![GitHub stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai.svg?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
 
-
 **DBFuse** is a web-based Graphical User Interface designed to streamline database management and accelerate development workflows for MySQL, with planned future support for all major relational databases. This tool enhances user interaction with databases, allowing developers to manage data more efficiently.
 
 ## Features
@@ -107,7 +106,7 @@ services:
       - "5000:5000"
     environment:
       - MYSQL_URL=mysql://root:root@host.docker.internal:3306
-      - AI_MODEL=<Model Name> #gpt-4, gpt-3.5-turbo, text-davinci-003, gemini-1.5-flash, gemini-pro, gemini-lite
+      - AI_MODEL=<Model Name> #gpt-4, gpt-3.5-turbo, text-davinci-003, gemini-2.5-flash, gemini-2.5-pro
       - AI_API_KEY=<API Key>
 ```
 
@@ -141,7 +140,7 @@ To enable AI-powered prompt querying, you need to set up the API keys for OpenAI
    In the root directory of your project, create a .env file (or update it if it exists) and add the following lines:
 
 ```bash
-AI_MODEL=<MODEL_NAME>  # e.g., gpt-4 or gemini-1.5-flash
+AI_MODEL=<MODEL_NAME>  # e.g., gpt-4 or gemini-2.5-flash
 AI_API_KEY=<YOUR_API_KEY>
 ```
 
@@ -187,7 +186,7 @@ The app will be accessible at `http://localhost:5000`.
 - **-u**: Specify the database URL to connect to a MySQL instance.
 - **-p**: Port number for DBFuse AI to listen on
 - **--model**: Specify the AI model to be used
-  `(supporting model: gpt-4, gpt-3.5-turbo, text-davinci-003, gemini-1.5-flash, gemini-pro, gemini-lite)`
+  `(supporting model: gpt-4, gpt-3.5-turbo, text-davinci-003, gemini-2.5-flash, gemini-2.5-pro)`
 - **--apikey**: Specify the API key for the chosen AI model.
 
 ## Basic Authentication (Optional)

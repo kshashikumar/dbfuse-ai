@@ -1,6 +1,7 @@
 // config/database-context.js (Updated for singleton pattern)
 const fs = require("fs").promises;
 const path = require("path");
+
 const MySQLStrategy = require("./db_strategies/mysql-strategy");
 const PostgreSQLStrategy = require("./db_strategies/postgresql-strategy");
 const SQLiteStrategy = require("./db_strategies/sqlite-strategy");
@@ -25,14 +26,16 @@ class DatabaseContext {
     // Only create new strategy if dbType changed or no strategy exists
     if (!this.strategy || this.currentDbType !== dbType) {
       if (!this.strategies[dbType]) {
-        throw new Error(`Unsupported database type: ${dbType}. Supported types: ${Object.keys(this.strategies).join(", ")}`);
+        throw new Error(
+          `Unsupported database type: ${dbType}. Supported types: ${Object.keys(this.strategies).join(", ")}`,
+        );
       }
-      
+
       // Disconnect previous strategy if exists
       if (this.strategy && this.isConnected) {
         this.strategy.disconnect();
       }
-      
+
       this.strategy = new this.strategies[dbType]();
       this.currentDbType = dbType;
       this.isConnected = false;
@@ -41,12 +44,12 @@ class DatabaseContext {
 
   async connect(config) {
     this.setStrategy(config.dbType);
-    
+
     if (!this.isConnected) {
       await this.strategy.connect(config);
       this.isConnected = true;
     }
-    
+
     return this.strategy;
   }
 
@@ -75,7 +78,7 @@ class DatabaseContext {
     if (!this.strategy || !this.isConnected) {
       return false;
     }
-    
+
     try {
       const isValid = await this.strategy.validateConnection();
       if (!isValid) {

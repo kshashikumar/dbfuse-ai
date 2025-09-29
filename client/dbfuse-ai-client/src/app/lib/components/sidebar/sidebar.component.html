@@ -1,23 +1,23 @@
-<div class="h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
+<div
+    class="h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden"
+>
     <!-- Header -->
     <div class="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
         <div class="flex items-center justify-between mb-2">
-            <h2 class="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
-                Explorer
-            </h2>
+            <h2 class="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">Explorer</h2>
             <button
                 (click)="refresh()"
                 [disabled]="isRefreshing"
                 class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
                 title="Refresh databases"
             >
-                <span 
+                <span
                     class="icon-[mdi--refresh] w-4 h-4"
                     [class.animate-spin]="isRefreshing"
                 ></span>
             </button>
         </div>
-        
+
         <!-- Search -->
         <div class="relative">
             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -34,31 +34,42 @@
     </div>
 
     <!-- Content with Tailwind Scrollbar -->
-    <div class="flex-1 overflow-auto py-1 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-600 dark:scrollbar-thumb-gray-600 dark:hover:scrollbar-thumb-gray-500">
-        <div *ngIf="isLoading" class="flex items-center justify-center py-6">
+    <div
+        class="flex-1 overflow-auto py-1 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent hover:scrollbar-thumb-gray-600 dark:scrollbar-thumb-gray-600 dark:hover:scrollbar-thumb-gray-500"
+    >
+        <div
+            *ngIf="isLoading"
+            class="flex items-center justify-center py-6"
+        >
             <div class="flex items-center space-x-2 text-gray-500 dark:text-gray-400">
                 <span class="icon-[mdi--loading] w-4 h-4 animate-spin"></span>
                 <span class="text-sm">Loading databases...</span>
             </div>
         </div>
 
-        <div *ngIf="!isLoading && (!filteredDatabases || filteredDatabases.length === 0)" class="flex items-center justify-center py-6">
+        <div
+            *ngIf="!isLoading && (!filteredDatabases || filteredDatabases.length === 0)"
+            class="flex items-center justify-center py-6"
+        >
             <div class="text-center">
                 <span class="icon-[mdi--database-off-outline] w-6 h-6 text-gray-400 mx-auto block mb-2"></span>
                 <p class="text-sm text-gray-500 dark:text-gray-400">No databases found</p>
             </div>
         </div>
 
-        <div *ngIf="!isLoading && filteredDatabases && filteredDatabases.length > 0" class="space-y-0.5">
+        <div
+            *ngIf="!isLoading && filteredDatabases && filteredDatabases.length > 0"
+            class="space-y-0.5"
+        >
             <div *ngFor="let database of filteredDatabases; trackBy: trackByDatabaseName">
                 <!-- Database -->
-                <div 
+                <div
                     class="flex items-center cursor-pointer group transition-all duration-200 relative"
                     [class]="getDatabaseClasses(database?.name)"
                     (click)="selectDatabase(database?.name)"
                 >
                     <span class="w-4 h-4 mr-2 flex-shrink-0">
-                        <span 
+                        <span
                             *ngIf="isOpen(database?.name); else chevronRight"
                             class="icon-[mdi--chevron-down] w-4 h-4 text-gray-500"
                         ></span>
@@ -66,21 +77,26 @@
                             <span class="icon-[mdi--chevron-right] w-4 h-4 text-gray-500"></span>
                         </ng-template>
                     </span>
-                    <span class="icon-[mdi--database] w-4 h-4 mr-2 text-blue-600 dark:text-blue-400 flex-shrink-0"></span>
+                    <span
+                        class="icon-[mdi--database] w-4 h-4 mr-2 text-blue-600 dark:text-blue-400 flex-shrink-0"
+                    ></span>
                     <span class="text-sm font-medium text-gray-900 dark:text-white truncate">
                         {{ database?.name }}
                     </span>
                 </div>
 
                 <!-- Database Content -->
-                <div *ngIf="isOpen(database?.name)" class="ml-4 border-l border-gray-200 dark:border-gray-600 pl-1">
+                <div
+                    *ngIf="isOpen(database?.name)"
+                    class="ml-4 border-l border-gray-200 dark:border-gray-600 pl-1"
+                >
                     <!-- Tables Section -->
-                    <div 
+                    <div
                         class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group transition-colors duration-150"
                         (click)="toggleSection(database?.name + '_tables')"
                     >
                         <span class="w-4 h-4 mr-1 flex-shrink-0">
-                            <span 
+                            <span
                                 *ngIf="isOpen(database?.name + '_tables'); else tablesChevronRight"
                                 class="icon-[mdi--chevron-down] w-4 h-4 text-gray-500"
                             ></span>
@@ -88,7 +104,9 @@
                                 <span class="icon-[mdi--chevron-right] w-4 h-4 text-gray-500"></span>
                             </ng-template>
                         </span>
-                        <span class="icon-[mdi--table] w-4 h-4 mr-1 text-green-600 dark:text-green-400 flex-shrink-0"></span>
+                        <span
+                            class="icon-[mdi--table] w-4 h-4 mr-1 text-green-600 dark:text-green-400 flex-shrink-0"
+                        ></span>
                         <span class="text-sm text-gray-700 dark:text-gray-300">
                             Tables
                             <span class="text-xs text-gray-500 ml-1">({{ database?.tables?.length || 0 }})</span>
@@ -96,15 +114,23 @@
                     </div>
 
                     <!-- Tables List -->
-                    <div *ngIf="isOpen(database?.name + '_tables')" class="ml-4 border-l border-gray-200 dark:border-gray-600 pl-1">
-                        <div *ngFor="let table of database?.tables; trackBy: trackByTableName" class="mb-0.5">
+                    <div
+                        *ngIf="isOpen(database?.name + '_tables')"
+                        class="ml-4 border-l border-gray-200 dark:border-gray-600 pl-1"
+                    >
+                        <div
+                            *ngFor="let table of database?.tables; trackBy: trackByTableName"
+                            class="mb-0.5"
+                        >
                             <!-- Table -->
-                            <div class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group transition-colors duration-150">
-                                <span 
+                            <div
+                                class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group transition-colors duration-150"
+                            >
+                                <span
                                     class="w-4 h-4 mr-1 flex-shrink-0"
                                     (click)="getTableInfo(database?.name + '_table_' + table.name)"
                                 >
-                                    <span 
+                                    <span
                                         *ngIf="isOpen(database?.name + '_table_' + table.name); else tableChevronRight"
                                         class="icon-[mdi--chevron-down] w-4 h-4 text-gray-500"
                                     ></span>
@@ -126,29 +152,43 @@
                             </div>
 
                             <!-- Table Details -->
-                            <div *ngIf="isOpen(database?.name + '_table_' + table.name)" class="ml-4 border-l border-gray-200 dark:border-gray-600 pl-1">
+                            <div
+                                *ngIf="isOpen(database?.name + '_table_' + table.name)"
+                                class="ml-4 border-l border-gray-200 dark:border-gray-600 pl-1"
+                            >
                                 <!-- Columns -->
-                                <div 
+                                <div
                                     class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors duration-150"
                                     (click)="toggleSection(database?.name + '_table_' + table.name + '_columns')"
                                 >
                                     <span class="w-4 h-4 mr-1 flex-shrink-0">
-                                        <span 
-                                            *ngIf="isOpen(database?.name + '_table_' + table.name + '_columns'); else columnsChevronRight"
+                                        <span
+                                            *ngIf="
+                                                isOpen(database?.name + '_table_' + table.name + '_columns');
+                                                else columnsChevronRight
+                                            "
                                             class="icon-[mdi--chevron-down] w-4 h-4 text-gray-500"
                                         ></span>
                                         <ng-template #columnsChevronRight>
                                             <span class="icon-[mdi--chevron-right] w-4 h-4 text-gray-500"></span>
                                         </ng-template>
                                     </span>
-                                    <span class="icon-[mdi--view-column] w-4 h-4 mr-1 text-purple-600 dark:text-purple-400 flex-shrink-0"></span>
+                                    <span
+                                        class="icon-[mdi--view-column] w-4 h-4 mr-1 text-purple-600 dark:text-purple-400 flex-shrink-0"
+                                    ></span>
                                     <span class="text-xs text-gray-600 dark:text-gray-400">
                                         Columns
                                         <span class="text-gray-500 ml-1">({{ table.columns?.length || 0 }})</span>
                                     </span>
                                 </div>
-                                <div *ngIf="isOpen(database?.name + '_table_' + table.name + '_columns')" class="ml-4">
-                                    <div *ngFor="let column of table.columns" class="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 flex items-center">
+                                <div
+                                    *ngIf="isOpen(database?.name + '_table_' + table.name + '_columns')"
+                                    class="ml-4"
+                                >
+                                    <div
+                                        *ngFor="let column of table.columns"
+                                        class="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 flex items-center"
+                                    >
                                         <span class="icon-[mdi--circle-small] w-3 h-3 mr-0.5 text-gray-400"></span>
                                         <span class="truncate">{{ column.column_name }}</span>
                                         <span class="text-gray-500 ml-1 text-xs">({{ column.data_type }})</span>
@@ -156,81 +196,114 @@
                                 </div>
 
                                 <!-- Indexes -->
-                                <div 
+                                <div
                                     class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors duration-150"
                                     (click)="toggleSection(database?.name + '_table_' + table.name + '_indexes')"
                                 >
                                     <span class="w-4 h-4 mr-1 flex-shrink-0">
-                                        <span 
-                                            *ngIf="isOpen(database?.name + '_table_' + table.name + '_indexes'); else indexesChevronRight"
+                                        <span
+                                            *ngIf="
+                                                isOpen(database?.name + '_table_' + table.name + '_indexes');
+                                                else indexesChevronRight
+                                            "
                                             class="icon-[mdi--chevron-down] w-4 h-4 text-gray-500"
                                         ></span>
                                         <ng-template #indexesChevronRight>
                                             <span class="icon-[mdi--chevron-right] w-4 h-4 text-gray-500"></span>
                                         </ng-template>
                                     </span>
-                                    <span class="icon-[mdi--key] w-4 h-4 mr-1 text-orange-600 dark:text-orange-400 flex-shrink-0"></span>
+                                    <span
+                                        class="icon-[mdi--key] w-4 h-4 mr-1 text-orange-600 dark:text-orange-400 flex-shrink-0"
+                                    ></span>
                                     <span class="text-xs text-gray-600 dark:text-gray-400">
                                         Indexes
                                         <span class="text-gray-500 ml-1">({{ table.indexes?.length || 0 }})</span>
                                     </span>
                                 </div>
-                                <div *ngIf="isOpen(database?.name + '_table_' + table.name + '_indexes')" class="ml-4">
-                                    <div *ngFor="let index of table.indexes" class="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 flex items-center">
+                                <div
+                                    *ngIf="isOpen(database?.name + '_table_' + table.name + '_indexes')"
+                                    class="ml-4"
+                                >
+                                    <div
+                                        *ngFor="let index of table.indexes"
+                                        class="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 flex items-center"
+                                    >
                                         <span class="icon-[mdi--circle-small] w-3 h-3 mr-0.5 text-gray-400"></span>
                                         <span class="truncate">{{ index.index_name }}</span>
                                     </div>
                                 </div>
 
                                 <!-- Foreign Keys -->
-                                <div 
+                                <div
                                     class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors duration-150"
                                     (click)="toggleSection(database?.name + '_table_' + table.name + '_foreign_keys')"
                                 >
                                     <span class="w-4 h-4 mr-1 flex-shrink-0">
-                                        <span 
-                                            *ngIf="isOpen(database?.name + '_table_' + table.name + '_foreign_keys'); else fkChevronRight"
+                                        <span
+                                            *ngIf="
+                                                isOpen(database?.name + '_table_' + table.name + '_foreign_keys');
+                                                else fkChevronRight
+                                            "
                                             class="icon-[mdi--chevron-down] w-4 h-4 text-gray-500"
                                         ></span>
                                         <ng-template #fkChevronRight>
                                             <span class="icon-[mdi--chevron-right] w-4 h-4 text-gray-500"></span>
                                         </ng-template>
                                     </span>
-                                    <span class="icon-[mdi--link] w-4 h-4 mr-1 text-red-600 dark:text-red-400 flex-shrink-0"></span>
+                                    <span
+                                        class="icon-[mdi--link] w-4 h-4 mr-1 text-red-600 dark:text-red-400 flex-shrink-0"
+                                    ></span>
                                     <span class="text-xs text-gray-600 dark:text-gray-400">
                                         Foreign Keys
                                         <span class="text-gray-500 ml-1">({{ table.foreign_keys?.length || 0 }})</span>
                                     </span>
                                 </div>
-                                <div *ngIf="isOpen(database?.name + '_table_' + table.name + '_foreign_keys')" class="ml-4">
-                                    <div *ngFor="let fk of table.foreign_keys" class="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 flex items-center">
+                                <div
+                                    *ngIf="isOpen(database?.name + '_table_' + table.name + '_foreign_keys')"
+                                    class="ml-4"
+                                >
+                                    <div
+                                        *ngFor="let fk of table.foreign_keys"
+                                        class="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 flex items-center"
+                                    >
                                         <span class="icon-[mdi--circle-small] w-3 h-3 mr-0.5 text-gray-400"></span>
                                         <span class="truncate">{{ fk.constraint_name }}</span>
                                     </div>
                                 </div>
 
                                 <!-- Triggers -->
-                                <div 
+                                <div
                                     class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors duration-150"
                                     (click)="toggleSection(database?.name + '_table_' + table.name + '_triggers')"
                                 >
                                     <span class="w-4 h-4 mr-1 flex-shrink-0">
-                                        <span 
-                                            *ngIf="isOpen(database?.name + '_table_' + table.name + '_triggers'); else triggersChevronRight"
+                                        <span
+                                            *ngIf="
+                                                isOpen(database?.name + '_table_' + table.name + '_triggers');
+                                                else triggersChevronRight
+                                            "
                                             class="icon-[mdi--chevron-down] w-4 h-4 text-gray-500"
                                         ></span>
                                         <ng-template #triggersChevronRight>
                                             <span class="icon-[mdi--chevron-right] w-4 h-4 text-gray-500"></span>
                                         </ng-template>
                                     </span>
-                                    <span class="icon-[mdi--lightning-bolt] w-4 h-4 mr-1 text-yellow-600 dark:text-yellow-400 flex-shrink-0"></span>
+                                    <span
+                                        class="icon-[mdi--lightning-bolt] w-4 h-4 mr-1 text-yellow-600 dark:text-yellow-400 flex-shrink-0"
+                                    ></span>
                                     <span class="text-xs text-gray-600 dark:text-gray-400">
                                         Triggers
                                         <span class="text-gray-500 ml-1">({{ table.triggers?.length || 0 }})</span>
                                     </span>
                                 </div>
-                                <div *ngIf="isOpen(database?.name + '_table_' + table.name + '_triggers')" class="ml-4">
-                                    <div *ngFor="let trigger of table.triggers" class="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 flex items-center">
+                                <div
+                                    *ngIf="isOpen(database?.name + '_table_' + table.name + '_triggers')"
+                                    class="ml-4"
+                                >
+                                    <div
+                                        *ngFor="let trigger of table.triggers"
+                                        class="px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400 flex items-center"
+                                    >
                                         <span class="icon-[mdi--circle-small] w-3 h-3 mr-0.5 text-gray-400"></span>
                                         <span class="truncate">{{ trigger.trigger_name }}</span>
                                     </div>
@@ -240,12 +313,12 @@
                     </div>
 
                     <!-- Views Section -->
-                    <div 
+                    <div
                         class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group transition-colors duration-150"
                         (click)="toggleSection(database?.name + '_views')"
                     >
                         <span class="w-4 h-4 mr-1 flex-shrink-0">
-                            <span 
+                            <span
                                 *ngIf="isOpen(database?.name + '_views'); else viewsChevronRight"
                                 class="icon-[mdi--chevron-down] w-4 h-4 text-gray-500"
                             ></span>
@@ -253,14 +326,22 @@
                                 <span class="icon-[mdi--chevron-right] w-4 h-4 text-gray-500"></span>
                             </ng-template>
                         </span>
-                        <span class="icon-[mdi--eye] w-4 h-4 mr-1 text-indigo-600 dark:text-indigo-400 flex-shrink-0"></span>
+                        <span
+                            class="icon-[mdi--eye] w-4 h-4 mr-1 text-indigo-600 dark:text-indigo-400 flex-shrink-0"
+                        ></span>
                         <span class="text-sm text-gray-700 dark:text-gray-300">
                             Views
                             <span class="text-xs text-gray-500 ml-1">({{ database?.views?.length || 0 }})</span>
                         </span>
                     </div>
-                    <div *ngIf="isOpen(database?.name + '_views')" class="ml-4 border-l border-gray-200 dark:border-gray-600 pl-1">
-                        <div *ngFor="let view of database?.views" class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group transition-colors duration-150">
+                    <div
+                        *ngIf="isOpen(database?.name + '_views')"
+                        class="ml-4 border-l border-gray-200 dark:border-gray-600 pl-1"
+                    >
+                        <div
+                            *ngFor="let view of database?.views"
+                            class="flex items-center px-2 py-0.5 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group transition-colors duration-150"
+                        >
                             <span class="icon-[mdi--eye-outline] w-4 h-4 mr-1 text-gray-500 flex-shrink-0"></span>
                             <span class="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">
                                 {{ view.name }}

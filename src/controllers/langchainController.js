@@ -1,13 +1,10 @@
 const { getAIModel } = require("../models/model");
+
 const argv = require("minimist")(process.argv.slice(2));
 
 const initializeLLM = () => {
-  const aiModel = argv.model || process.env.AI_MODEL || "GPT-4";
-  const apiKey = argv.apikey || process.env.AI_API_KEY || "";
-  if (!apiKey) {
-    throw new Error("OpenAI API key is missing. Please provide a valid API key");
-  }
-
+  const aiModel = (argv.model || process.env.AI_MODEL || "gpt-4").toLowerCase();
+  const apiKey = argv.apikey || process.env.AI_API_KEY || null;
   return getAIModel(aiModel, apiKey);
 };
 
@@ -25,19 +22,13 @@ const generateSQLQuery = async (dbMeta, databaseName, prompt, llm, dbType) => {
 
   if (requestedTable) {
     // Handle prompts targeting a specific table
-    const selectedTable = selectedDatabase.tables.find(
-      (table) => table.name === requestedTable
-    );
+    const selectedTable = selectedDatabase.tables.find((table) => table.name === requestedTable);
 
     if (!selectedTable) {
-      throw new Error(
-        `Table "${requestedTable}" does not exist in database "${databaseName}".`
-      );
+      throw new Error(`Table "${requestedTable}" does not exist in database "${databaseName}".`);
     }
 
-    const tableColumns = selectedTable.columns
-      .map((col) => col.column_name)
-      .join(", ");
+    const tableColumns = selectedTable.columns.map((col) => col.column_name).join(", ");
 
     systemPrompt = `
 You are an AI expert in generating ${dbType} SQL queries. You must generate a single-line SQL query based on the user's request, using the provided schema. Follow these rules strictly:
@@ -76,9 +67,7 @@ Output only the SQL query.
       .join("\n");
 
     if (!schemaString) {
-      throw new Error(
-        `No tables with valid columns found in database "${databaseName}".`
-      );
+      throw new Error(`No tables with valid columns found in database "${databaseName}".`);
     }
 
     systemPrompt = `
@@ -136,9 +125,7 @@ const executePrompt = async (req, res) => {
     const dbType = req.headers["x-db-type"] || req.headers["X-DB-Type"];
 
     if (!dbMeta || !databaseName || !prompt) {
-      return res
-        .status(400)
-        .json({ error: "Database metadata, name, and prompt are required" });
+      return res.status(400).json({ error: "Database metadata, name, and prompt are required" });
     }
 
     if (!dbType) {

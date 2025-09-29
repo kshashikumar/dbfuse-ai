@@ -1,29 +1,34 @@
 // postgres-test-suite.js
 // Simple, comprehensive test suite for PostgreSQL Strategy
 
-const axios = require('axios');
+const axios = require("axios");
 
 class PostgreSQLTester {
   constructor() {
-    this.baseURL = 'http://localhost:5000';
+    this.baseURL = "http://localhost:5000";
     this.passed = 0;
     this.failed = 0;
     this.errors = [];
-    
+
     // Configuration - UPDATE THESE VALUES
     this.config = {
-      username: 'root',
-      password: 'root', // CHANGE THIS TO YOUR POSTGRES PASSWORD
-      host: 'localhost',
-      port: '5432',
-      dbType: 'pg',
-      database: 'mydatabase'
+      username: "root",
+      password: "root", // CHANGE THIS TO YOUR POSTGRES PASSWORD
+      host: "localhost",
+      port: "5432",
+      dbType: "pg",
+      database: "mydatabase",
     };
   }
 
-  log(message, type = 'info') {
-    const colors = { info: '\x1b[36m', success: '\x1b[32m', error: '\x1b[31m', warning: '\x1b[33m' };
-    const reset = '\x1b[0m';
+  log(message, type = "info") {
+    const colors = {
+      info: "\x1b[36m",
+      success: "\x1b[32m",
+      error: "\x1b[31m",
+      warning: "\x1b[33m",
+    };
+    const reset = "\x1b[0m";
     const time = new Date().toLocaleTimeString();
     console.log(`${colors[type]}[${time}] ${message}${reset}`);
   }
@@ -34,358 +39,438 @@ class PostgreSQLTester {
         method,
         url: `${this.baseURL}${endpoint}`,
         headers: {
-          'Content-Type': 'application/json',
-          'x-db-type': 'pg'
+          "Content-Type": "application/json",
+          "x-db-type": "pg",
         },
-        timeout: 30000
+        timeout: 30000,
       };
-      
+
       if (data) config.data = data;
-      
-      this.log(`${method} ${endpoint}`, 'info');
+
+      this.log(`${method} ${endpoint}`, "info");
       const response = await axios(config);
-      this.log(`✓ Status: ${response.status}`, 'success');
+      this.log(`✓ Status: ${response.status}`, "success");
       return { success: true, data: response.data, status: response.status };
     } catch (error) {
-      this.log(`✗ Error: ${error.response?.status || 'No Response'} - ${error.message}`, 'error');
+      this.log(`✗ Error: ${error.response?.status || "No Response"} - ${error.message}`, "error");
       return {
         success: false,
         error: error.response?.data || error.message,
-        status: error.response?.status || 500
+        status: error.response?.status || 500,
       };
     }
   }
 
+  // ---- helpers to tolerate different API response shapes (like queries[0].rows) ----
+  extractRows(payload) {
+    // Preferred new shape: payload.queries[0].rows (support multiple queries)
+    if (Array.isArray(payload?.queries)) {
+      for (const q of payload.queries) {
+        if (Array.isArray(q?.rows)) return q.rows;
+        if (Array.isArray(q?.data?.rows)) return q.data.rows;
+      }
+    }
+    const candidates = [
+      payload?.rows,
+      payload?.data?.rows,
+      payload?.result?.rows,
+      payload?.results?.[0]?.rows,
+      payload?.data?.results?.[0]?.rows,
+      Array.isArray(payload) ? payload : null,
+      Array.isArray(payload?.data) ? payload.data : null,
+    ];
+    for (const c of candidates) {
+      if (Array.isArray(c)) return c;
+    }
+    return null;
+  }
+
+  extractPagination(payload) {
+    // Pagination might be attached per-query
+    if (Array.isArray(payload?.queries)) {
+      const q0 = payload.queries[0];
+      const p =
+        q0?.pagination ||
+        q0?.meta?.pagination ||
+        q0?.data?.pagination ||
+        q0?.data?.meta?.pagination;
+      if (p) return p;
+    }
+    const p =
+      payload?.pagination ||
+      payload?.meta?.pagination ||
+      payload?.data?.pagination ||
+      payload?.data?.meta?.pagination;
+    return p || null;
+  }
+
+  extractColumnCount(payload) {
+    const rows = this.extractRows(payload);
+    if (Array.isArray(rows)) return rows.length; // e.g., DESCRIBE-like output returns one row per column
+    if (Array.isArray(payload?.columns)) return payload.columns.length;
+    if (Array.isArray(payload?.data?.columns)) return payload.data.columns.length;
+    if (Array.isArray(payload?.fields)) return payload.fields.length;
+    return null;
+  }
+  // ---- end helpers ----
+
   async test(name, testFn) {
-    this.log(`\n🧪 ${name}`, 'info');
-    this.log('─'.repeat(50), 'info');
+    this.log(`\n🧪 ${name}`, "info");
+    this.log("─".repeat(50), "info");
     try {
       await testFn();
       this.passed++;
-      this.log(`✅ PASSED: ${name}`, 'success');
+      this.log(`✅ PASSED: ${name}`, "success");
     } catch (error) {
       this.failed++;
       this.errors.push({ test: name, error: error.message });
-      this.log(`❌ FAILED: ${name} - ${error.message}`, 'error');
+      this.log(`❌ FAILED: ${name} - ${error.message}`, "error");
     }
   }
 
   async runTests() {
-    this.log('🚀 PostgreSQL Strategy Test Suite', 'info');
-    this.log('═'.repeat(60), 'info');
-    this.log(`Server: ${this.baseURL}`, 'info');
-    this.log(`PostgreSQL Config: ${this.config.username}@${this.config.host}:${this.config.port}`, 'info');
-    this.log('═'.repeat(60), 'info');
+    this.log("🚀 PostgreSQL Strategy Test Suite", "info");
+    this.log("═".repeat(60), "info");
+    this.log(`Server: ${this.baseURL}`, "info");
+    this.log(
+      `PostgreSQL Config: ${this.config.username}@${this.config.host}:${this.config.port}`,
+      "info",
+    );
+    this.log("═".repeat(60), "info");
 
     // 1. SERVER CONNECTIVITY
-    await this.test('Server Health Check', async () => {
-      const result = await this.request('GET', '/api/sql/health');
+    await this.test("Server Health Check", async () => {
+      const result = await this.request("GET", "/api/sql/health");
       if (!result.success && result.status !== 500) {
-        throw new Error('Server not responding - check if Node.js server is running on port 5000');
+        throw new Error("Server not responding - check if Node.js server is running on port 5000");
       }
     });
 
     // 2. DATABASE CONNECTION
-    await this.test('PostgreSQL Connection', async () => {
-      const result = await this.request('POST', '/api/sql/connect', this.config);
+    await this.test("PostgreSQL Connection", async () => {
+      const result = await this.request("POST", "/api/sql/connect", this.config);
       if (!result.success) {
-        throw new Error(`Connection failed: ${JSON.stringify(result.error)} (Status: ${result.status})`);
+        throw new Error(
+          `Connection failed: ${JSON.stringify(result.error)} (Status: ${result.status})`,
+        );
       }
-      this.log(`Connected: ${result.data.message}`, 'success');
+      this.log(`Connected: ${result.data.message}`, "success");
     });
 
     // 3. CONNECTION HEALTH
-    await this.test('Connection Health', async () => {
-      const result = await this.request('GET', '/api/sql/health');
-      if (!result.success || result.data.status !== 'healthy') {
-        throw new Error(`Health check failed: ${result.data?.status || 'unknown'}`);
+    await this.test("Connection Health", async () => {
+      const result = await this.request("GET", "/api/sql/health");
+      if (!result.success || result.data.status !== "healthy") {
+        throw new Error(`Health check failed: ${result.data?.status || "unknown"}`);
       }
     });
 
     // 4. GET DATABASES
-    await this.test('List Databases', async () => {
-      const result = await this.request('GET', '/api/sql/databases');
+    await this.test("List Databases", async () => {
+      const result = await this.request("GET", "/api/sql/databases");
       if (!result.success || !Array.isArray(result.data.databases)) {
-        throw new Error('Failed to get databases list');
+        throw new Error("Failed to get databases list");
       }
-      this.log(`Found ${result.data.databases.length} databases`, 'info');
+      this.log(`Found ${result.data.databases.length} databases`, "info");
     });
 
     // 5. SWITCH DATABASE
-    await this.test('Switch Database', async () => {
-      const result = await this.request('POST', '/api/sql/switch-database', { dbName: 'postgres' });
+    await this.test("Switch Database", async () => {
+      const result = await this.request("POST", "/api/sql/switch-database", {
+        dbName: "postgres",
+      });
       if (!result.success) {
         throw new Error(`Switch failed: ${JSON.stringify(result.error)}`);
       }
     });
 
     // 6. GET TABLES
-    await this.test('List Tables', async () => {
-      const result = await this.request('GET', '/api/sql/postgres/tables');
+    await this.test("List Tables", async () => {
+      const result = await this.request("GET", "/api/sql/postgres/tables");
       if (!result.success || !Array.isArray(result.data.tables)) {
-        throw new Error('Failed to get tables list');
+        throw new Error("Failed to get tables list");
       }
-      this.log(`Found ${result.data.tables.length} tables`, 'info');
+      this.log(`Found ${result.data.tables.length} tables`, "info");
     });
 
     // 7. SIMPLE SELECT QUERY
-    await this.test('Simple SELECT Query', async () => {
-      const result = await this.request('POST', '/api/sql/postgres/query', {
-        query: 'SELECT datname FROM pg_database LIMIT 3',
+    await this.test("Simple SELECT Query", async () => {
+      const result = await this.request("POST", "/api/sql/postgres/query", {
+        query: "SELECT datname FROM pg_database LIMIT 3",
         page: 1,
-        pageSize: 3
+        pageSize: 3,
       });
-      if (!result.success || !Array.isArray(result.data.rows)) {
-        throw new Error('SELECT query failed');
+      const rows = this.extractRows(result.data);
+      if (!result.success || !Array.isArray(rows)) {
+        throw new Error("SELECT query failed");
       }
-      this.log(`Query returned ${result.data.rows.length} rows`, 'info');
+      this.log(`Query returned ${rows.length} rows`, "info");
     });
 
-    // 8. SHOW COMMAND (PostgreSQL style)
-    await this.test('SHOW Tables Command', async () => {
-      const result = await this.request('POST', '/api/sql/postgres/query', {
-        query: 'SHOW TABLES'
+    // 8. SHOW COMMAND (PostgreSQL style or server emulation)
+    await this.test("SHOW Tables Command", async () => {
+      const result = await this.request("POST", "/api/sql/postgres/query", {
+        query: "SHOW TABLES",
       });
-      if (!result.success || !Array.isArray(result.data.rows)) {
-        throw new Error('SHOW command failed');
+      const rows = this.extractRows(result.data);
+      if (!result.success || !Array.isArray(rows)) {
+        throw new Error("SHOW command failed");
       }
-      this.log(`SHOW returned ${result.data.rows.length} results`, 'info');
+      this.log(`SHOW returned ${rows.length} results`, "info");
     });
 
-    // 9. DESCRIBE COMMAND (PostgreSQL style)
-    await this.test('DESCRIBE Command', async () => {
+    // 9. DESCRIBE COMMAND (PostgreSQL style / server emulation)
+    await this.test("DESCRIBE Command", async () => {
       // First create a test table to describe
-      await this.request('POST', '/api/sql/postgres/query', {
-        query: 'CREATE TABLE IF NOT EXISTS test_describe_table (id SERIAL PRIMARY KEY, name VARCHAR(100))'
+      await this.request("POST", "/api/sql/postgres/query", {
+        query:
+          "CREATE TABLE IF NOT EXISTS test_describe_table (id SERIAL PRIMARY KEY, name VARCHAR(100))",
       });
-      
-      const result = await this.request('POST', '/api/sql/postgres/query', {
-        query: 'DESCRIBE test_describe_table'
+
+      const result = await this.request("POST", "/api/sql/postgres/query", {
+        query: "DESCRIBE test_describe_table",
       });
-      
+
       // Clean up
-      await this.request('POST', '/api/sql/postgres/query', {
-        query: 'DROP TABLE IF EXISTS test_describe_table'
+      await this.request("POST", "/api/sql/postgres/query", {
+        query: "DROP TABLE IF EXISTS test_describe_table",
       });
-      
-      if (!result.success || !Array.isArray(result.data.rows)) {
-        throw new Error('DESCRIBE command failed');
+
+      const count = this.extractColumnCount(result.data);
+      if (!result.success || typeof count !== "number") {
+        throw new Error("DESCRIBE command failed");
       }
-      this.log(`DESCRIBE returned ${result.data.rows.length} columns`, 'info');
+      this.log(`DESCRIBE returned ${count} columns`, "info");
     });
 
     // 10. PAGINATION
-    await this.test('Query Pagination', async () => {
-      const result = await this.request('POST', '/api/sql/postgres/query', {
-        query: 'SELECT * FROM information_schema.columns',
+    await this.test("Query Pagination", async () => {
+      const result = await this.request("POST", "/api/sql/postgres/query", {
+        query: "SELECT * FROM information_schema.columns",
         page: 1,
-        pageSize: 5
+        pageSize: 5,
       });
-      if (!result.success || !result.data.pagination) {
-        throw new Error('Pagination failed');
+      const pagination = this.extractPagination(result.data);
+      const rows = this.extractRows(result.data);
+      if (!result.success || !pagination) {
+        throw new Error("Pagination failed");
       }
-      this.log(`Page ${result.data.pagination.page}, ${result.data.rows.length} rows`, 'info');
+      this.log(
+        `Page ${pagination.page ?? pagination.currentPage ?? 1}, ${
+          Array.isArray(rows) ? rows.length : 0
+        } rows`,
+        "info",
+      );
     });
 
     // 11. TABLE INFO (if we have any tables)
-    await this.test('Get Table Info', async () => {
+    await this.test("Get Table Info", async () => {
       // First, get list of tables
-      const tablesResult = await this.request('GET', '/api/sql/postgres/tables');
+      const tablesResult = await this.request("GET", "/api/sql/postgres/tables");
       if (!tablesResult.success || !Array.isArray(tablesResult.data.tables)) {
-        this.log('⚠️ No tables found to test table info', 'warning');
+        this.log("⚠️ No tables found to test table info", "warning");
         return;
       }
-      
+
       if (tablesResult.data.tables.length === 0) {
         // Create a test table
-        await this.request('POST', '/api/sql/postgres/query', {
+        await this.request("POST", "/api/sql/postgres/query", {
           query: `CREATE TABLE IF NOT EXISTS test_table_info (
             id SERIAL PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
             email VARCHAR(100) UNIQUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          )`
+          )`,
         });
-        
-        const result = await this.request('GET', '/api/sql/postgres/test_table_info/info');
-        
+
+        const result = await this.request("GET", "/api/sql/postgres/test_table_info/info");
+
         // Clean up
-        await this.request('POST', '/api/sql/postgres/query', {
-          query: 'DROP TABLE IF EXISTS test_table_info'
+        await this.request("POST", "/api/sql/postgres/query", {
+          query: "DROP TABLE IF EXISTS test_table_info",
         });
-        
+
         if (!result.success || !result.data.columns) {
-          throw new Error('Failed to get table info');
+          throw new Error("Failed to get table info");
         }
-        this.log(`Table has ${result.data.columns.length} columns`, 'info');
+        this.log(`Table has ${result.data.columns.length} columns`, "info");
       } else {
         // Use existing table
         const tableName = tablesResult.data.tables[0];
-        const result = await this.request('GET', `/api/sql/postgres/${tableName}/info`);
+        const result = await this.request("GET", `/api/sql/postgres/${tableName}/info`);
         if (!result.success || !result.data.columns) {
-          throw new Error('Failed to get table info');
+          throw new Error("Failed to get table info");
         }
-        this.log(`Table has ${result.data.columns.length} columns`, 'info');
+        this.log(`Table has ${result.data.columns.length} columns`, "info");
       }
     });
 
     // 12. MULTIPLE TABLES INFO
-    await this.test('Multiple Tables Info', async () => {
+    await this.test("Multiple Tables Info", async () => {
       // Create test tables
-      await this.request('POST', '/api/sql/postgres/query', {
-        query: 'CREATE TABLE IF NOT EXISTS test_multi_1 (id SERIAL PRIMARY KEY, name VARCHAR(50))'
+      await this.request("POST", "/api/sql/postgres/query", {
+        query: "CREATE TABLE IF NOT EXISTS test_multi_1 (id SERIAL PRIMARY KEY, name VARCHAR(50))",
       });
-      await this.request('POST', '/api/sql/postgres/query', {
-        query: 'CREATE TABLE IF NOT EXISTS test_multi_2 (id SERIAL PRIMARY KEY, description TEXT)'
+      await this.request("POST", "/api/sql/postgres/query", {
+        query: "CREATE TABLE IF NOT EXISTS test_multi_2 (id SERIAL PRIMARY KEY, description TEXT)",
       });
-      
-      const result = await this.request('POST', '/api/sql/postgres/info', {
-        tables: ['test_multi_1', 'test_multi_2']
+
+      const result = await this.request("POST", "/api/sql/postgres/info", {
+        tables: ["test_multi_1", "test_multi_2"],
       });
-      
+
       // Clean up
-      await this.request('POST', '/api/sql/postgres/query', {
-        query: 'DROP TABLE IF EXISTS test_multi_1, test_multi_2'
+      await this.request("POST", "/api/sql/postgres/query", {
+        query: "DROP TABLE IF EXISTS test_multi_1, test_multi_2",
       });
-      
+
       if (!result.success || !Array.isArray(result.data.tables)) {
-        throw new Error('Multiple tables info failed');
+        throw new Error("Multiple tables info failed");
       }
-      this.log(`Got info for ${result.data.tables.length} tables`, 'info');
+      this.log(`Got info for ${result.data.tables.length} tables`, "info");
     });
 
     // 13. QUERY ANALYSIS
-    await this.test('Query Analysis', async () => {
-      const result = await this.request('POST', '/api/sql/analyze-query', {
-        query: 'SELECT * FROM pg_database WHERE datname LIKE \'pg_%\''
+    await this.test("Query Analysis", async () => {
+      const result = await this.request("POST", "/api/sql/analyze-query", {
+        query: "SELECT * FROM pg_database WHERE datname LIKE 'pg_%'",
       });
       if (!result.success || !result.data.analysis) {
-        throw new Error('Query analysis failed');
+        throw new Error("Query analysis failed");
       }
-      this.log(`Analysis: ${result.data.analysis.type}, ReadOnly: ${result.data.analysis.isReadOnly}`, 'info');
+      this.log(
+        `Analysis: ${result.data.analysis.type}, ReadOnly: ${result.data.analysis.isReadOnly}`,
+        "info",
+      );
     });
 
     // 14. ERROR HANDLING - SYNTAX ERROR
-    await this.test('Error Handling - Syntax Error', async () => {
-      const result = await this.request('POST', '/api/sql/postgres/query', {
-        query: 'SELCT * FROM pg_database_invalid' // Intentional typos
+    await this.test("Error Handling - Syntax Error", async () => {
+      const result = await this.request("POST", "/api/sql/postgres/query", {
+        query: "SELCT * FROM pg_database_invalid", // Intentional typos
       });
-      
-      // Check if it failed with proper error status
+
+      // If request failed, that's acceptable for this test
+      console.log(result.data.queries);
       if (!result.success) {
-        this.log('Syntax error properly caught with error status', 'success');
+        this.log("Syntax error properly caught with error status", "success");
         return;
       }
-      
-      // Check if it returned success but with error message
+
+      // If success, look for error messages returned by the server
       if (result.success && result.data.messages && result.data.messages.length > 0) {
-        const hasError = result.data.messages.some(msg => 
-          msg.message && (
-            msg.message.toLowerCase().includes('error') ||
-            msg.message.toLowerCase().includes('syntax') ||
-            msg.message.toLowerCase().includes('unknown') ||
-            msg.message.toLowerCase().includes('not recognized')
-          )
+        const hasError = result.data.messages.some(
+          (msg) =>
+            msg.message &&
+            (msg.message.toLowerCase().includes("error") ||
+              msg.message.toLowerCase().includes("syntax") ||
+              msg.message.toLowerCase().includes("unknown") ||
+              msg.message.toLowerCase().includes("not recognized")),
         );
         if (hasError) {
-          this.log('Syntax error caught in response messages', 'success');
+          this.log("Syntax error caught in response messages", "success");
           return;
         }
       }
-      
+
       // If we get here, the syntax error was not properly handled
-      throw new Error('Expected syntax error to fail or return error message');
+      throw new Error("Expected syntax error to fail or return error message");
     });
 
     // 15. ERROR HANDLING - MISSING HEADER
-    await this.test('Error Handling - Missing Header', async () => {
+    await this.test("Error Handling - Missing Header", async () => {
       const config = {
-        method: 'POST',
+        method: "POST",
         url: `${this.baseURL}/api/sql/databases`,
-        headers: { 'Content-Type': 'application/json' }, // Missing x-db-type
-        timeout: 30000
+        headers: { "Content-Type": "application/json" }, // Missing x-db-type
+        timeout: 30000,
       };
-      
+
       try {
         await axios(config);
-        throw new Error('Expected missing header error');
+        throw new Error("Expected missing header error");
       } catch (error) {
         if (error.response?.status === 400) {
-          this.log('Missing header properly caught', 'success');
+          this.log("Missing header properly caught", "success");
         } else {
-          throw new Error('Unexpected error type');
+          throw new Error("Unexpected error type");
         }
       }
     });
 
     // 16. CREATE TEST DATABASE (if permissions allow)
-    await this.test('Create Test Database', async () => {
-      const result = await this.request('POST', '/api/sql/postgres/query', {
-        query: 'CREATE DATABASE test_postgres_strategy'
+    await this.test("Create Test Database", async () => {
+      const result = await this.request("POST", "/api/sql/postgres/query", {
+        query: "CREATE DATABASE test_postgres_strategy",
       });
       if (!result.success) {
-        this.log('⚠️ Could not create test database (may not have permissions)', 'warning');
+        this.log("⚠️ Could not create test database (may not have permissions)", "warning");
         return; // Don't fail the test
       }
-      this.log('Test database created', 'success');
+      this.log("Test database created", "success");
     });
 
     // 17. CREATE AND TEST TABLE (if permissions allow)
-    await this.test('Create Test Table', async () => {
+    await this.test("Create Test Table", async () => {
       // Switch to test database
-      let result = await this.request('POST', '/api/sql/switch-database', { dbName: 'test_postgres_strategy' });
+      let result = await this.request("POST", "/api/sql/switch-database", {
+        dbName: "test_postgres_strategy",
+      });
       if (!result.success) {
-        this.log('⚠️ Could not switch to test database', 'warning');
+        this.log("⚠️ Could not switch to test database", "warning");
         return;
       }
 
       // Create table
-      result = await this.request('POST', '/api/sql/test_postgres_strategy/query', {
+      result = await this.request("POST", "/api/sql/test_postgres_strategy/query", {
         query: `CREATE TABLE IF NOT EXISTS test_users (
           id SERIAL PRIMARY KEY,
           name VARCHAR(100),
           email VARCHAR(100) UNIQUE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )`
+        )`,
       });
       if (!result.success) {
-        this.log('⚠️ Could not create test table', 'warning');
+        this.log("⚠️ Could not create test table", "warning");
         return;
       }
 
       // Insert test data
-      result = await this.request('POST', '/api/sql/test_postgres_strategy/query', {
-        query: "INSERT INTO test_users (name, email) VALUES ('Test User', 'test@example.com')"
+      result = await this.request("POST", "/api/sql/test_postgres_strategy/query", {
+        query: "INSERT INTO test_users (name, email) VALUES ('Test User', 'test@example.com')",
       });
       if (!result.success) {
-        this.log('⚠️ Could not insert test data', 'warning');
+        this.log("⚠️ Could not insert test data", "warning");
         return;
       }
 
       // Select test data
-      result = await this.request('POST', '/api/sql/test_postgres_strategy/query', {
-        query: 'SELECT * FROM test_users'
+      result = await this.request("POST", "/api/sql/test_postgres_strategy/query", {
+        query: "SELECT * FROM test_users",
       });
-      if (!result.success || !Array.isArray(result.data.rows)) {
-        throw new Error('Could not select test data');
+      const rows = this.extractRows(result.data);
+      if (!result.success || !Array.isArray(rows)) {
+        throw new Error("Could not select test data");
       }
 
-      this.log(`Created table with ${result.data.rows.length} test records`, 'success');
+      this.log(`Created table with ${rows.length} test records`, "success");
     });
 
     // 18. CLEANUP
-    await this.test('Cleanup Test Database', async () => {
+    await this.test("Cleanup Test Database", async () => {
       // Switch back to postgres database first
-      await this.request('POST', '/api/sql/switch-database', { dbName: 'postgres' });
-      
-      const result = await this.request('POST', '/api/sql/postgres/query', {
-        query: 'DROP DATABASE IF EXISTS test_postgres_strategy'
+      await this.request("POST", "/api/sql/switch-database", {
+        dbName: "postgres",
+      });
+
+      const result = await this.request("POST", "/api/sql/postgres/query", {
+        query: "DROP DATABASE IF EXISTS test_postgres_strategy",
       });
       if (!result.success) {
-        this.log('⚠️ Could not cleanup test database', 'warning');
+        this.log("⚠️ Could not cleanup test database", "warning");
         return;
       }
-      this.log('Test database cleaned up', 'success');
+      this.log("Test database cleaned up", "success");
     });
 
     // PRINT RESULTS
@@ -393,67 +478,67 @@ class PostgreSQLTester {
   }
 
   printResults() {
-    this.log('\n' + '═'.repeat(60), 'info');
-    this.log('🏁 TEST RESULTS', 'info');
-    this.log('═'.repeat(60), 'info');
-    
+    this.log("\n" + "═".repeat(60), "info");
+    this.log("🏁 TEST RESULTS", "info");
+    this.log("═".repeat(60), "info");
+
     const total = this.passed + this.failed;
-    this.log(`Total Tests: ${total}`, 'info');
-    this.log(`Passed: ${this.passed}`, 'success');
-    this.log(`Failed: ${this.failed}`, this.failed > 0 ? 'error' : 'success');
-    
+    this.log(`Total Tests: ${total}`, "info");
+    this.log(`Passed: ${this.passed}`, "success");
+    this.log(`Failed: ${this.failed}`, this.failed > 0 ? "error" : "success");
+
     if (this.failed > 0) {
-      this.log('\n❌ FAILED TESTS:', 'error');
-      this.errors.forEach(error => {
-        this.log(`  • ${error.test}: ${error.error}`, 'error');
+      this.log("\n❌ FAILED TESTS:", "error");
+      this.errors.forEach((error) => {
+        this.log(`  • ${error.test}: ${error.error}`, "error");
       });
     }
-    
+
     const successRate = total > 0 ? ((this.passed / total) * 100).toFixed(1) : 0;
-    this.log(`\nSuccess Rate: ${successRate}%`, successRate > 80 ? 'success' : 'warning');
-    
+    this.log(`\nSuccess Rate: ${successRate}%`, successRate > 80 ? "success" : "warning");
+
     if (successRate >= 90) {
-      this.log('🎉 EXCELLENT! Your PostgreSQL strategy is working perfectly!', 'success');
+      this.log("🎉 EXCELLENT! Your PostgreSQL strategy is working perfectly!", "success");
     } else if (successRate >= 70) {
-      this.log('👍 GOOD! Most functionality is working.', 'success');
+      this.log("👍 GOOD! Most functionality is working.", "success");
     } else if (successRate >= 50) {
-      this.log('⚠️  PARTIAL SUCCESS! Some issues detected.', 'warning');
+      this.log("⚠️  PARTIAL SUCCESS! Some issues detected.", "warning");
     } else {
-      this.log('❌ MULTIPLE ISSUES! Please check your configuration.', 'error');
+      this.log("❌ MULTIPLE ISSUES! Please check your configuration.", "error");
     }
 
-    this.log('\n🔧 TROUBLESHOOTING GUIDE:', 'info');
-    this.log('If tests failed, check:', 'info');
-    this.log('1. PostgreSQL server is running: psql -U root -d mydatabase', 'info');
-    this.log('2. Node.js server is running on port 5000', 'info');
-    this.log('3. Update password in this file (line 12)', 'info');
-    this.log('4. Check PostgreSQL user permissions', 'info');
-    this.log('5. Verify API routes are mounted correctly', 'info');
-    this.log('6. Ensure mydatabase exists or change config to postgres', 'info');
+    this.log("\n🔧 TROUBLESHOOTING GUIDE:", "info");
+    this.log("If tests failed, check:", "info");
+    this.log("1. PostgreSQL server is running: psql -U root -d mydatabase", "info");
+    this.log("2. Node.js server is running on port 5000", "info");
+    this.log("3. Update password in this file (line 12)", "info");
+    this.log("4. Check PostgreSQL user permissions", "info");
+    this.log("5. Verify API routes are mounted correctly", "info");
+    this.log("6. Ensure mydatabase exists or change config to postgres", "info");
   }
 }
 
 // QUICK POSTGRESQL CONNECTION TEST
 async function quickPostgreSQLTest() {
-  console.log('🔍 Quick PostgreSQL Connection Test...');
+  console.log("🔍 Quick PostgreSQL Connection Test...");
   try {
     const { Pool } = require("pg");
     const pool = new Pool({
-      host: 'localhost',
+      host: "localhost",
       port: 5432,
-      user: 'root',
-      password: 'root', // ⚠️ UPDATE THIS
-      database: 'mydatabase', // or 'postgres' if mydatabase doesn't exist
-      connectionTimeoutMillis: 10000
+      user: "root",
+      password: "root", // ⚠️ UPDATE THIS
+      database: "mydatabase", // or 'postgres' if mydatabase doesn't exist
+      connectionTimeoutMillis: 10000,
     });
-    
-    await pool.query('SELECT 1');
+
+    await pool.query("SELECT 1");
     await pool.end();
-    console.log('✅ Direct PostgreSQL connection works!');
+    console.log("✅ Direct PostgreSQL connection works!");
     return true;
   } catch (error) {
-    console.log('❌ Direct PostgreSQL connection failed:', error.message);
-    console.log('Please fix PostgreSQL connection before running API tests.');
+    console.log("❌ Direct PostgreSQL connection failed:", error.message);
+    console.log("Please fix PostgreSQL connection before running API tests.");
     console.log('💡 Try changing database to "postgres" if "mydatabase" doesn\'t exist');
     return false;
   }
@@ -461,18 +546,18 @@ async function quickPostgreSQLTest() {
 
 // MAIN FUNCTION
 async function main() {
-  console.log('🚀 PostgreSQL Strategy Complete Test Suite');
-  console.log('==========================================\n');
-  
+  console.log("🚀 PostgreSQL Strategy Complete Test Suite");
+  console.log("==========================================\n");
+
   // Test PostgreSQL connection first
   const postgresOk = await quickPostgreSQLTest();
   if (!postgresOk) {
-    console.log('\n🛑 Fix PostgreSQL connection first, then re-run tests.');
+    console.log("\n🛑 Fix PostgreSQL connection first, then re-run tests.");
     process.exit(1);
   }
-  
-  console.log('');
-  
+
+  console.log("");
+
   // Run API tests
   const tester = new PostgreSQLTester();
   await tester.runTests();

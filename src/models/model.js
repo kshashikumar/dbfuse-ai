@@ -5,110 +5,128 @@ const { ChatMistralAI } = require("@langchain/mistralai");
 const { ChatCohere } = require("@langchain/cohere");
 const { HuggingFaceInference } = require("@langchain/community/llms/hf");
 
-// AI Model Constants
+// Keep these fresh (examples only)
 const AI_MODELS = {
   OPENAI: {
-    models: ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "text-davinci-003"],
-    provider: "OpenAI"
+    // Current, broadly available chat/reasoning models
+    models: ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4o"],
+    provider: "OpenAI",
   },
   GEMINI: {
-    models: ["gemini-1.5-flash", "gemini-pro", "gemini-lite"],
-    provider: "Gemini"
+    // Google Gemini public API focus
+    models: ["gemini-2.5-flash", "gemini-2.5-pro"],
+    provider: "Gemini",
   },
   ANTHROPIC: {
-    models: ["claude-3-opus", "claude-3-sonnet", "claude-3-haiku", "claude-2.1", "claude-instant"],
-    provider: "Anthropic"
+    // Use Anthropic's recommended aliases (they point to latest snapshots)
+    models: [
+      "claude-opus-4-1",
+      "claude-opus-4",
+      "claude-sonnet-4",
+      "claude-3-7-sonnet",
+      "claude-3-5-haiku",
+    ],
+    provider: "Anthropic",
   },
   MISTRAL: {
-    models: ["mistral-large", "mistral-medium", "mistral-small", "mixtral-8x7b"],
-    provider: "Mistral"
+    // Latest public API model IDs (premier + stable prior)
+    models: ["mistral-medium-2508", "mistral-large-2411", "mistral-small-2407", "codestral-2508"],
+    provider: "Mistral",
   },
   COHERE: {
-    models: ["command", "command-light", "command-nightly", "command-light-nightly"],
-    provider: "Cohere"
+    // Command A family is current; older Command/Command-R* are deprecated
+    models: [
+      "command-a-03-2025",
+      "command-a-reasoning-08-2025",
+      "command-a-vision-07-2025",
+      "command-r7b-12-2024",
+    ],
+    provider: "Cohere",
   },
   HUGGINGFACE: {
-    models: ["microsoft/DialoGPT-medium", "facebook/blenderbot-400M-distill", "microsoft/DialoGPT-large"],
-    provider: "HuggingFace"
+    // Leave as-is (examples); HF infra varies by account/space
+    models: [
+      "microsoft/DialoGPT-medium",
+      "facebook/blenderbot-400M-distill",
+      "microsoft/DialoGPT-large",
+    ],
+    provider: "HuggingFace",
   },
   PERPLEXITY: {
-    models: ["pplx-7b-online", "pplx-70b-online", "llama-2-70b-chat"],
-    provider: "Perplexity"
-  }
+    // New Sonar names for the OpenAI-compatible endpoint
+    models: ["sonar", "sonar-pro", "sonar-reasoning", "sonar-reasoning-pro", "sonar-deep-research"],
+    provider: "Perplexity",
+  },
 };
 
-const getAIModel = (aiModel, apiKey, provider) => {
-  // OpenAI models
+function inferProvider(aiModel) {
+  const m = aiModel.toLowerCase();
+  if (m.startsWith("gemini")) return "Gemini";
+  if (m.startsWith("claude")) return "Anthropic";
+  if (m.startsWith("mistral") || m.startsWith("codestral")) return "Mistral";
+  if (m.startsWith("pplx") || m.includes("sonar")) return "Perplexity";
+  if (m.startsWith("command")) return "Cohere";
+  if (m.includes("/")) return "HuggingFace";
+  return "OpenAI";
+}
+
+const getAIModel = (aiModel, explicitApiKey) => {
+  const provider = inferProvider(aiModel);
+
+  const keys = {
+    OpenAI: process.env.OPENAI_API_KEY,
+    Gemini: process.env.GOOGLE_API_KEY,
+    Anthropic: process.env.ANTHROPIC_API_KEY,
+    Mistral: process.env.MISTRAL_API_KEY,
+    Cohere: process.env.COHERE_API_KEY,
+    HuggingFace: process.env.HUGGINGFACE_API_KEY,
+    Perplexity: process.env.PPLX_API_KEY,
+  };
+  const apiKey = explicitApiKey || keys[provider];
+  if (!apiKey) {
+    throw new Error(
+      `${provider} API key is missing. Please provide a valid API key for ${provider}.`,
+    );
+  }
+
   if (AI_MODELS.OPENAI.models.includes(aiModel)) {
-    return new ChatOpenAI({
-      openAIApiKey: apiKey,
-      temperature: 0.7,
-      modelName: aiModel,
-    });
+    return new ChatOpenAI({ apiKey, model: aiModel, temperature: 0.7 });
   }
 
-  // Gemini models
   if (AI_MODELS.GEMINI.models.includes(aiModel)) {
-    return new ChatGoogleGenerativeAI({
-      apiKey: apiKey,
-      temperature: 0.7,
-      modelName: aiModel,
-    });
+    return new ChatGoogleGenerativeAI({ apiKey, model: aiModel, temperature: 0.7 });
   }
 
-  // Anthropic models
   if (AI_MODELS.ANTHROPIC.models.includes(aiModel)) {
-    return new ChatAnthropic({
-      anthropicApiKey: apiKey,
-      temperature: 0.7,
-      modelName: aiModel,
-    });
+    return new ChatAnthropic({ apiKey, model: aiModel, temperature: 0.7 });
   }
 
-  // Mistral models
   if (AI_MODELS.MISTRAL.models.includes(aiModel)) {
-    return new ChatMistralAI({
-      apiKey: apiKey,
-      temperature: 0.7,
-      modelName: aiModel,
-    });
+    return new ChatMistralAI({ apiKey, model: aiModel, temperature: 0.7 });
   }
 
-  // Cohere models
   if (AI_MODELS.COHERE.models.includes(aiModel)) {
-    return new ChatCohere({
-      apiKey: apiKey,
-      temperature: 0.7,
-      model: aiModel,
-    });
+    return new ChatCohere({ apiKey, model: aiModel, temperature: 0.7 });
   }
 
-  // HuggingFace models
   if (AI_MODELS.HUGGINGFACE.models.includes(aiModel)) {
-    return new HuggingFaceInference({
-      apiKey: apiKey,
+    return new HuggingFaceInference({ apiKey, model: aiModel, temperature: 0.7 });
+  }
+
+  if (AI_MODELS.PERPLEXITY.models.includes(aiModel)) {
+    return new ChatOpenAI({
+      apiKey,
       model: aiModel,
       temperature: 0.7,
+      baseURL: "https://api.perplexity.ai",
     });
   }
 
-  // Perplexity models
-  if (AI_MODELS.PERPLEXITY.models.includes(aiModel)) {
-    // Note: Perplexity uses OpenAI-compatible API
-    return new ChatOpenAI({
-      openAIApiKey: apiKey,
-      temperature: 0.7,
-      modelName: aiModel,
-      configuration: {
-        baseURL: "https://api.perplexity.ai",
-      },
-    });
-  }
-
-  throw new Error(`Unsupported AI model: ${aiModel}. Supported providers: ${Object.values(AI_MODELS).map(m => m.provider).join(', ')}`);
+  throw new Error(
+    `Unsupported AI model: ${aiModel}. Supported providers: ${Object.values(AI_MODELS)
+      .map((m) => m.provider)
+      .join(", ")}`,
+  );
 };
 
-module.exports = {
-  getAIModel,
-  AI_MODELS,
-};
+module.exports = { getAIModel, AI_MODELS };

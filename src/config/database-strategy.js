@@ -1,5 +1,5 @@
 // database-strategy.js
-const { QUERY_TYPES, ERROR_MESSAGES } = require('../constants/constants');
+const { QUERY_TYPES, ERROR_MESSAGES } = require("../constants/constants");
 
 class DatabaseStrategy {
   constructor() {
@@ -9,108 +9,108 @@ class DatabaseStrategy {
 
   // Core connection methods
   async connect(config) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('connect'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("connect"));
   }
 
   async disconnect() {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('disconnect'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("disconnect"));
   }
 
   async validateConnection() {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('validateConnection'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("validateConnection"));
   }
 
   // Database navigation methods
   async switchDatabase(dbName) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('switchDatabase'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("switchDatabase"));
   }
 
   async getDatabases() {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('getDatabases'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getDatabases"));
   }
 
   // Table and schema methods
   async getTables(dbName) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('getTables'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getTables"));
   }
 
   async getTableInfo(dbName, tableName) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('getTableInfo'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getTableInfo"));
   }
 
   async getMultipleTablesInfo(dbName, tableNames) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('getMultipleTablesInfo'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getMultipleTablesInfo"));
   }
 
   async getViews(dbName) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('getViews'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getViews"));
   }
 
   async getProcedures(dbName) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('getProcedures'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getProcedures"));
   }
 
   async getFunctions(dbName) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('getFunctions'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getFunctions"));
   }
 
   // Enhanced query execution
   async executeQuery(query, options = {}) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('executeQuery'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeQuery"));
   }
 
   async executeBatch(queries, options = {}) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('executeBatch'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeBatch"));
   }
 
   async executeTransaction(queries, options = {}) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('executeTransaction'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeTransaction"));
   }
 
   // Query analysis and validation
   analyzeQuery(query) {
     const trimmedQuery = query.trim().toUpperCase();
-    
+
     for (const [type, patterns] of Object.entries(QUERY_TYPES)) {
-      if (patterns.some(pattern => pattern.test(trimmedQuery))) {
+      if (patterns.some((pattern) => pattern.test(trimmedQuery))) {
         return {
           type,
           isReadOnly: this.isReadOnlyQuery(type),
           requiresTransaction: this.requiresTransaction(type),
-          supportsPagination: this.supportsPagination(type)
+          supportsPagination: this.supportsPagination(type),
         };
       }
     }
-    
+
     return {
-      type: 'UNKNOWN',
+      type: "UNKNOWN",
       isReadOnly: false,
       requiresTransaction: false,
-      supportsPagination: false
+      supportsPagination: false,
     };
   }
 
   isReadOnlyQuery(queryType) {
-    const readOnlyTypes = ['SELECT', 'SHOW', 'DESCRIBE', 'EXPLAIN'];
+    const readOnlyTypes = ["SELECT", "SHOW", "DESCRIBE", "EXPLAIN"];
     return readOnlyTypes.includes(queryType);
   }
 
   requiresTransaction(queryType) {
-    const transactionTypes = ['INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER'];
+    const transactionTypes = ["INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"];
     return transactionTypes.includes(queryType);
   }
 
   supportsPagination(queryType) {
-    return queryType === 'SELECT';
+    return queryType === "SELECT";
   }
 
   // Utility methods for all database types
   sanitizeIdentifier(identifier) {
-    return identifier.replace(/[^\w_]/g, '');
+    return identifier.replace(/[^\w_]/g, "");
   }
 
   buildPaginationQuery(baseQuery, page, pageSize) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('buildPaginationQuery'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("buildPaginationQuery"));
   }
 
   buildCountQuery(baseQuery) {
@@ -121,20 +121,20 @@ class DatabaseStrategy {
   async getConnectionHealth() {
     try {
       await this.validateConnection();
-      return { status: 'healthy', lastCheck: new Date().toISOString() };
+      return { status: "healthy", lastCheck: new Date().toISOString() };
     } catch (error) {
-      return { status: 'unhealthy', error: error.message, lastCheck: new Date().toISOString() };
+      return { status: "unhealthy", error: error.message, lastCheck: new Date().toISOString() };
     }
   }
 
   // Performance monitoring
   async getQueryStats() {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('getQueryStats'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getQueryStats"));
   }
 
   // Security and permissions
   async checkPermissions(operation, resource) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED('checkPermissions'));
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("checkPermissions"));
   }
 }
 

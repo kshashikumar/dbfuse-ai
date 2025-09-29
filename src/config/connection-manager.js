@@ -1,7 +1,8 @@
 // connection-manager.js
 const fs = require("fs").promises;
 const path = require("path");
-const { CONNECTION_STATES, ERROR_MESSAGES, DEFAULT_CONFIG } = require('../constants/constants');
+
+const { CONNECTION_STATES, ERROR_MESSAGES, DEFAULT_CONFIG } = require("../constants/constants");
 
 class ConnectionManager {
   constructor() {
@@ -16,20 +17,20 @@ class ConnectionManager {
   async createConnection(connectionId, strategy, config) {
     try {
       this.setConnectionState(connectionId, CONNECTION_STATES.CONNECTING);
-      
+
       await strategy.connect(config);
-      
+
       this.connections.set(connectionId, {
         strategy,
-        config: { ...config, password: '***' }, // Hide password in memory
+        config: { ...config, password: "***" }, // Hide password in memory
         createdAt: new Date().toISOString(),
-        lastUsed: new Date().toISOString()
+        lastUsed: new Date().toISOString(),
       });
-      
+
       this.activeConnections.set(connectionId, strategy);
       this.setConnectionState(connectionId, CONNECTION_STATES.CONNECTED);
       this.updateLastActivity(connectionId);
-      
+
       return connectionId;
     } catch (error) {
       this.setConnectionState(connectionId, CONNECTION_STATES.ERROR);
@@ -45,7 +46,7 @@ class ConnectionManager {
       } catch (error) {
         console.warn(`Error closing connection ${connectionId}:`, error.message);
       }
-      
+
       this.activeConnections.delete(connectionId);
       this.connections.delete(connectionId);
       this.connectionStates.delete(connectionId);
@@ -55,14 +56,14 @@ class ConnectionManager {
 
   async closeAllConnections() {
     const connectionIds = Array.from(this.activeConnections.keys());
-    await Promise.all(connectionIds.map(id => this.closeConnection(id)));
+    await Promise.all(connectionIds.map((id) => this.closeConnection(id)));
   }
 
   // Connection state management
   setConnectionState(connectionId, state) {
     this.connectionStates.set(connectionId, {
       state,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 
@@ -80,7 +81,7 @@ class ConnectionManager {
     if (!strategy) {
       throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     }
-    
+
     this.updateLastActivity(connectionId);
     return strategy;
   }
@@ -94,7 +95,10 @@ class ConnectionManager {
 
     try {
       const isValid = await strategy.validateConnection();
-      this.setConnectionState(connectionId, isValid ? CONNECTION_STATES.CONNECTED : CONNECTION_STATES.ERROR);
+      this.setConnectionState(
+        connectionId,
+        isValid ? CONNECTION_STATES.CONNECTED : CONNECTION_STATES.ERROR,
+      );
       return isValid;
     } catch (error) {
       this.setConnectionState(connectionId, CONNECTION_STATES.ERROR);
@@ -105,21 +109,21 @@ class ConnectionManager {
   // Database switching with connection management
   async switchDatabase(connectionId, dbName) {
     const strategy = this.getConnection(connectionId);
-    
+
     try {
       this.setConnectionState(connectionId, CONNECTION_STATES.SWITCHING);
       await strategy.switchDatabase(dbName);
-      
+
       // Update connection info
       const connectionInfo = this.connections.get(connectionId);
       if (connectionInfo) {
         connectionInfo.currentDatabase = dbName;
         connectionInfo.lastUsed = new Date().toISOString();
       }
-      
+
       this.setConnectionState(connectionId, CONNECTION_STATES.CONNECTED);
       this.updateLastActivity(connectionId);
-      
+
       return true;
     } catch (error) {
       this.setConnectionState(connectionId, CONNECTION_STATES.ERROR);
@@ -136,7 +140,7 @@ class ConnectionManager {
         createdAt: conn.createdAt,
         lastUsed: conn.lastUsed,
         currentDatabase: conn.currentDatabase,
-        state: this.getConnectionState(id)
+        state: this.getConnectionState(id),
       }));
 
       await fs.writeFile(this.configPath, JSON.stringify(connectionsData, null, 2), "utf8");
@@ -150,8 +154,8 @@ class ConnectionManager {
     try {
       const data = await fs.readFile(this.configPath, "utf8");
       const connectionsData = JSON.parse(data);
-      
-      return connectionsData.map(conn => ({
+
+      return connectionsData.map((conn) => ({
         id: conn.id,
         username: conn.config.username,
         host: conn.config.host,
@@ -161,10 +165,10 @@ class ConnectionManager {
         socketPath: conn.config.socketPath,
         status: conn.state || CONNECTION_STATES.DISCONNECTED,
         lastUsed: conn.lastUsed,
-        currentDatabase: conn.currentDatabase
+        currentDatabase: conn.currentDatabase,
       }));
     } catch (error) {
-      if (error.code === 'ENOENT') {
+      if (error.code === "ENOENT") {
         return []; // No connections file exists yet
       }
       throw error;
@@ -174,39 +178,39 @@ class ConnectionManager {
   // Connection monitoring and cleanup
   async healthCheck() {
     const results = new Map();
-    
+
     for (const [connectionId, strategy] of this.activeConnections) {
       try {
         const health = await strategy.getConnectionHealth();
         results.set(connectionId, health);
       } catch (error) {
         results.set(connectionId, {
-          status: 'unhealthy',
+          status: "unhealthy",
           error: error.message,
-          lastCheck: new Date().toISOString()
+          lastCheck: new Date().toISOString(),
         });
       }
     }
-    
+
     return results;
   }
 
   async cleanupIdleConnections(maxIdleTime = DEFAULT_CONFIG.IDLE_TIMEOUT) {
     const now = Date.now();
     const connectionsToClose = [];
-    
+
     for (const [connectionId, lastActivity] of this.lastActivity) {
       const idleTime = now - new Date(lastActivity).getTime();
       if (idleTime > maxIdleTime) {
         connectionsToClose.push(connectionId);
       }
     }
-    
+
     for (const connectionId of connectionsToClose) {
       console.log(`Closing idle connection: ${connectionId}`);
       await this.closeConnection(connectionId);
     }
-    
+
     return connectionsToClose.length;
   }
 
@@ -215,11 +219,11 @@ class ConnectionManager {
     const connection = this.connections.get(connectionId);
     const state = this.getConnectionState(connectionId);
     const lastActivity = this.lastActivity.get(connectionId);
-    
+
     if (!connection) {
       return null;
     }
-    
+
     return {
       id: connectionId,
       config: connection.config,
@@ -227,12 +231,12 @@ class ConnectionManager {
       createdAt: connection.createdAt,
       lastUsed: connection.lastUsed,
       lastActivity,
-      currentDatabase: connection.currentDatabase
+      currentDatabase: connection.currentDatabase,
     };
   }
 
   getAllConnectionsInfo() {
-    return Array.from(this.connections.keys()).map(id => this.getConnectionInfo(id));
+    return Array.from(this.connections.keys()).map((id) => this.getConnectionInfo(id));
   }
 
   getActiveConnectionCount() {
@@ -242,12 +246,14 @@ class ConnectionManager {
   // Utility methods
   generateConnectionId(config) {
     const { host, port, username, dbType, database } = config;
-    return `${dbType}_${username}@${host}:${port}/${database || 'default'}_${Date.now()}`;
+    return `${dbType}_${username}@${host}:${port}/${database || "default"}_${Date.now()}`;
   }
 
   isConnectionActive(connectionId) {
-    return this.activeConnections.has(connectionId) && 
-           this.getConnectionState(connectionId) === CONNECTION_STATES.CONNECTED;
+    return (
+      this.activeConnections.has(connectionId) &&
+      this.getConnectionState(connectionId) === CONNECTION_STATES.CONNECTED
+    );
   }
 }
 

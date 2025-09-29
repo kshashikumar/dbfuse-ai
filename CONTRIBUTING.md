@@ -19,17 +19,17 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 1. **Fork the Repository**: Click the "Fork" button at the top right of the repository page to create your own copy of the repository.
 2. **Clone Your Fork**: Use the command below to clone your forked repository to your local machine.
-    ```bash
-    git clone https://github.com/your-username/[your-repo-name].git
-    ```
+   ```bash
+   git clone https://github.com/your-username/[your-repo-name].git
+   ```
 3. **Navigate into Your Project Directory**:
-    ```bash
-    cd [your-repo-name]
-    ```
+   ```bash
+   cd [your-repo-name]
+   ```
 4. **Create a New Branch**: It's a good practice to create a new branch for each feature or bug fix.
-    ```bash
-    git checkout -b feature/your-feature-name
-    ```
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
 
 ## Reporting Issues
 
@@ -49,17 +49,17 @@ To contribute your changes back to the main repository, please follow these step
 1. **Make Your Changes**: Implement your changes in the newly created branch.
 2. **Test Your Changes**: Ensure that your changes work as expected and do not break existing functionality.
 3. **Add Changes to Git**: Stage your changes for commit.
-    ```bash
-    git add .
-    ```
+   ```bash
+   git add .
+   ```
 4. **Commit Your Changes**: Write a clear and descriptive commit message.
-    ```bash
-    git commit -m "Brief description of changes"
-    ```
+   ```bash
+   git commit -m "Brief description of changes"
+   ```
 5. **Push Your Changes**: Push your branch to your forked repository.
-    ```bash
-    git push origin feature/your-feature-name
-    ```
+   ```bash
+   git push origin feature/your-feature-name
+   ```
 6. **Create a Pull Request**:
    - Navigate to the [Pull Requests](https://github.com/kshashikumar/dbfuse-ai/pulls) section of the main repository.
    - Click the "New Pull Request" button.
@@ -67,7 +67,7 @@ To contribute your changes back to the main repository, please follow these step
    - Provide a clear title and description for your pull request, explaining what changes you made and why. Reference any related issues (e.g., "Fixes #123").
    - Click the "Create Pull Request" button.
 
-7. **Follow Up**: After submitting your pull request, be responsive to feedback from maintainers. You may need to make additional changes based on their suggestions. 
+7. **Follow Up**: After submitting your pull request, be responsive to feedback from maintainers. You may need to make additional changes based on their suggestions.
 
 8. **Merge Your Pull Request**: Once your pull request is approved, you or a maintainer will merge it into the main branch.
 

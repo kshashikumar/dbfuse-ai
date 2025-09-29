@@ -1,13 +1,13 @@
 // constants.js
 
 const DB_TYPES = {
-  MYSQL: 'mysql2',
-  POSTGRESQL: 'pg',
-  SQLITE: 'sqlite3',
-  MSSQL: 'mssql',
-  ORACLE: 'oracledb',
-  MONGODB: 'mongodb', // For future non-relational support
-  REDIS: 'redis'      // For future non-relational support
+  MYSQL: "mysql2",
+  POSTGRESQL: "pg",
+  SQLITE: "sqlite3",
+  MSSQL: "mssql",
+  ORACLE: "oracledb",
+  MONGODB: "mongodb", // For future non-relational support
+  REDIS: "redis", // For future non-relational support
 };
 
 const QUERY_TYPES = {
@@ -36,23 +36,24 @@ const QUERY_TYPES = {
   BULK: [/^BULK\s/i],
   LOAD: [/^LOAD\s/i],
   IMPORT: [/^IMPORT\s/i],
-  EXPORT: [/^EXPORT\s/i]
+  EXPORT: [/^EXPORT\s/i],
 };
 
 const ERROR_MESSAGES = {
-  CONNECTION_NOT_INITIALIZED: 'Database connection not initialized',
-  INVALID_DB_TYPE: (type, supported) => `Unsupported database type: ${type}. Supported types: ${supported.join(', ')}`,
-  STRATEGY_NOT_SET: 'Strategy not set. Call setStrategy first.',
-  NO_ACTIVE_CONNECTION: 'No active database connection. Call connect first.',
+  CONNECTION_NOT_INITIALIZED: "Database connection not initialized",
+  INVALID_DB_TYPE: (type, supported) =>
+    `Unsupported database type: ${type}. Supported types: ${supported.join(", ")}`,
+  STRATEGY_NOT_SET: "Strategy not set. Call setStrategy first.",
+  NO_ACTIVE_CONNECTION: "No active database connection. Call connect first.",
   NOT_IMPLEMENTED: (method) => `${method}() must be implemented`,
-  INVALID_QUERY: 'Invalid or malformed query',
-  PERMISSION_DENIED: 'Insufficient permissions for this operation',
-  CONNECTION_TIMEOUT: 'Database connection timeout',
-  QUERY_TIMEOUT: 'Query execution timeout',
-  INVALID_PAGINATION: 'Invalid pagination parameters',
+  INVALID_QUERY: "Invalid or malformed query",
+  PERMISSION_DENIED: "Insufficient permissions for this operation",
+  CONNECTION_TIMEOUT: "Database connection timeout",
+  QUERY_TIMEOUT: "Query execution timeout",
+  INVALID_PAGINATION: "Invalid pagination parameters",
   DATABASE_SWITCH_FAILED: (dbName) => `Failed to switch to database: ${dbName}`,
   TABLE_NOT_FOUND: (tableName) => `Table not found: ${tableName}`,
-  SQLITE_NO_SWITCH: 'SQLite does not support switching databases'
+  SQLITE_NO_SWITCH: "SQLite does not support switching databases",
 };
 
 const DEFAULT_CONFIG = {
@@ -62,7 +63,7 @@ const DEFAULT_CONFIG = {
   QUERY_TIMEOUT: 30000,
   POOL_SIZE: 10,
   POOL_MIN: 2,
-  IDLE_TIMEOUT: 30000
+  IDLE_TIMEOUT: 30000,
 };
 
 const HTTP_STATUS = {
@@ -72,20 +73,20 @@ const HTTP_STATUS = {
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   INTERNAL_SERVER_ERROR: 500,
-  SERVICE_UNAVAILABLE: 503
+  SERVICE_UNAVAILABLE: 503,
 };
 
 const HEADERS = {
-  DB_TYPE: 'x-db-type',
-  CONTENT_TYPE: 'application/json'
+  DB_TYPE: "x-db-type",
+  CONTENT_TYPE: "application/json",
 };
 
 const CONNECTION_STATES = {
-  DISCONNECTED: 'disconnected',
-  CONNECTING: 'connecting',
-  CONNECTED: 'connected',
-  ERROR: 'error',
-  SWITCHING: 'switching'
+  DISCONNECTED: "disconnected",
+  CONNECTING: "connecting",
+  CONNECTED: "connected",
+  ERROR: "error",
+  SWITCHING: "switching",
 };
 
 module.exports = {
@@ -95,5 +96,5 @@ module.exports = {
   DEFAULT_CONFIG,
   HTTP_STATUS,
   HEADERS,
-  CONNECTION_STATES
+  CONNECTION_STATES,
 };

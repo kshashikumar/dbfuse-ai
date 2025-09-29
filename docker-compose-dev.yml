@@ -1,9 +1,9 @@
-version: '3'
+version: "3"
 
 services:
   dbfuse-ai:
     container_name: "dbfuse-ai"
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile
     restart: always

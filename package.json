@@ -10,9 +10,15 @@
     "test": "npm run test:all",
     "test:all": "node src/config/tests/run-all-tests.js",
     "test:mysql": "node src/config/tests/mysql-test-suite.js",
-    "test:postgres": "node src/config/tests/postgres-test-suite.js", 
+    "test:postgres": "node src/config/tests/postgres-test-suite.js",
     "test:oracle": "node src/config/tests/oracle-test-suite.js",
-    "test:mssql": "node src/config/tests/mssql-test-suite.js"
+    "test:mssql": "node src/config/tests/mssql-test-suite.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "check": "npm run lint && npm run format",
+    "prepare": "husky"
   },
   "repository": {
     "type": "git",
@@ -25,10 +31,11 @@
   },
   "homepage": "https://github.com/kshashikumar/DBFuse-AI#readme",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@langchain/anthropic": "^0.3.25",
     "@langchain/cohere": "^0.3.4",
     "@langchain/community": "^0.3.49",
-    "@langchain/google-genai": "^0.1.4",
+    "@langchain/google-genai": "^0.2.18",
     "@langchain/mistralai": "^0.2.1",
     "@langchain/openai": "^0.3.14",
     "axios": "^1.11.0",
@@ -40,7 +47,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "knex": "^3.1.0",
-    "langchain": "^0.3.6",
+    "langchain": "^0.3.34",
     "minimist": "^1.2.8",
     "mssql": "^11.0.1",
     "mysql2": "^3.11.3",
@@ -56,6 +63,21 @@
     "dbfuse-ai": "./cli.js"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@eslint/js": "^9.36.0",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.36.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.3",
+    "prettier": "^3.6.2"
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs,ts,tsx,json,md,css}": [
+      "prettier --write"
+    ],
+    "*.{js,mjs,cjs,ts,tsx}": [
+      "eslint --fix"
+    ]
   }
 }

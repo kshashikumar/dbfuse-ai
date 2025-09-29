@@ -1,5 +1,15 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, inject, OnDestroy, OnInit, Output, HostListener } from '@angular/core';
+import {
+    ChangeDetectionStrategy,
+    ChangeDetectorRef,
+    Component,
+    EventEmitter,
+    inject,
+    OnDestroy,
+    OnInit,
+    Output,
+    HostListener,
+} from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
 import { LogoComponent } from '../logo/logo.component';
 import { AppTheme, ThemeService } from '@lib/services/theme';
@@ -63,7 +73,7 @@ export class NavbarComponent implements OnInit, OnDestroy {
             error: (err) => {
                 console.error('Logout failed:', err);
                 this._router.navigate(['/login'], { replaceUrl: true });
-            }
+            },
         });
         this.isOpen = false;
         this._cdr.markForCheck();

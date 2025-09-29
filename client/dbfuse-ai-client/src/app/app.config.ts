@@ -4,7 +4,13 @@ import { routes } from './app.routes';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 
 export const appConfig: ApplicationConfig = {
-    providers: [importProvidersFrom(RouterModule.forRoot(routes
-        // , { enableTracing: true }
-    )), provideHttpClient(withFetch())],
+    providers: [
+        importProvidersFrom(
+            RouterModule.forRoot(
+                routes,
+                // , { enableTracing: true }
+            ),
+        ),
+        provideHttpClient(withFetch()),
+    ],
 };
