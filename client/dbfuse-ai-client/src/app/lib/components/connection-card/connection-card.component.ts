@@ -66,7 +66,7 @@ export class ConnectionCardComponent {
 
     getConnectionTitle(): string {
         if (this.connection.dbType === 'sqlite3') {
-            return this.connection.database || 'SQLite Database';
+            return this.connection.databaseDisplay;
         }
         return `${this.connection.host}:${this.connection.port}`;
     }

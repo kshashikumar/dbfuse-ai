@@ -1,13 +1,17 @@
+// connectionsController.js
 const path = require("path");
+const { getPolicy } = require("../utils/policyUtil");
 const fs = require("fs").promises;
+
 exports.fs = fs;
 
+/* --------- unchanged file IO helpers (same as you have) --------- */
 const readConnectionsFromFile = async () => {
   const filePath = path.join(__dirname, "..", "config", "dbConnections.json");
   try {
     const data = await fs.readFile(filePath, "utf8");
     return JSON.parse(data).map((conn) => ({
-      id: conn.id || Date.now() + Math.random(), // Generate ID if missing
+      id: conn.id || Date.now() + Math.random(),
       username: conn.username,
       password: conn.password,
       host: conn.host,
@@ -22,7 +26,7 @@ const readConnectionsFromFile = async () => {
       createdAt: conn.createdAt || new Date().toISOString(),
       lastUsed: conn.lastUsed || null,
     }));
-  } catch (fileErr) {
+  } catch {
     console.log("No connections file found, returning empty array");
     return [];
   }
@@ -30,7 +34,6 @@ const readConnectionsFromFile = async () => {
 
 const writeConnectionsToFile = async (connections) => {
   const filePath = path.join(__dirname, "..", "config", "dbConnections.json");
-  // Ensure each connection has required fields and clean structure
   const cleanConnections = connections.map((conn) => ({
     id: conn.id || Date.now() + Math.random(),
     username: conn.username,
@@ -40,24 +43,31 @@ const writeConnectionsToFile = async (connections) => {
     dbType: conn.dbType,
     database: conn.database || "",
     socketPath: conn.socketPath || "",
-    ssl: conn.ssl || false,
+    ssl: !!conn.ssl,
     connectionTimeout: conn.connectionTimeout || 60000,
     poolSize: conn.poolSize || 10,
     status: conn.status || "Available",
     createdAt: conn.createdAt || new Date().toISOString(),
     lastUsed: conn.lastUsed || null,
   }));
-
   await fs.writeFile(filePath, JSON.stringify(cleanConnections, null, 2), "utf8");
 };
 
+/* ---------------------- Route handlers ---------------------- */
 const getConnections = async (req, res) => {
   try {
     console.log("Fetching connections...");
     const connections = await readConnectionsFromFile();
+
+    const withDisplay = connections.map((c) => {
+      const policy = getPolicy(c.dbType);
+      const { databaseDisplay, databaseShort, extras = {} } = policy.display(c);
+      return { ...c, databaseDisplay, databaseShort, ...extras };
+    });
+    console.log(withDisplay);
     return res.status(200).json({
-      connections,
-      count: connections.length,
+      connections: withDisplay,
+      count: withDisplay.length,
       retrievedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -68,58 +78,32 @@ const getConnections = async (req, res) => {
 
 const addConnection = async (req, res) => {
   try {
-    const newConnection = req.body;
+    const input = req.body;
+    const policy = getPolicy(input.dbType);
 
-    // Enhanced validation
-    const requiredFields = ["username", "host", "port", "dbType"];
-    const missingFields = requiredFields.filter((field) => !newConnection[field]);
-
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        error: `Missing required fields: ${missingFields.join(", ")}`,
-      });
-    }
-
-    // Validate dbType
-    const validDbTypes = ["mysql2", "pg", "sqlite3", "mssql", "oracledb"];
-    if (!validDbTypes.includes(newConnection.dbType)) {
-      return res.status(400).json({
-        error: `Invalid dbType. Must be one of: ${validDbTypes.join(", ")}`,
-      });
-    }
+    const error = policy.validateOnAdd(input);
+    if (error) return res.status(400).json({ error });
 
     let connections = await readConnectionsFromFile();
 
-    // Check for duplicates with more specific matching
-    const isDuplicate = connections.some(
-      (conn) =>
-        conn.host === newConnection.host &&
-        conn.port === parseInt(newConnection.port) &&
-        conn.database === (newConnection.database || "") &&
-        conn.username === newConnection.username &&
-        conn.dbType === newConnection.dbType,
-    );
+    const normalized = policy.normalizeOnAdd(input);
+    const candidate = { ...normalized, dbType: input.dbType };
+    const keyNew = policy.dedupeKey(candidate);
 
-    if (isDuplicate) {
+    const exists = connections.some((conn) => {
+      const p = getPolicy(conn.dbType);
+      return p.dedupeKey(conn) === keyNew;
+    });
+    if (exists) {
       return res.status(409).json({ error: "Connection with these details already exists." });
     }
 
-    // Generate unique ID
     const newId = connections.length > 0 ? Math.max(...connections.map((c) => c.id || 0)) + 1 : 1;
 
     const connectionToAdd = {
       id: newId,
-      username: newConnection.username,
-      password: newConnection.password,
-      host: newConnection.host,
-      port: parseInt(newConnection.port),
-      dbType: newConnection.dbType,
-      database: newConnection.database || "",
-      socketPath: newConnection.socketPath || "",
-      ssl: newConnection.ssl || false,
-      connectionTimeout: parseInt(newConnection.connectionTimeout) || 60000,
-      poolSize: parseInt(newConnection.poolSize) || 10,
-      status: "Available",
+      ...normalized,
+      dbType: input.dbType,
       createdAt: new Date().toISOString(),
       lastUsed: null,
     };
@@ -127,10 +111,12 @@ const addConnection = async (req, res) => {
     connections.push(connectionToAdd);
     await writeConnectionsToFile(connections);
 
+    const { databaseDisplay, databaseShort, extras = {} } = policy.display(connectionToAdd);
     console.log("Connection added:", connectionToAdd);
+
     return res.status(201).json({
       message: "Connection added successfully",
-      connection: connectionToAdd,
+      connection: { ...connectionToAdd, databaseDisplay, databaseShort, ...extras },
     });
   } catch (err) {
     console.error("Error adding connection:", err);
@@ -141,50 +127,41 @@ const addConnection = async (req, res) => {
 const editConnection = async (req, res) => {
   try {
     const { id } = req.params;
-    const updatedConnection = req.body;
+    const updates = req.body;
 
-    if (!id) {
-      return res.status(400).json({ error: "Connection ID is required for editing." });
-    }
-    if (!updatedConnection || Object.keys(updatedConnection).length === 0) {
+    if (!id) return res.status(400).json({ error: "Connection ID is required for editing." });
+    if (!updates || Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "No update data provided." });
     }
 
-    const idToEdit = parseInt(id, 10);
-    if (isNaN(idToEdit)) {
-      return res.status(400).json({ error: "Invalid Connection ID provided." });
-    }
+    const idNum = parseInt(id, 10);
+    if (isNaN(idNum)) return res.status(400).json({ error: "Invalid Connection ID provided." });
 
     let connections = await readConnectionsFromFile();
-    const index = connections.findIndex((conn) => conn.id === idToEdit);
+    const idx = connections.findIndex((c) => c.id === idNum);
+    if (idx === -1) return res.status(404).json({ error: "Connection not found." });
 
-    if (index === -1) {
-      return res.status(404).json({ error: "Connection not found." });
-    }
+    const current = connections[idx];
+    const policy = getPolicy(current.dbType);
+    const normalizedUpdates = policy.normalizeOnEdit(current, updates);
 
-    // Preserve certain fields and validate updates
-    const updatedFields = {
-      ...updatedConnection,
-      id: connections[index].id, // Keep original ID
-      createdAt: connections[index].createdAt, // Keep creation date
-      lastUsed: connections[index].lastUsed, // Keep last used
-      port: updatedConnection.port ? parseInt(updatedConnection.port) : connections[index].port,
-      connectionTimeout: updatedConnection.connectionTimeout
-        ? parseInt(updatedConnection.connectionTimeout)
-        : connections[index].connectionTimeout,
-      poolSize: updatedConnection.poolSize
-        ? parseInt(updatedConnection.poolSize)
-        : connections[index].poolSize,
-      ssl: updatedConnection.hasOwnProperty("ssl") ? updatedConnection.ssl : connections[index].ssl,
+    const next = {
+      ...current,
+      ...normalizedUpdates,
+      id: current.id,
+      createdAt: current.createdAt,
+      lastUsed: current.lastUsed,
     };
 
-    connections[index] = { ...connections[index], ...updatedFields };
+    connections[idx] = next;
     await writeConnectionsToFile(connections);
 
-    console.log("Connection updated:", connections[index]);
+    const { databaseDisplay, databaseShort, extras = {} } = policy.display(next);
+    console.log("Connection updated:", next);
+
     return res.status(200).json({
       message: "Connection updated successfully",
-      connection: connections[index],
+      connection: { ...next, databaseDisplay, databaseShort, ...extras },
     });
   } catch (err) {
     console.error("Error editing connection:", err);
@@ -198,20 +175,16 @@ const deleteConnection = async (req, res) => {
     const { id } = req.params;
     console.log("Deleting connection with ID:", id);
 
-    if (!id) {
-      return res.status(400).json({ error: "Connection ID is required for deletion." });
-    }
+    if (!id) return res.status(400).json({ error: "Connection ID is required for deletion." });
 
-    const idToDelete = parseInt(id, 10);
-    if (isNaN(idToDelete)) {
-      return res.status(400).json({ error: "Invalid Connection ID provided." });
-    }
+    const idNum = parseInt(id, 10);
+    if (isNaN(idNum)) return res.status(400).json({ error: "Invalid Connection ID provided." });
 
     let connections = await readConnectionsFromFile();
     const initialLength = connections.length;
 
     console.log("Initial connections length:", initialLength);
-    connections = connections.filter((conn) => conn.id !== idToDelete);
+    connections = connections.filter((c) => c.id !== idNum);
     console.log("Connections after filter:", connections.length);
 
     if (connections.length === initialLength) {
@@ -223,7 +196,7 @@ const deleteConnection = async (req, res) => {
     console.log("Connection deleted with ID:", id);
     return res.status(200).json({
       message: "Connection deleted successfully",
-      deletedId: idToDelete,
+      deletedId: idNum,
       deletedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -234,31 +207,34 @@ const deleteConnection = async (req, res) => {
 
 const saveConnections = async (req, res) => {
   try {
-    const connectionsToSave = req.body.connections;
-
-    if (!connectionsToSave || !Array.isArray(connectionsToSave)) {
+    const list = req.body.connections;
+    if (!list || !Array.isArray(list)) {
       return res
         .status(400)
         .json({ error: "Invalid data provided. Expected an array of connections." });
     }
 
-    // Validate each connection has required fields
-    const invalidConnections = connectionsToSave.filter(
-      (conn) => !conn.username || !conn.host || !conn.port || !conn.dbType,
-    );
+    const normalized = list
+      .map((conn) => {
+        const policy = getPolicy(conn.dbType);
+        const error = policy.validateOnAdd({ ...conn, databasePath: conn.databasePath });
+        if (error) throw new Error(error);
+        return policy.normalizeOnSave({ ...conn });
+      })
+      .map((conn, i) => ({
+        id: list[i].id || Date.now() + Math.random(),
+        createdAt: list[i].createdAt || new Date().toISOString(),
+        lastUsed: list[i].lastUsed ?? null,
+        status: list[i].status || "Available",
+        ...conn,
+      }));
 
-    if (invalidConnections.length > 0) {
-      return res.status(400).json({
-        error: `${invalidConnections.length} connections are missing required fields (username, host, port, dbType)`,
-      });
-    }
-
-    await writeConnectionsToFile(connectionsToSave);
+    await writeConnectionsToFile(normalized);
 
     console.log("Connections saved to file.");
     return res.status(200).json({
       message: "Connections saved successfully",
-      count: connectionsToSave.length,
+      count: normalized.length,
       savedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -267,26 +243,21 @@ const saveConnections = async (req, res) => {
   }
 };
 
-// New endpoint to test connection
 const testConnection = async (req, res) => {
   try {
     const { id } = req.params;
-    const idToTest = parseInt(id, 10);
-
-    if (isNaN(idToTest)) {
-      return res.status(400).json({ error: "Invalid Connection ID provided." });
-    }
+    const idNum = parseInt(id, 10);
+    if (isNaN(idNum)) return res.status(400).json({ error: "Invalid Connection ID provided." });
 
     const connections = await readConnectionsFromFile();
-    const connection = connections.find((conn) => conn.id === idToTest);
+    const connection = connections.find((c) => c.id === idNum);
+    if (!connection) return res.status(404).json({ error: "Connection not found." });
 
-    if (!connection) {
-      return res.status(404).json({ error: "Connection not found." });
-    }
-
-    // Update last used timestamp
     connection.lastUsed = new Date().toISOString();
     await writeConnectionsToFile(connections);
+
+    const policy = getPolicy(connection.dbType);
+    const { databaseDisplay, databaseShort, extras = {} } = policy.display(connection);
 
     return res.status(200).json({
       message: "Connection test initiated",
@@ -296,6 +267,9 @@ const testConnection = async (req, res) => {
         port: connection.port,
         dbType: connection.dbType,
         database: connection.database,
+        databaseDisplay,
+        databaseShort,
+        ...extras,
       },
       testedAt: new Date().toISOString(),
     });

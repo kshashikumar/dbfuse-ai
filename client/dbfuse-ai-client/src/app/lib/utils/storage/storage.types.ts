@@ -71,6 +71,9 @@ export interface Connection {
     port: number;
     dbType: DatabaseType;
     database?: string;
+    databaseDisplay?: string; // For user-friendly display names
+    databaseShort?: string; // Shortened display name
+    databasePath?: string; // Full path for SQLite
     socketPath?: string;
     status?: string;
     createdAt?: string;
