@@ -32,7 +32,7 @@ export class ResultGridComponent implements OnInit {
     @Input() tabId: string = '';
     @Output() resultsChanged = new EventEmitter<any[]>();
 
-    tabsData = new Map<string, any>();
+    // Removed heavy per-tab caching; keep minimal state only
     headers: string[] = [];
     rows: any[] = [];
     isLoading: boolean = false;
@@ -48,17 +48,20 @@ export class ResultGridComponent implements OnInit {
     queryResults: any[] = []; // data.queries[]
     activeQueryIndex: number = 0;
 
+    // Convenience getter for template access
+    get activeResult(): any | null {
+        if (this.queryResults && this.queryResults.length > 0) {
+            return this.queryResults[this.activeQueryIndex] || null;
+        }
+        return null;
+    }
+
     ngOnInit(): void {
         // Initialize component
     }
 
     ngOnChanges(changes: SimpleChanges): void {
-        if (changes['triggerQuery'] || changes['dbName'] || changes['tabId']) {
-            if (this.dbName !== '' && this.triggerQuery !== '') {
-                this.currentPage = 1;
-                this.executeQuery();
-            }
-        }
+        // Only execute when the explicit executeTriggered flag toggles
         if (changes['executeTriggered']) {
             const prev = changes['executeTriggered'].previousValue;
             const curr = changes['executeTriggered'].currentValue;
@@ -66,6 +69,21 @@ export class ResultGridComponent implements OnInit {
                 this.currentPage = 1;
                 this.executeQuery();
             }
+        }
+
+        // Keep pagination state reset if dbName/tabId changes, but do not auto-execute
+        if (changes['dbName'] || changes['tabId']) {
+            // Reset local state on tab switch
+            this.currentPage = 1;
+            this.headers = [];
+            this.rows = [];
+            this.queryResults = [];
+            this.activeQueryIndex = 0;
+            this.totalRows = 0;
+            this.totalPages = 1;
+            this.errorMessage = null;
+            this.isLoading = false;
+            this._cdr.markForCheck();
         }
     }
 
@@ -116,7 +134,7 @@ export class ResultGridComponent implements OnInit {
                             // Apply selected result to grid
                             this.applyActiveQueryData();
 
-                            this.tabsData.set(this.tabId, data);
+                            // No per-tab caching retained; state lives in-memory per component
                         } else {
                             // Single-query fallback
                             const single = data as any;
@@ -130,7 +148,7 @@ export class ResultGridComponent implements OnInit {
                             this.setData(rows);
                             this.totalRows = totalRows || 0;
                             this.totalPages = Math.ceil(this.totalRows / this.pageSize) || 1;
-                            this.tabsData.set(this.tabId, data);
+                            // No per-tab caching retained
                         }
                     } else {
                         this.setData([]);

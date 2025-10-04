@@ -51,7 +51,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     selectedDB: string = '';
     currentTabId: string = '';
     editingTabIndex: number | null = null;
-    maxTabs: number = 10;
+    maxTabs: number = 20;
 
     currentPage: number = 1;
     pageSize: number = 6;
@@ -65,6 +65,8 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     Math = Math;
     private databaseType: DatabaseType = sessionStorage.getItem('dbType') as DatabaseType;
     private document = inject(DOCUMENT);
+    // Sequential counter for generic tab names (ytab 1, ytab 2, ...)
+    private nextTabNumber: number = 1;
 
     constructor(
         private cdr: ChangeDetectorRef,
@@ -363,22 +365,12 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
             return;
         }
 
-        // Generate database-specific identifier
-        const id = this.generateTableIdentifier(dbName, tableName, this.databaseType);
+        // Generate a unique identifier per tab (avoid reusing same tab for same table)
+        const baseId = this.generateTableIdentifier(dbName, tableName, this.databaseType);
+        const id = `${baseId}#${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-        const tabIndex = this.tabs.findIndex((tab) => tab.id === id);
-        if (tabIndex > -1) {
-            this.selectTab(tabIndex);
-            return;
-        }
-
-        // Generate database-specific display name
-        let displayName = tableName;
-        if (this.databaseType === 'sqlite3') {
-            displayName = `${dbName}/${tableName}`; // Show DB file name for SQLite
-        } else if (this.databaseType === 'mssql') {
-            displayName = `${dbName}.${tableName}`; // Show database.table for SQL Server
-        }
+        // Generate generic display name (remove table/db from title)
+        const displayName = `Query ${this.nextTabNumber++}`;
 
         this.tabs.push({
             id,
@@ -387,7 +379,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
             displayName: displayName,
         });
 
-        // Generate database-specific SELECT query
+        // Pre-fill editor with a database-specific SELECT query (do not auto-execute)
         const selectQuery = this.generateSelectQuery(dbName, tableName, this.databaseType);
         this.tabContent.push(selectQuery);
 
@@ -397,7 +389,6 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
             this.needsEditorInit = true;
         } else {
             this.editorInstance.setValue(this.tabContent[this.selectedTab]);
-            this.triggerQuery = this.tabContent[this.selectedTab];
             this.selectedDB = dbName;
             this.currentTabId = id;
         }
@@ -429,7 +420,8 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         }
         this.selectedTab = tabIndex;
         this.selectedDB = this.tabs[tabIndex].dbName;
-        this.triggerQuery = this.tabContent[tabIndex];
+        // Do not set triggerQuery on tab switch to avoid auto-execution
+        this.triggerQuery = '';
         this.currentTabId = this.tabs[tabIndex].id;
         if (this.editorInstance) {
             this.editorInstance.setValue(this.tabContent[tabIndex]);
@@ -446,9 +438,14 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         this.tabs.splice(tabIndex, 1);
         this.tabContent.splice(tabIndex, 1);
         this.selectedTab = this.tabs.length ? Math.max(0, tabIndex - 1) : -1;
+        // If all tabs are closed, reset the tab numbering
+        if (this.tabs.length === 0) {
+            this.nextTabNumber = 1;
+        }
         if (this.editorInstance && this.selectedTab >= 0) {
             this.editorInstance.setValue(this.tabContent[this.selectedTab]);
-            this.triggerQuery = this.tabContent[this.selectedTab];
+            // Do not automatically set query to avoid unintended execution
+            this.triggerQuery = '';
             this.selectedDB = this.tabs[this.selectedTab]?.dbName || '';
             this.currentTabId = this.tabs[this.selectedTab]?.id || '';
         } else {
@@ -473,6 +470,8 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         this.currentTabId = '';
         this.triggerQuery = '';
         this.executeTriggered = false;
+        // Reset tab numbering when all tabs are closed
+        this.nextTabNumber = 1;
         if (this.editorInstance) {
             this.editorInstance.setValue('');
             this.editorInstance.destroy();

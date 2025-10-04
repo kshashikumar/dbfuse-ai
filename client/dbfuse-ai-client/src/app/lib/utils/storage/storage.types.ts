@@ -280,14 +280,6 @@ export interface ConnectionHealth {
     health?: any;
 }
 
-// Database Metadata for AI
-export interface DbMeta {
-    tableName: string;
-    columns: string[];
-    relationships?: string[];
-}
-
-// OpenAI Integration
 export interface OpenAIPrompt {
     dbMeta: DbMeta[];
     databaseName: string;

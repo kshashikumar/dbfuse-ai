@@ -1,7 +1,7 @@
 <div class="flex flex-col h-full bg-white dark:bg-gray-800">
     <!-- Header with Stats and Pagination -->
     <div
-        *ngIf="tabsData.size > 0"
+        *ngIf="queryResults.length > 0 || rows.length > 0"
         class="flex-shrink-0 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
     >
         <div class="flex items-center justify-between">
@@ -115,21 +115,92 @@
             </div>
         </div>
 
-        <!-- Empty State -->
+        <!-- Empty / Non-SELECT State with details -->
         <div
-            *ngIf="!isLoading && !errorMessage && rows.length === 0 && tabsData.size > 0"
-            class="flex items-center justify-center h-full"
+            *ngIf="!isLoading && !errorMessage && rows.length === 0 && queryResults.length > 0"
+            class="h-full"
         >
-            <div class="text-center">
-                <div
-                    class="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center"
-                >
-                    <span class="icon-[mdi--table-off] w-8 h-8 text-gray-400"></span>
+            <div class="h-full overflow-auto p-4">
+                <div class="max-w-3xl mx-auto space-y-4">
+                    <!-- Summary card -->
+                    <div
+                        class="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm"
+                    >
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                <span
+                                    class="icon-[mdi--information-outline] w-5 h-5 text-gray-500 dark:text-gray-400"
+                                ></span>
+                                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">Query Summary</h3>
+                            </div>
+                            <span
+                                class="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600"
+                            >
+                                {{ activeResult?.type || 'UNKNOWN' }}
+                            </span>
+                        </div>
+                        <div class="mt-3">
+                            <div class="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">Statement</div>
+                            <pre
+                                class="text-sm text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-900/40 p-3 rounded border border-gray-200 dark:border-gray-700 overflow-auto"
+                                >{{ activeResult?.query }}</pre
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Messages -->
+                    <div
+                        *ngIf="activeResult?.messages?.length"
+                        class="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm"
+                    >
+                        <div class="flex items-center space-x-2 mb-2">
+                            <span class="icon-[mdi--message-badge] w-5 h-5 text-blue-500"></span>
+                            <h4 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Messages</h4>
+                        </div>
+                        <ul class="space-y-2">
+                            <li
+                                *ngFor="let m of activeResult.messages"
+                                class="text-sm text-gray-800 dark:text-gray-200"
+                            >
+                                <div class="flex items-start justify-between">
+                                    <div class="space-x-2">
+                                        <span
+                                            class="text-xs px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                            >{{ m.type || 'INFO' }}</span
+                                        >
+                                        <span>{{ m.message }}</span>
+                                    </div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                                        <ng-container *ngIf="m.affectedRows !== undefined"
+                                            >affectedRows: {{ m.affectedRows }}&nbsp;•&nbsp;</ng-container
+                                        >
+                                        <ng-container *ngIf="m.warningCount !== undefined"
+                                            >warnings: {{ m.warningCount }}</ng-container
+                                        >
+                                    </div>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Pagination/info footer -->
+                    <div
+                        class="p-3 text-xs text-gray-600 dark:text-gray-400 flex items-center justify-between border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-900/30"
+                    >
+                        <div>
+                            Executed at: <span class="font-mono">{{ activeResult?.executedAt || '-' }}</span>
+                        </div>
+                        <div
+                            *ngIf="activeResult?.pagination"
+                            class="space-x-2"
+                        >
+                            <span>page: {{ activeResult.pagination.page }}</span>
+                            <span>pageSize: {{ activeResult.pagination.pageSize }}</span>
+                            <span>totalPages: {{ activeResult.pagination.totalPages }}</span>
+                            <span>hasMore: {{ activeResult.pagination.hasMore }}</span>
+                        </div>
+                    </div>
                 </div>
-                <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">No Results</h3>
-                <p class="text-sm text-gray-600 dark:text-gray-400">
-                    The query was executed successfully, but returned no rows.
-                </p>
             </div>
         </div>
 
@@ -209,7 +280,7 @@
 
         <!-- Initial State -->
         <div
-            *ngIf="tabsData.size === 0"
+            *ngIf="queryResults.length === 0 && rows.length === 0 && !isLoading && !errorMessage"
             class="flex items-center justify-center h-full"
         >
             <div class="text-center">

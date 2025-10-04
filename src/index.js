@@ -17,7 +17,15 @@ app.use(
   cors({
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-DB-Type", "X-Db-Type", "x-db-type"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-DB-Type",
+      "X-Db-Type",
+      "x-db-type",
+      "x-connection-id",
+      "X-Connection-Id",
+    ],
     credentials: true,
   }),
 );
