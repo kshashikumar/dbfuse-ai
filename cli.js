@@ -17,17 +17,18 @@ const rl = readline.createInterface({
 });
 
 const defaultPort = 5000;
+const isVerbose = !!(argv.verbose || argv.v); // default quiet; enable details with --verbose/-v
 
 // Modern AI models with updated pricing and availability
 const supportedModels = {
   gemini: {
     models: ["gemini-2.5-flash", "gemini-2.5-pro"],
-    note: "🆓 Free tier available",
+    note: "Free tier available",
     description: "Google's latest AI models",
   },
   openai: {
     models: ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4o"],
-    note: "💰 Paid",
+    note: "Paid",
     description: "OpenAI's ChatGPT models",
   },
   anthropic: {
@@ -38,12 +39,12 @@ const supportedModels = {
       "claude-3-7-sonnet",
       "claude-3-5-haiku",
     ],
-    note: "💰 Paid (Haiku most affordable)",
+    note: "Paid (Haiku most affordable)",
     description: "Anthropic's Claude models",
   },
   mistral: {
     models: ["mistral-medium-2508", "mistral-large-2411", "mistral-small-2407", "codestral-2508"],
-    note: "💰 Paid",
+    note: "Paid",
     description: "Mistral AI's models",
   },
   cohere: {
@@ -53,7 +54,7 @@ const supportedModels = {
       "command-a-vision-07-2025",
       "command-r7b-12-2024",
     ],
-    note: "🆓 Free tier available",
+    note: "Free tier available",
     description: "Cohere's language models",
   },
   huggingface: {
@@ -62,18 +63,19 @@ const supportedModels = {
       "facebook/blenderbot-400M-distill",
       "microsoft/DialoGPT-large",
     ],
-    note: "🆓 Free",
+    note: "Free",
     description: "Open-source models via Hugging Face",
   },
   perplexity: {
     models: ["sonar", "sonar-pro", "sonar-reasoning", "sonar-reasoning-pro", "sonar-deep-research"],
-    note: "💰 Paid",
+    note: "Paid",
     description: "Perplexity's search-enhanced models",
   },
 };
 
 // Utility functions for better UX
 function displayHeader() {
+  if (!isVerbose) return;
   console.clear();
   console.log(chalk.cyan.bold("╔══════════════════════════════════════════════════════════════╗"));
   console.log(chalk.cyan.bold("║                        DBFuse AI Setup                      ║"));
@@ -83,20 +85,23 @@ function displayHeader() {
 }
 
 function displaySection(title) {
-  console.log(chalk.yellow.bold(`\n📋 ${title}`));
+  if (!isVerbose) return;
+  console.log(chalk.yellow.bold(`\n${title}`));
   console.log(chalk.gray("─".repeat(50)));
 }
 
 function displaySuccess(message) {
-  console.log(chalk.green.bold(`✅ ${message}`));
+  if (!isVerbose) return;
+  console.log(chalk.green.bold(`${message}`));
 }
 
 function displayInfo(message) {
-  console.log(chalk.blue(`ℹ️  ${message}`));
+  if (!isVerbose) return;
+  console.log(chalk.blue(`${message}`));
 }
 
 function displayWarning(message) {
-  console.log(chalk.yellow(`⚠️  ${message}`));
+  console.log(chalk.yellow(`${message}`));
 }
 
 function askQuestion(question, defaultValue = null) {
@@ -127,7 +132,7 @@ function askYesNo(question, defaultValue = null) {
 
 async function askForPort() {
   displaySection("Server Configuration");
-  const port = await askQuestion(`🌐 Server port`, defaultPort);
+  const port = await askQuestion(`Server port`, defaultPort);
   const portNumber = parseInt(port, 10);
   return isNaN(portNumber) ? defaultPort : portNumber;
 }
@@ -135,17 +140,14 @@ async function askForPort() {
 async function askForDatabaseCredentials() {
   displaySection("Database Configuration");
 
-  const useCustomCreds = await askYesNo(
-    "🔐 Do you want to configure custom database credentials?",
-    false,
-  );
+  const useCustomCreds = await askYesNo("Configure custom database credentials?", false);
 
   if (!useCustomCreds) {
-    displayInfo("Using default credentials (root/root)");
+    if (isVerbose) displayInfo("Using default credentials (root/root)");
     return { username: "root", password: "root" };
   }
 
-  console.log(chalk.cyan("\n🔑 Enter your database credentials:"));
+  if (isVerbose) console.log(chalk.cyan("\nEnter your database credentials:"));
   const username = await askQuestion("   Username", "root");
   const password = await askQuestion("   Password", "root");
 
@@ -154,21 +156,15 @@ async function askForDatabaseCredentials() {
 
 async function askForAIUsage() {
   displaySection("AI Configuration");
-
-  displayInfo(
-    "AI features enhance DBFuse with intelligent query suggestions and database insights.",
-  );
-  console.log(
-    chalk.magenta(
-      "💡 Tip: Gemini offers a generous free tier (15 requests/minute) - perfect for getting started!",
-    ),
-  );
-
-  return await askYesNo("🤖 Enable AI features?", true);
+  if (isVerbose)
+    displayInfo(
+      "AI features enhance DBFuse with intelligent query suggestions and database insights.",
+    );
+  return await askYesNo("Enable AI features?", true);
 }
 
 async function askForAIModel() {
-  console.log(chalk.cyan.bold("\n🧠 Available AI Models:"));
+  console.log(chalk.cyan.bold("\nAvailable AI Models:"));
   console.log();
 
   let counter = 1;
@@ -176,18 +172,16 @@ async function askForAIModel() {
 
   Object.entries(supportedModels).forEach(([providerKey, providerData]) => {
     const providerName = providerKey.charAt(0).toUpperCase() + providerKey.slice(1);
-    console.log(chalk.cyan.bold(`${providerData.description}:`));
-    console.log(chalk.gray(`   ${providerData.note}`));
-
     providerData.models.forEach((model) => {
-      console.log(`   ${chalk.white(counter.toString().padStart(2))}. ${chalk.green(model)}`);
+      console.log(
+        ` ${chalk.white(counter.toString().padStart(2))}. ${chalk.green(providerName)} - ${chalk.green(model)}`,
+      );
       modelMap[counter] = {
         provider: providerName === "Huggingface" ? "HuggingFace" : providerName,
         model,
       };
       counter++;
     });
-    console.log();
   });
 
   const choice = await askQuestion("Select your preferred AI model (number)");
@@ -214,9 +208,9 @@ async function askForAPIKey(provider) {
 
   const providerInfo = providerMap[provider] || { name: provider, url: "" };
 
-  console.log(chalk.blue(`\n🔑 ${providerInfo.name} API Key Required`));
+  if (isVerbose) console.log(chalk.blue(`\n${providerInfo.name} API Key Required`));
   if (providerInfo.url) {
-    console.log(chalk.gray(`   Get your key at: ${providerInfo.url}`));
+    if (isVerbose) console.log(chalk.gray(`   Get your key at: ${providerInfo.url}`));
   }
 
   return await askQuestion(`   Enter your ${providerInfo.name} API key`);
@@ -228,7 +222,7 @@ function validateEnvironment() {
   if (majorVersion < MIN_NODE_VERSION) {
     console.error(
       chalk.red(
-        `❌ Node.js version ${MIN_NODE_VERSION} or higher is required. Current: ${majorVersion}`,
+        `Node.js version ${MIN_NODE_VERSION} or higher is required. Current: ${majorVersion}`,
       ),
     );
     process.exit(1);
@@ -240,16 +234,14 @@ function validateEnvironment() {
     const [npmMajorVersion] = npmVersion.split(".").map(Number);
     if (npmMajorVersion < MIN_NPM_VERSION) {
       console.error(
-        chalk.red(
-          `❌ npm version ${MIN_NPM_VERSION} or higher is required. Current: ${npmVersion}`,
-        ),
+        chalk.red(`npm version ${MIN_NPM_VERSION} or higher is required. Current: ${npmVersion}`),
       );
       process.exit(1);
     }
     displaySuccess(`npm ${npmVersion}`);
   } catch (error) {
     console.error(
-      chalk.red("❌ Failed to check npm version. Ensure npm is installed and accessible."),
+      chalk.red("Failed to check npm version. Ensure npm is installed and accessible."),
     );
     process.exit(1);
   }
@@ -257,22 +249,18 @@ function validateEnvironment() {
 
 function displayConfiguration(config) {
   displaySection("Configuration Summary");
-  console.log(chalk.white(`🌐 Server Port: ${chalk.green(config.port)}`));
-  console.log(chalk.white(`🔐 Database User: ${chalk.green(config.dbUsername)}`));
-  console.log(
-    chalk.white(`🔑 Database Pass: ${chalk.green("*".repeat(config.dbPassword.length))}`),
-  );
+  console.log(chalk.white(`Server Port: ${chalk.green(config.port)}`));
+  console.log(chalk.white(`Database User: ${chalk.green(config.dbUsername)}`));
+  console.log(chalk.white(`Database Pass: ${chalk.green("*".repeat(config.dbPassword.length))}`));
 
   if (config.aiEnabled) {
-    console.log(chalk.white(`🤖 AI Provider: ${chalk.green(config.aiProvider)}`));
-    console.log(chalk.white(`🧠 AI Model: ${chalk.green(config.aiModel)}`));
+    console.log(chalk.white(`AI Provider: ${chalk.green(config.aiProvider)}`));
+    console.log(chalk.white(`AI Model: ${chalk.green(config.aiModel)}`));
     console.log(
-      chalk.white(
-        `🔑 API Key: ${chalk.green(config.apiKey ? "✅ Configured" : "❌ Not provided")}`,
-      ),
+      chalk.white(`API Key: ${chalk.green(config.apiKey ? "Configured" : "Not provided")}`),
     );
   } else {
-    console.log(chalk.white(`🤖 AI Features: ${chalk.yellow("Disabled")}`));
+    console.log(chalk.white(`AI Features: ${chalk.yellow("Disabled")}`));
   }
 }
 
@@ -331,7 +319,7 @@ async function main() {
       }
 
       if (!provider) {
-        console.error(chalk.red("❌ Invalid AI model specified. Exiting..."));
+        console.error(chalk.red("Invalid AI model specified. Exiting..."));
         process.exit(1);
       }
       config.aiProvider = provider;
@@ -368,14 +356,19 @@ async function main() {
     });
 
     nodemon.on("start", () => {
-      console.log(chalk.green.bold(`🚀 DBFuse AI is running on http://localhost:${config.port}`));
+      console.log(
+        chalk.green.bold(
+          `> Login Credentials: ${process.env.DBFUSE_USERNAME} / ${process.env.DBFUSE_PASSWORD}`,
+        ),
+      );
+      console.log(chalk.green.bold(`DBFuse AI is running on http://localhost:${config.port}`));
     });
 
     nodemon.on("restart", (files) => {
-      console.log(chalk.blue("🔄 App restarted due to:", files));
+      console.log(chalk.blue("App restarted due to:", files));
     });
   } catch (error) {
-    console.error(chalk.red("❌ Setup failed:"), error.message);
+    console.error(chalk.red("Setup failed:"), error.message);
     process.exit(1);
   } finally {
     rl.close();
@@ -384,19 +377,19 @@ async function main() {
 
 // Graceful shutdown
 process.on("SIGINT", () => {
-  console.log(chalk.yellow("\n👋 Shutting down DBFuse AI..."));
+  console.log(chalk.yellow("\nShutting down DBFuse AI..."));
   rl.close();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
-  console.log(chalk.yellow("\n👋 Shutting down DBFuse AI..."));
+  console.log(chalk.yellow("\nShutting down DBFuse AI..."));
   rl.close();
   process.exit(0);
 });
 
 main().catch((error) => {
-  console.error(chalk.red("❌ An unexpected error occurred:"), error);
+  console.error(chalk.red("An unexpected error occurred:"), error);
   rl.close();
   process.exit(1);
 });

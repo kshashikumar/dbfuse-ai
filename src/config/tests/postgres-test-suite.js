@@ -9,6 +9,7 @@ class PostgreSQLTester {
     this.passed = 0;
     this.failed = 0;
     this.errors = [];
+    this.connectionId = null;
 
     // Configuration - UPDATE THESE VALUES
     this.config = {
@@ -44,6 +45,11 @@ class PostgreSQLTester {
         },
         timeout: 30000,
       };
+
+      // Attach connectionId once available
+      if (this.connectionId) {
+        config.headers["x-connection-id"] = this.connectionId;
+      }
 
       if (data) config.data = data;
 
@@ -154,6 +160,8 @@ class PostgreSQLTester {
           `Connection failed: ${JSON.stringify(result.error)} (Status: ${result.status})`,
         );
       }
+      // Save connectionId for later requests
+      this.connectionId = result.data?.connectionId || null;
       this.log(`Connected: ${result.data.message}`, "success");
     });
 
@@ -186,7 +194,7 @@ class PostgreSQLTester {
 
     // 6. GET TABLES
     await this.test("List Tables", async () => {
-      const result = await this.request("GET", "/api/sql/postgres/tables");
+      const result = await this.request("GET", "/api/sql/tables?dbName=postgres");
       if (!result.success || !Array.isArray(result.data.tables)) {
         throw new Error("Failed to get tables list");
       }
@@ -195,8 +203,9 @@ class PostgreSQLTester {
 
     // 7. SIMPLE SELECT QUERY
     await this.test("Simple SELECT Query", async () => {
-      const result = await this.request("POST", "/api/sql/postgres/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT datname FROM pg_database LIMIT 3",
+        dbName: "postgres",
         page: 1,
         pageSize: 3,
       });
@@ -209,8 +218,9 @@ class PostgreSQLTester {
 
     // 8. SHOW COMMAND (PostgreSQL style or server emulation)
     await this.test("SHOW Tables Command", async () => {
-      const result = await this.request("POST", "/api/sql/postgres/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SHOW TABLES",
+        dbName: "postgres",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -222,18 +232,21 @@ class PostgreSQLTester {
     // 9. DESCRIBE COMMAND (PostgreSQL style / server emulation)
     await this.test("DESCRIBE Command", async () => {
       // First create a test table to describe
-      await this.request("POST", "/api/sql/postgres/query", {
+      await this.request("POST", "/api/sql/query", {
         query:
           "CREATE TABLE IF NOT EXISTS test_describe_table (id SERIAL PRIMARY KEY, name VARCHAR(100))",
+        dbName: "postgres",
       });
 
-      const result = await this.request("POST", "/api/sql/postgres/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "DESCRIBE test_describe_table",
+        dbName: "postgres",
       });
 
       // Clean up
-      await this.request("POST", "/api/sql/postgres/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE IF EXISTS test_describe_table",
+        dbName: "postgres",
       });
 
       const count = this.extractColumnCount(result.data);
@@ -245,8 +258,9 @@ class PostgreSQLTester {
 
     // 10. PAGINATION
     await this.test("Query Pagination", async () => {
-      const result = await this.request("POST", "/api/sql/postgres/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT * FROM information_schema.columns",
+        dbName: "postgres",
         page: 1,
         pageSize: 5,
       });
@@ -266,7 +280,7 @@ class PostgreSQLTester {
     // 11. TABLE INFO (if we have any tables)
     await this.test("Get Table Info", async () => {
       // First, get list of tables
-      const tablesResult = await this.request("GET", "/api/sql/postgres/tables");
+      const tablesResult = await this.request("GET", "/api/sql/tables?dbName=postgres");
       if (!tablesResult.success || !Array.isArray(tablesResult.data.tables)) {
         this.log("⚠️ No tables found to test table info", "warning");
         return;
@@ -274,20 +288,25 @@ class PostgreSQLTester {
 
       if (tablesResult.data.tables.length === 0) {
         // Create a test table
-        await this.request("POST", "/api/sql/postgres/query", {
+        await this.request("POST", "/api/sql/query", {
           query: `CREATE TABLE IF NOT EXISTS test_table_info (
             id SERIAL PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
             email VARCHAR(100) UNIQUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           )`,
+          dbName: "postgres",
         });
 
-        const result = await this.request("GET", "/api/sql/postgres/test_table_info/info");
+        const result = await this.request(
+          "GET",
+          "/api/sql/table-info?table=test_table_info&dbName=postgres",
+        );
 
         // Clean up
-        await this.request("POST", "/api/sql/postgres/query", {
+        await this.request("POST", "/api/sql/query", {
           query: "DROP TABLE IF EXISTS test_table_info",
+          dbName: "postgres",
         });
 
         if (!result.success || !result.data.columns) {
@@ -297,7 +316,10 @@ class PostgreSQLTester {
       } else {
         // Use existing table
         const tableName = tablesResult.data.tables[0];
-        const result = await this.request("GET", `/api/sql/postgres/${tableName}/info`);
+        const result = await this.request(
+          "GET",
+          `/api/sql/table-info?table=${encodeURIComponent(tableName)}&dbName=postgres`,
+        );
         if (!result.success || !result.data.columns) {
           throw new Error("Failed to get table info");
         }
@@ -308,20 +330,24 @@ class PostgreSQLTester {
     // 12. MULTIPLE TABLES INFO
     await this.test("Multiple Tables Info", async () => {
       // Create test tables
-      await this.request("POST", "/api/sql/postgres/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "CREATE TABLE IF NOT EXISTS test_multi_1 (id SERIAL PRIMARY KEY, name VARCHAR(50))",
+        dbName: "postgres",
       });
-      await this.request("POST", "/api/sql/postgres/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "CREATE TABLE IF NOT EXISTS test_multi_2 (id SERIAL PRIMARY KEY, description TEXT)",
+        dbName: "postgres",
       });
 
-      const result = await this.request("POST", "/api/sql/postgres/info", {
+      const result = await this.request("POST", "/api/sql/info", {
         tables: ["test_multi_1", "test_multi_2"],
+        dbName: "postgres",
       });
 
       // Clean up
-      await this.request("POST", "/api/sql/postgres/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE IF EXISTS test_multi_1, test_multi_2",
+        dbName: "postgres",
       });
 
       if (!result.success || !Array.isArray(result.data.tables)) {
@@ -346,8 +372,9 @@ class PostgreSQLTester {
 
     // 14. ERROR HANDLING - SYNTAX ERROR
     await this.test("Error Handling - Syntax Error", async () => {
-      const result = await this.request("POST", "/api/sql/postgres/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELCT * FROM pg_database_invalid", // Intentional typos
+        dbName: "postgres",
       });
 
       // If request failed, that's acceptable for this test
@@ -382,7 +409,7 @@ class PostgreSQLTester {
       const config = {
         method: "POST",
         url: `${this.baseURL}/api/sql/databases`,
-        headers: { "Content-Type": "application/json" }, // Missing x-db-type
+        headers: { "Content-Type": "application/json", "x-db-type": "pg" },
         timeout: 30000,
       };
 
@@ -400,8 +427,9 @@ class PostgreSQLTester {
 
     // 16. CREATE TEST DATABASE (if permissions allow)
     await this.test("Create Test Database", async () => {
-      const result = await this.request("POST", "/api/sql/postgres/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "CREATE DATABASE test_postgres_strategy",
+        dbName: "postgres",
       });
       if (!result.success) {
         this.log("⚠️ Could not create test database (may not have permissions)", "warning");
@@ -422,13 +450,14 @@ class PostgreSQLTester {
       }
 
       // Create table
-      result = await this.request("POST", "/api/sql/test_postgres_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE IF NOT EXISTS test_users (
           id SERIAL PRIMARY KEY,
           name VARCHAR(100),
           email VARCHAR(100) UNIQUE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
+        dbName: "test_postgres_strategy",
       });
       if (!result.success) {
         this.log("⚠️ Could not create test table", "warning");
@@ -436,8 +465,9 @@ class PostgreSQLTester {
       }
 
       // Insert test data
-      result = await this.request("POST", "/api/sql/test_postgres_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "INSERT INTO test_users (name, email) VALUES ('Test User', 'test@example.com')",
+        dbName: "test_postgres_strategy",
       });
       if (!result.success) {
         this.log("⚠️ Could not insert test data", "warning");
@@ -445,8 +475,9 @@ class PostgreSQLTester {
       }
 
       // Select test data
-      result = await this.request("POST", "/api/sql/test_postgres_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "SELECT * FROM test_users",
+        dbName: "test_postgres_strategy",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -463,8 +494,9 @@ class PostgreSQLTester {
         dbName: "postgres",
       });
 
-      const result = await this.request("POST", "/api/sql/postgres/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "DROP DATABASE IF EXISTS test_postgres_strategy",
+        dbName: "postgres",
       });
       if (!result.success) {
         this.log("⚠️ Could not cleanup test database", "warning");

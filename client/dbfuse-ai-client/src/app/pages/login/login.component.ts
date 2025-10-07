@@ -25,6 +25,14 @@ export class LoginComponent implements OnInit {
 
     ngOnInit(): void {
         this.initializeForm();
+        // If navigated from AuthGuard with an authError state, display it
+        const nav = this._router.getCurrentNavigation();
+        const state = nav?.extras?.state as { authError?: string } | undefined;
+        if (state?.authError) {
+            this.errorMessage = state.authError;
+            this.isLoading = false;
+            this._cdr.markForCheck();
+        }
     }
 
     private initializeForm(): void {

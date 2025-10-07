@@ -2,6 +2,7 @@
 const { Pool } = require("pg");
 
 const DatabaseStrategy = require("../database-strategy");
+const chalk = require("chalk");
 
 class PostgreSQLStrategy extends DatabaseStrategy {
   constructor() {
@@ -28,7 +29,7 @@ class PostgreSQLStrategy extends DatabaseStrategy {
       schema,
     } = config;
 
-    console.log(
+    chalk.green(
       `> Connecting to PostgreSQL server @ ${host || "localhost"}:${port || 5432} with user ${username}${
         database ? ` and database ${database}` : ""
       }${ssl ? " with SSL" : ""}`,
@@ -419,7 +420,15 @@ class PostgreSQLStrategy extends DatabaseStrategy {
     const schemaName = this.currentSchema;
 
     const { rows: columns } = await this.pool.query(
-      `SELECT column_name, data_type, is_nullable, column_default
+      `SELECT 
+          column_name, 
+          data_type, 
+          is_nullable, 
+          column_default,
+          character_maximum_length,
+          numeric_precision,
+          numeric_scale,
+          datetime_precision
        FROM information_schema.columns 
        WHERE table_schema = $1 AND table_name = $2
        ORDER BY ordinal_position`,
@@ -459,6 +468,9 @@ class PostgreSQLStrategy extends DatabaseStrategy {
         data_type: col.data_type,
         is_nullable: col.is_nullable === "YES",
         default_value: col.column_default,
+        length: col.character_maximum_length != null ? Number(col.character_maximum_length) : null,
+        precision: col.numeric_precision != null ? Number(col.numeric_precision) : null,
+        scale: col.numeric_scale != null ? Number(col.numeric_scale) : null,
       })),
       indexes: indexes.map((idx) => ({
         index_name: idx.index_name,

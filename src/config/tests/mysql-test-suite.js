@@ -9,6 +9,7 @@ class MySQLTester {
     this.passed = 0;
     this.failed = 0;
     this.errors = [];
+    this.connectionId = null;
 
     // Configuration - UPDATE THESE VALUES
     this.config = {
@@ -43,6 +44,11 @@ class MySQLTester {
         },
         timeout: 30000,
       };
+
+      // Attach connectionId to headers when available
+      if (this.connectionId) {
+        config.headers["x-connection-id"] = this.connectionId;
+      }
 
       if (data) config.data = data;
 
@@ -153,6 +159,8 @@ class MySQLTester {
           `Connection failed: ${JSON.stringify(result.error)} (Status: ${result.status})`,
         );
       }
+      // save connectionId for subsequent calls
+      this.connectionId = result.data?.connectionId || null;
       this.log(`Connected: ${result.data.message}`, "success");
     });
 
@@ -185,7 +193,7 @@ class MySQLTester {
 
     // 6. GET TABLES
     await this.test("List Tables", async () => {
-      const result = await this.request("GET", "/api/sql/information_schema/tables");
+      const result = await this.request("GET", "/api/sql/tables?dbName=information_schema");
       if (!result.success || !Array.isArray(result.data.tables)) {
         throw new Error("Failed to get tables list");
       }
@@ -194,7 +202,10 @@ class MySQLTester {
 
     // 7. TABLE INFO
     await this.test("Get Table Info", async () => {
-      const result = await this.request("GET", "/api/sql/information_schema/SCHEMATA/info");
+      const result = await this.request(
+        "GET",
+        "/api/sql/table-info?table=SCHEMATA&dbName=information_schema",
+      );
       if (!result.success || !result.data.columns) {
         throw new Error("Failed to get table info");
       }
@@ -203,8 +214,9 @@ class MySQLTester {
 
     // 8. SIMPLE SELECT QUERY
     await this.test("Simple SELECT Query", async () => {
-      const result = await this.request("POST", "/api/sql/information_schema/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT SCHEMA_NAME FROM SCHEMATA LIMIT 3",
+        dbName: "information_schema",
         page: 1,
         pageSize: 3,
       });
@@ -219,8 +231,9 @@ class MySQLTester {
 
     // 9. SHOW COMMAND
     await this.test("SHOW Command", async () => {
-      const result = await this.request("POST", "/api/sql/information_schema/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SHOW DATABASES",
+        dbName: "information_schema",
       });
       const rows = this.extractRows(result.data); // supports queries[0].rows
       if (!result.success || !Array.isArray(rows)) {
@@ -231,8 +244,9 @@ class MySQLTester {
 
     // 10. DESCRIBE COMMAND
     await this.test("DESCRIBE Command", async () => {
-      const result = await this.request("POST", "/api/sql/information_schema/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "DESCRIBE SCHEMATA",
+        dbName: "information_schema",
       });
       const count = this.extractColumnCount(result.data); // via queries[0].rows
       if (!result.success || typeof count !== "number") {
@@ -243,8 +257,9 @@ class MySQLTester {
 
     // 12. PAGINATION
     await this.test("Query Pagination", async () => {
-      const result = await this.request("POST", "/api/sql/information_schema/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT * FROM COLUMNS",
+        dbName: "information_schema",
         page: 1,
         pageSize: 5,
       });
@@ -263,8 +278,9 @@ class MySQLTester {
 
     // 13. MULTIPLE TABLES INFO
     await this.test("Multiple Tables Info", async () => {
-      const result = await this.request("POST", "/api/sql/information_schema/info", {
+      const result = await this.request("POST", "/api/sql/info", {
         tables: ["SCHEMATA", "TABLES"],
+        dbName: "information_schema",
       });
       if (!result.success || !Array.isArray(result.data.tables)) {
         throw new Error("Multiple tables info failed");
@@ -288,8 +304,9 @@ class MySQLTester {
 
     // 16. ERROR HANDLING - SYNTAX ERROR
     await this.test("Error Handling - Syntax Error", async () => {
-      const result = await this.request("POST", "/api/db/information_schema/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELCT * FROM SCHEMATA", // Intentional typo
+        dbName: "information_schema",
       });
       if (result.success) {
         throw new Error("Expected syntax error to fail");
@@ -302,11 +319,12 @@ class MySQLTester {
       const config = {
         method: "POST",
         url: `${this.baseURL}/api/sql/databases`,
-        headers: { "Content-Type": "application/json" }, // Missing x-db-type
+        headers: { "Content-Type": "application/json", "x-db-type": "mysql2" },
         timeout: 30000,
       };
 
       try {
+        // Intentionally remove x-connection-id to trigger validation error
         await axios(config);
         throw new Error("Expected missing header error");
       } catch (error) {
@@ -342,13 +360,14 @@ class MySQLTester {
       }
 
       // Create table
-      result = await this.request("POST", "/api/sql/test_mysql_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE IF NOT EXISTS test_users (
           id INT AUTO_INCREMENT PRIMARY KEY,
           name VARCHAR(100),
           email VARCHAR(100),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
+        dbName: "test_mysql_strategy",
       });
       if (!result.success) {
         this.log("⚠️ Could not create test table", "warning");
@@ -356,8 +375,9 @@ class MySQLTester {
       }
 
       // Insert test data
-      result = await this.request("POST", "/api/sql/test_mysql_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "INSERT INTO test_users (name, email) VALUES ('Test User', 'test@example.com')",
+        dbName: "test_mysql_strategy",
       });
       if (!result.success) {
         this.log("⚠️ Could not insert test data", "warning");
@@ -365,8 +385,9 @@ class MySQLTester {
       }
 
       // Select test data
-      result = await this.request("POST", "/api/sql/test_mysql_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "SELECT * FROM test_users",
+        dbName: "test_mysql_strategy",
       });
       const rows = this.extractRows(result.data); // supports queries[0].rows
       if (!result.success || !Array.isArray(rows)) {
@@ -378,8 +399,9 @@ class MySQLTester {
 
     // 20. CLEANUP
     await this.test("Cleanup Test Database", async () => {
-      const result = await this.request("POST", "/api/sql/information_schema/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "DROP DATABASE IF EXISTS test_mysql_strategy",
+        dbName: "information_schema",
       });
       if (!result.success) {
         this.log("⚠️ Could not cleanup test database", "warning");

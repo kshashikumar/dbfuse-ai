@@ -65,7 +65,8 @@ export class ResultGridComponent implements OnInit {
         if (changes['executeTriggered']) {
             const prev = changes['executeTriggered'].previousValue;
             const curr = changes['executeTriggered'].currentValue;
-            if (prev !== curr && this.dbName !== '' && this.triggerQuery !== '') {
+            const hasQuery = typeof this.triggerQuery === 'string' && this.triggerQuery.trim() !== '';
+            if (prev !== curr && hasQuery) {
                 this.currentPage = 1;
                 this.executeQuery();
             }

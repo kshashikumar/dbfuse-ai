@@ -1,18 +1,10 @@
 function _decodeCredentials(header) {
   try {
-    console.log("Decoding credentials from header:", header);
     const base64Part = header.trim().replace(/^Basic\s+/i, "");
     const clean = base64Part.replace(/^Basic\s+/i, "");
 
     const decoded = Buffer.from(clean, "base64").toString("ascii");
     const [username, password] = decoded.split(":");
-
-    console.log("Encoded credentials:", base64Part);
-    console.log("Decoded credentials:", decoded);
-    console.log("Cleaned credentials:", clean);
-    console.log("username:", username);
-    console.log("password:", password);
-
     return [username, password];
   } catch (err) {
     console.error("Failed to decode credentials:", err);
@@ -21,15 +13,18 @@ function _decodeCredentials(header) {
 }
 
 function basicToken(username, password) {
-  console.log("Generated Basic Token:", Buffer.from(`${username}:${password}`).toString("base64"));
   return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
 }
 
 const login = async (req, res) => {
-  console.log("Login endpoint hit");
-
   const username = req.body.username;
   const password = req.body.password;
+
+  // Basic validation
+  if (!username || !password) {
+    console.log("Missing username or password in login request");
+    return res.status(400).json({ error: "Username and password are required" });
+  }
 
   if (!process.env.DBFUSE_USERNAME || !process.env.DBFUSE_PASSWORD) {
     console.log("No env variables set, allowing login without validation");
@@ -39,17 +34,17 @@ const login = async (req, res) => {
   if (username === process.env.DBFUSE_USERNAME && password === process.env.DBFUSE_PASSWORD) {
     return res.status(200).json({ basicToken: basicToken(username, password) });
   }
+
+  // Invalid credentials
+  console.warn("Invalid credentials provided");
+  return res.status(401).json({ error: "Invalid username or password" });
 };
 
 const logout = async (req, res) => {
-  console.log("Logout endpoint hit");
   return res.status(200).json({ message: "Logged out successfully" });
 };
 
 const isAuthenticated = async (req, res) => {
-  console.log("IsAuthenticated endpoint hit");
-  console.log(req.headers.authorization);
-
   if (!process.env.DBFUSE_USERNAME || !process.env.DBFUSE_PASSWORD) {
     console.log("No env variables set, returning authenticated without validation");
     return res.status(200).json({ authenticated: true });

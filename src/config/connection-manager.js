@@ -11,6 +11,8 @@ class ConnectionManager {
     this.connectionStates = new Map();
     this.lastActivity = new Map();
     this.configPath = path.join(__dirname, "dbConnections.json");
+    // Runtime-only map to hold full configs (including secrets) for reconnect via dbController
+    this.connectionConfigs = new Map();
   }
 
   // Connection lifecycle management
@@ -26,6 +28,8 @@ class ConnectionManager {
         createdAt: new Date().toISOString(),
         lastUsed: new Date().toISOString(),
       });
+      // Store full config separately for runtime use (not persisted)
+      this.connectionConfigs.set(connectionId, { ...config });
 
       this.activeConnections.set(connectionId, strategy);
       this.setConnectionState(connectionId, CONNECTION_STATES.CONNECTED);
@@ -36,6 +40,23 @@ class ConnectionManager {
       this.setConnectionState(connectionId, CONNECTION_STATES.ERROR);
       throw error;
     }
+  }
+
+  // Register an already-connected strategy without invoking connect again
+  registerExistingConnection(connectionId, strategy, config) {
+    this.connections.set(connectionId, {
+      strategy,
+      config: { ...config, password: "***" },
+      createdAt: new Date().toISOString(),
+      lastUsed: new Date().toISOString(),
+    });
+    // Store full config separately for runtime use (not persisted)
+    this.connectionConfigs.set(connectionId, { ...config });
+
+    this.activeConnections.set(connectionId, strategy);
+    this.setConnectionState(connectionId, CONNECTION_STATES.CONNECTED);
+    this.updateLastActivity(connectionId);
+    return connectionId;
   }
 
   async closeConnection(connectionId) {
@@ -49,6 +70,7 @@ class ConnectionManager {
 
       this.activeConnections.delete(connectionId);
       this.connections.delete(connectionId);
+      this.connectionConfigs.delete(connectionId);
       this.connectionStates.delete(connectionId);
       this.lastActivity.delete(connectionId);
     }
@@ -254,6 +276,11 @@ class ConnectionManager {
       this.activeConnections.has(connectionId) &&
       this.getConnectionState(connectionId) === CONNECTION_STATES.CONNECTED
     );
+  }
+
+  // Runtime config access (do not expose password beyond server)
+  getConnectionConfig(connectionId) {
+    return this.connectionConfigs.get(connectionId) || null;
   }
 }
 

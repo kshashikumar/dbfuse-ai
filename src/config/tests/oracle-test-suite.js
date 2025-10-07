@@ -9,6 +9,7 @@ class OracleTester {
     this.passed = 0;
     this.failed = 0;
     this.errors = [];
+    this.connectionId = null;
 
     // Configuration - UPDATE THESE VALUES
     this.config = {
@@ -44,6 +45,11 @@ class OracleTester {
         },
         timeout: 30000,
       };
+
+      // Attach connectionId once available
+      if (this.connectionId) {
+        config.headers["x-connection-id"] = this.connectionId;
+      }
 
       if (data) config.data = data;
 
@@ -154,6 +160,8 @@ class OracleTester {
           `Connection failed: ${JSON.stringify(result.error)} (Status: ${result.status})`,
         );
       }
+      // Save connectionId for subsequent requests
+      this.connectionId = result.data?.connectionId || null;
       this.log(`Connected: ${result.data.message}`, "success");
     });
 
@@ -186,7 +194,7 @@ class OracleTester {
 
     // 6. GET TABLES
     await this.test("List Tables", async () => {
-      const result = await this.request("GET", "/api/sql/SYSTEM/tables");
+      const result = await this.request("GET", "/api/sql/tables?dbName=SYSTEM");
       if (!result.success || !Array.isArray(result.data.tables)) {
         throw new Error("Failed to get tables list");
       }
@@ -195,8 +203,9 @@ class OracleTester {
 
     // 7. SIMPLE SELECT QUERY
     await this.test("Simple SELECT Query", async () => {
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT username FROM all_users WHERE ROWNUM <= 3",
+        dbName: "SYSTEM",
         page: 1,
         pageSize: 3,
       });
@@ -209,8 +218,9 @@ class OracleTester {
 
     // 8. DUAL TABLE QUERY (Oracle classic)
     await this.test("DUAL Table Query", async () => {
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT SYSDATE, USER, 1+1 AS calculation FROM DUAL",
+        dbName: "SYSTEM",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -221,8 +231,9 @@ class OracleTester {
 
     // 9. SHOW TABLES COMMAND (Oracle style / server emulation)
     await this.test("SHOW Tables Command", async () => {
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SHOW TABLES",
+        dbName: "SYSTEM",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -234,21 +245,24 @@ class OracleTester {
     // 10. DESCRIBE COMMAND (Oracle style / server emulation)
     await this.test("DESCRIBE Command", async () => {
       // First create a test table to describe
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_describe_table (
           id NUMBER(10) PRIMARY KEY,
           name VARCHAR2(100),
           created_date DATE DEFAULT SYSDATE
         )`,
+        dbName: "SYSTEM",
       });
 
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "DESCRIBE test_describe_table",
+        dbName: "SYSTEM",
       });
 
       // Clean up
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE test_describe_table",
+        dbName: "SYSTEM",
       });
 
       const count = this.extractColumnCount(result.data);
@@ -260,8 +274,9 @@ class OracleTester {
 
     // 11. PAGINATION (Oracle style)
     await this.test("Query Pagination", async () => {
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT object_name, object_type FROM all_objects",
+        dbName: "SYSTEM",
         page: 1,
         pageSize: 5,
       });
@@ -281,7 +296,7 @@ class OracleTester {
     // 12. TABLE INFO
     await this.test("Get Table Info", async () => {
       // Create a test table with various features
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_table_info (
           id NUMBER(10) PRIMARY KEY,
           name VARCHAR2(100) NOT NULL,
@@ -289,13 +304,18 @@ class OracleTester {
           created_at DATE DEFAULT SYSDATE,
           status NUMBER(1) DEFAULT 1
         )`,
+        dbName: "SYSTEM",
       });
 
-      const result = await this.request("GET", "/api/sql/SYSTEM/test_table_info/info");
+      const result = await this.request(
+        "GET",
+        "/api/sql/table-info?table=test_table_info&dbName=SYSTEM",
+      );
 
       // Clean up
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE test_table_info",
+        dbName: "SYSTEM",
       });
 
       if (!result.success || !result.data.columns) {
@@ -307,29 +327,34 @@ class OracleTester {
     // 13. MULTIPLE TABLES INFO
     await this.test("Multiple Tables Info", async () => {
       // Create test tables
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_multi_1 (
           id NUMBER(10) PRIMARY KEY,
           name VARCHAR2(50)
         )`,
+        dbName: "SYSTEM",
       });
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_multi_2 (
           id NUMBER(10) PRIMARY KEY,
           description CLOB
         )`,
+        dbName: "SYSTEM",
       });
 
-      const result = await this.request("POST", "/api/sql/SYSTEM/info", {
+      const result = await this.request("POST", "/api/sql/info", {
         tables: ["test_multi_1", "test_multi_2"],
+        dbName: "SYSTEM",
       });
 
       // Clean up
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE test_multi_1",
+        dbName: "SYSTEM",
       });
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE test_multi_2",
+        dbName: "SYSTEM",
       });
 
       if (!result.success || !Array.isArray(result.data.tables)) {
@@ -354,8 +379,9 @@ class OracleTester {
 
     // 15. ORACLE-SPECIFIC QUERIES
     await this.test("Oracle System Views", async () => {
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT tablespace_name, status FROM dba_tablespaces WHERE ROWNUM <= 3",
+        dbName: "SYSTEM",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -366,8 +392,9 @@ class OracleTester {
 
     // 16. ERROR HANDLING - SYNTAX ERROR
     await this.test("Error Handling - Syntax Error", async () => {
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELCT * FROM invalid_table_name", // Intentional typos
+        dbName: "SYSTEM",
       });
 
       // If request failed, that's acceptable for this test
@@ -401,7 +428,7 @@ class OracleTester {
       const config = {
         method: "POST",
         url: `${this.baseURL}/api/sql/databases`,
-        headers: { "Content-Type": "application/json" }, // Missing x-db-type
+        headers: { "Content-Type": "application/json", "x-db-type": "oracledb" },
         timeout: 30000,
       };
 
@@ -419,11 +446,12 @@ class OracleTester {
 
     // 18. CREATE TEST SCHEMA (if permissions allow)
     await this.test("Create Test Schema", async () => {
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: `CREATE USER test_oracle_strategy IDENTIFIED BY test123
                 DEFAULT TABLESPACE USERS
                 TEMPORARY TABLESPACE TEMP
                 QUOTA UNLIMITED ON USERS`,
+        dbName: "SYSTEM",
       });
       if (!result.success) {
         this.log("⚠️ Could not create test schema (may not have permissions)", "warning");
@@ -431,8 +459,9 @@ class OracleTester {
       }
 
       // Grant basic privileges
-      await this.request("POST", "/api/sql/SYSTEM/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "GRANT CONNECT, RESOURCE TO test_oracle_strategy",
+        dbName: "SYSTEM",
       });
 
       this.log("Test schema created", "success");
@@ -450,13 +479,14 @@ class OracleTester {
       }
 
       // Create table
-      result = await this.request("POST", "/api/sql/test_oracle_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_users (
           id NUMBER(10) GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
           name VARCHAR2(100),
           email VARCHAR2(100) UNIQUE,
           created_at DATE DEFAULT SYSDATE
         )`,
+        dbName: "test_oracle_strategy",
       });
       if (!result.success) {
         this.log("⚠️ Could not create test table", "warning");
@@ -464,8 +494,9 @@ class OracleTester {
       }
 
       // Insert test data
-      result = await this.request("POST", "/api/sql/test_oracle_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "INSERT INTO test_users (name, email) VALUES ('Test User', 'test@example.com')",
+        dbName: "test_oracle_strategy",
       });
       if (!result.success) {
         this.log("⚠️ Could not insert test data", "warning");
@@ -473,8 +504,9 @@ class OracleTester {
       }
 
       // Select test data
-      result = await this.request("POST", "/api/sql/test_oracle_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "SELECT * FROM test_users",
+        dbName: "test_oracle_strategy",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -491,8 +523,9 @@ class OracleTester {
         dbName: "SYSTEM",
       });
 
-      const result = await this.request("POST", "/api/sql/SYSTEM/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "DROP USER test_oracle_strategy CASCADE",
+        dbName: "SYSTEM",
       });
       if (!result.success) {
         this.log("⚠️ Could not cleanup test schema", "warning");

@@ -1,5 +1,8 @@
-// dbController.js (Updated for singleton pattern)
-const dbContext = require("../config/database-context"); // This is now a singleton instance
+// dbController.js (Updated to support connectionId-based routing while keeping legacy handlers)
+const dbContext = require("../config/database-context"); // Legacy singleton instance (kept for backwards compatibility)
+// Use shared ConnectionManager singleton so all controllers share connections
+const connectionManager = require("../config/connection-manager-singleton");
+const chalk = require("chalk");
 
 // Enhanced response helper
 const sendResponse = (res, status, data, error = null) => {
@@ -36,55 +39,31 @@ const getDbType = (req) => {
 };
 
 const getDatabases = async (req, res) => {
-  const dbType = getDbType(req);
-  if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
-  }
-
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
   try {
-    // Set strategy if needed (won't recreate if same type)
-    dbContext.setStrategy(dbType);
-
-    if (!(await dbContext.validateConnection())) {
-      throw new Error("No active database connection. Call connect first.");
-    }
-
-    const databaseStats = await dbContext.getDatabases();
-    sendResponse(res, 200, {
-      databases: databaseStats,
-      retrievedAt: new Date().toISOString(),
-    });
+    const strategy = connectionManager.getConnection(connectionId);
+    const databaseStats = await strategy.getDatabases();
+    sendResponse(res, 200, { databases: databaseStats, retrievedAt: new Date().toISOString() });
   } catch (err) {
     handleError(res, err, "fetching database stats");
   }
 };
 
 const getTables = async (req, res) => {
-  const dbType = getDbType(req);
-  const dbName = req.params.dbName;
-
-  if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
-  }
-
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const dbName = req.query.dbName || req.body?.dbName;
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
   try {
-    dbContext.setStrategy(dbType);
-
-    if (!(await dbContext.validateConnection())) {
-      throw new Error("No active database connection. Call connect first.");
-    }
-
-    if (dbType !== "sqlite3") {
-      await dbContext.switchDatabase(dbName);
-    } else if (dbName !== dbContext.getStrategy().databaseName && dbName !== ":memory:") {
-      throw new Error("SQLite does not support switching databases");
-    }
-
-    const tables = await dbContext.getTables(dbName);
+    const strategy = connectionManager.getConnection(connectionId);
+    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
+    const info = connectionManager.getConnectionInfo(connectionId);
+    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+    const tables = await strategy.getTables(currentDb);
     sendResponse(res, 200, {
       tables,
       count: Array.isArray(tables) ? tables.length : 0,
-      database: dbName,
+      database: currentDb,
       retrievedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -93,67 +72,40 @@ const getTables = async (req, res) => {
 };
 
 const getTableInfo = async (req, res) => {
-  const dbType = getDbType(req);
-  const dbName = req.params.dbName;
-  const table = req.params.table;
-
-  if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
-  }
-
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const dbName = req.query.dbName || req.body?.dbName;
+  const table = req.query.table || req.body?.table;
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!table) return sendResponse(res, 400, null, "table is required");
   try {
-    dbContext.setStrategy(dbType);
-
-    if (!(await dbContext.validateConnection())) {
-      throw new Error("No active database connection. Call connect first.");
-    }
-
-    if (dbType !== "sqlite3") {
-      await dbContext.switchDatabase(dbName);
-    } else if (dbName !== dbContext.getStrategy().databaseName && dbName !== ":memory:") {
-      throw new Error("SQLite does not support switching databases");
-    }
-
-    const tableInfo = await dbContext.getTableInfo(dbName, table);
-    sendResponse(res, 200, {
-      ...tableInfo,
-      retrievedAt: new Date().toISOString(),
-    });
+    const strategy = connectionManager.getConnection(connectionId);
+    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
+    const info = connectionManager.getConnectionInfo(connectionId);
+    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+    const tableInfo = await strategy.getTableInfo(currentDb, table);
+    sendResponse(res, 200, { ...tableInfo, retrievedAt: new Date().toISOString() });
   } catch (err) {
     handleError(res, err, "fetching table stats");
   }
 };
 
 const getMultipleTablesInfo = async (req, res) => {
-  const dbType = getDbType(req);
-  const dbName = req.params.dbName;
-  const { tables } = req.body;
-
-  if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const { tables, dbName } = req.body;
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!tables || !Array.isArray(tables) || tables.length === 0) {
+    return sendResponse(res, 400, null, "Tables array is required.");
   }
-  if (!dbName || !tables || !Array.isArray(tables) || tables.length === 0) {
-    return sendResponse(res, 400, null, "Database name and tables array are required.");
-  }
-
   try {
-    dbContext.setStrategy(dbType);
-
-    if (!(await dbContext.validateConnection())) {
-      throw new Error("No active database connection. Call connect first.");
-    }
-
-    if (dbType !== "sqlite3") {
-      await dbContext.switchDatabase(dbName);
-    } else if (dbName !== dbContext.getStrategy().databaseName && dbName !== ":memory:") {
-      throw new Error("SQLite does not support switching databases");
-    }
-
-    const tableDetails = await dbContext.getMultipleTablesInfo(dbName, tables);
+    const strategy = connectionManager.getConnection(connectionId);
+    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
+    const info = connectionManager.getConnectionInfo(connectionId);
+    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+    const tableDetails = await strategy.getMultipleTablesInfo(currentDb, tables);
     sendResponse(res, 200, {
       tables: tableDetails,
       count: tableDetails.length,
-      database: dbName,
+      database: currentDb,
       retrievedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -162,17 +114,10 @@ const getMultipleTablesInfo = async (req, res) => {
 };
 
 const executeQuery = async (req, res) => {
-  const dbType = getDbType(req);
-  const dbName = req.params.dbName;
-  let { query, page = 1, pageSize = 10 } = req.body;
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  let { query, page = 1, pageSize = 10, dbName } = req.body;
 
-  console.log("Execute Query endpoint hit");
-  console.log("Headers:", req.headers);
-  console.log("Body:", req.body);
-
-  if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
-  }
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
   if (!query || typeof query !== "string") {
     return sendResponse(res, 400, null, "Query is required and must be a string");
   }
@@ -181,24 +126,14 @@ const executeQuery = async (req, res) => {
   pageSize = Math.min(Math.max(1, parseInt(pageSize) || 10), 1000);
 
   try {
-    dbContext.setStrategy(dbType);
-    if (!(await dbContext.validateConnection())) {
-      throw new Error("No active database connection. Call connect first.");
-    }
-
-    if (dbType !== "sqlite3") {
-      await dbContext.switchDatabase(dbName);
-    } else if (dbName !== dbContext.getStrategy().databaseName && dbName !== ":memory:") {
-      throw new Error("SQLite does not support switching databases");
-    }
-
-    const result = await dbContext.executeQuery(query, {
+    const strategy = connectionManager.getConnection(connectionId);
+    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
+    const result = await strategy.executeQuery(query, {
       page,
       pageSize,
       dbName,
     });
 
-    // NEW: pass through multi-query response when present
     if (result && Array.isArray(result.queries)) {
       return sendResponse(res, 200, {
         queries: result.queries,
@@ -207,7 +142,6 @@ const executeQuery = async (req, res) => {
       });
     }
 
-    // Backward-compat (if a strategy returns single shape)
     const response = {
       rows: result.rows || [],
       totalRows: result.totalRows || 0,
@@ -227,9 +161,6 @@ const executeQuery = async (req, res) => {
 };
 
 const connect = async (req, res) => {
-  console.log("Connect endpoint hit");
-  console.log("Headers:", req.headers);
-
   const dbType = getDbType(req);
   const {
     username,
@@ -256,16 +187,14 @@ const connect = async (req, res) => {
   const missingFields = requiredFields.filter(
     (field) => !req.body[field] && req.body[field] !== "",
   );
-
   if (missingFields.length > 0) {
     return sendResponse(res, 400, null, `Missing required fields: ${missingFields.join(", ")}`);
   }
-
   if (dbType !== bodyDbType) {
     return sendResponse(res, 400, null, "dbType in body must match x-db-type in headers");
   }
 
-  console.log(
+  chalk.italic.cyan(
     `> Attempting to connect to ${dbType} ${
       dbType === "sqlite3"
         ? `database: ${database}`
@@ -278,7 +207,13 @@ const connect = async (req, res) => {
       dbType === "sqlite3"
         ? { dbType, database, ...sqliteConfig }
         : { username, password, host, port, dbType, database, socketPath };
+
+    // Establish connection via dbContext to leverage existing setup
     await dbContext.connect(config);
+    const strategy = dbContext.getStrategy();
+    const connectionId = connectionManager.generateConnectionId(config);
+    // Register the live connection without reconnecting
+    connectionManager.registerExistingConnection(connectionId, strategy, config);
 
     sendResponse(res, 200, {
       message: `Connected to ${dbType} ${
@@ -286,6 +221,7 @@ const connect = async (req, res) => {
       }`,
       timestamp: new Date().toISOString(),
       database: database || "default",
+      connectionId,
     });
   } catch (err) {
     handleError(res, err, "connecting to database");
@@ -293,29 +229,15 @@ const connect = async (req, res) => {
 };
 
 const switchDatabase = async (req, res) => {
-  const dbType = getDbType(req);
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
   const { dbName } = req.body;
-
-  if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
-  }
-  if (!dbName) {
-    return sendResponse(res, 400, null, "Database name is required");
-  }
-
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!dbName) return sendResponse(res, 400, null, "Database name is required");
   try {
-    dbContext.setStrategy(dbType);
-
-    if (!(await dbContext.validateConnection())) {
-      throw new Error("No active database connection. Call connect first.");
-    }
-
-    if (dbType !== "sqlite3") {
-      await dbContext.switchDatabase(dbName);
-    } else if (dbName !== dbContext.getStrategy().databaseName && dbName !== ":memory:") {
-      throw new Error("SQLite does not support switching databases");
-    }
-
+    const strategy = connectionManager.getConnection(connectionId);
+    await strategy.switchDatabase(dbName);
+    const info = connectionManager.getConnectionInfo(connectionId);
+    if (info) info.currentDatabase = dbName;
     sendResponse(res, 200, {
       message: `Switched to database ${dbName}`,
       database: dbName,
@@ -327,34 +249,20 @@ const switchDatabase = async (req, res) => {
 };
 
 const executeBatch = async (req, res) => {
-  const dbType = getDbType(req);
-  const dbName = req.params.dbName;
-  const { queries } = req.body;
-
-  if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
-  }
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const { queries, dbName } = req.body;
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
   if (!queries || !Array.isArray(queries) || queries.length === 0) {
     return sendResponse(res, 400, null, "Queries array is required and must not be empty");
   }
-
   try {
-    dbContext.setStrategy(dbType);
-
-    if (!(await dbContext.validateConnection())) {
-      throw new Error("No active database connection. Call connect first.");
-    }
-
-    if (dbType !== "sqlite3") {
-      await dbContext.switchDatabase(dbName);
-    }
-
+    const strategy = connectionManager.getConnection(connectionId);
+    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
     const results = [];
-    for (const query of queries) {
-      const result = await dbContext.executeQuery(query, { dbName });
+    for (const q of queries) {
+      const result = await strategy.executeQuery(q, { dbName });
       results.push(result);
     }
-
     sendResponse(res, 200, {
       results,
       totalQueries: queries.length,
@@ -416,11 +324,49 @@ const analyzeQuery = async (req, res) => {
 };
 
 const getViews = async (req, res) => {
-  sendResponse(res, 501, null, "Views endpoint not implemented yet");
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const dbName = req.query.dbName || req.body?.dbName;
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  try {
+    const strategy = connectionManager.getConnection(connectionId);
+    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
+    const info = connectionManager.getConnectionInfo(connectionId);
+    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+    if (!strategy.getViews)
+      return sendResponse(res, 501, null, "Views not supported for this database type");
+    const views = await strategy.getViews(currentDb);
+    sendResponse(res, 200, {
+      views,
+      count: Array.isArray(views) ? views.length : 0,
+      database: currentDb,
+      retrievedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    handleError(res, err, "fetching views");
+  }
 };
 
 const getProcedures = async (req, res) => {
-  sendResponse(res, 501, null, "Procedures endpoint not implemented yet");
+  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const dbName = req.query.dbName || req.body?.dbName;
+  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  try {
+    const strategy = connectionManager.getConnection(connectionId);
+    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
+    const info = connectionManager.getConnectionInfo(connectionId);
+    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+    if (!strategy.getProcedures)
+      return sendResponse(res, 501, null, "Procedures not supported for this database type");
+    const procedures = await strategy.getProcedures(currentDb);
+    sendResponse(res, 200, {
+      procedures,
+      count: Array.isArray(procedures) ? procedures.length : 0,
+      database: currentDb,
+      retrievedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    handleError(res, err, "fetching procedures");
+  }
 };
 
 module.exports = {

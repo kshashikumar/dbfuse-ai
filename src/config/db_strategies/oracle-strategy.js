@@ -2,6 +2,7 @@
 const oracledb = require("oracledb");
 
 const DatabaseStrategy = require("../database-strategy");
+const chalk = require("chalk");
 
 class OracleStrategy extends DatabaseStrategy {
   constructor() {
@@ -30,7 +31,7 @@ class OracleStrategy extends DatabaseStrategy {
       externalAuth,
     } = config;
 
-    console.log(
+    chalk.green(
       `> Connecting to Oracle server @ ${host || "localhost"}:${port || 1521}/${serviceName || database || "XE"} with user ${username}${
         edition ? ` edition ${edition}` : ""
       }${privilege ? ` with ${privilege} privilege` : ""}`,
@@ -412,7 +413,7 @@ class OracleStrategy extends DatabaseStrategy {
       const schemaName = dbName || this.currentSchema;
 
       const { rows: columns } = await connection.execute(
-        `SELECT column_name, data_type, nullable, data_default, data_length
+        `SELECT column_name, data_type, nullable, data_default, data_length, data_precision, data_scale
          FROM all_tab_columns 
          WHERE owner = :1 AND table_name = UPPER(:2)
          ORDER BY column_id`,
@@ -456,6 +457,9 @@ class OracleStrategy extends DatabaseStrategy {
           is_nullable: col.NULLABLE === "Y",
           default_value: col.DATA_DEFAULT,
           data_length: col.DATA_LENGTH,
+          length: col.DATA_LENGTH != null ? Number(col.DATA_LENGTH) : null,
+          precision: col.DATA_PRECISION != null ? Number(col.DATA_PRECISION) : null,
+          scale: col.DATA_SCALE != null ? Number(col.DATA_SCALE) : null,
         })),
         indexes: indexes.map((idx) => ({
           index_name: idx.INDEX_NAME,

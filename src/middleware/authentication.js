@@ -2,8 +2,6 @@ const authController = require("../controllers/authController");
 require("dotenv").config();
 
 function authentication(req, res, next) {
-  console.log("Authentication middleware hit");
-  console.log(req.headers["x-db-type"]);
   console.log("Request path:", req.path);
 
   if (req.method === "OPTIONS") {
@@ -23,7 +21,6 @@ function authentication(req, res, next) {
   }
 
   const authHeader = req.headers.authorization;
-  console.log("Authorization header:", authHeader);
   if (!authHeader || !authHeader.startsWith("Basic ")) {
     res.set("WWW-Authenticate", 'Basic realm="user_pages"');
     return res.status(401).send("Authentication required!");
@@ -31,7 +28,6 @@ function authentication(req, res, next) {
 
   const [username, password] = authController._decodeCredentials(authHeader);
   if (username === process.env.DBFUSE_USERNAME && password === process.env.DBFUSE_PASSWORD) {
-    console.log("User is authenticated");
     return next();
   } else {
     res.set("WWW-Authenticate", 'Basic realm="user_pages"');

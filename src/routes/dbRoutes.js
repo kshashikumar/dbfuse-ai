@@ -19,18 +19,7 @@ const validateDbType = (req, res, next) => {
 };
 
 // Apply database type validation middleware to routes that need it
-const validateDbTypeRoutes = [
-  "/connect",
-  "/switch-database",
-  "/databases",
-  "/:dbName/query",
-  "/:dbName/batch",
-  "/:dbName/tables",
-  "/:dbName/views",
-  "/:dbName/procedures",
-  "/:dbName/:table/info",
-  "/:dbName/info",
-];
+const validateDbTypeRoutes = ["/connect"];
 
 validateDbTypeRoutes.forEach((route) => {
   dbRouter.use(route, validateDbType);
@@ -48,9 +37,9 @@ dbRouter.get(
 );
 
 // Query execution routes
-dbRouter.post("/:dbName/query", dbController.executeQuery);
+dbRouter.post("/query", dbController.executeQuery);
 dbRouter.post(
-  "/:dbName/batch",
+  "/batch",
   dbController.executeBatch ||
     ((req, res) => {
       res.status(501).json({ error: "Batch execution not implemented yet" });
@@ -66,16 +55,16 @@ dbRouter.post(
 
 // Database information routes
 dbRouter.get("/databases", dbController.getDatabases);
-dbRouter.get("/:dbName/tables", dbController.getTables);
+dbRouter.get("/tables", dbController.getTables);
 dbRouter.get(
-  "/:dbName/views",
+  "/views",
   dbController.getViews ||
     ((req, res) => {
       res.status(501).json({ error: "Views endpoint not implemented yet" });
     }),
 );
 dbRouter.get(
-  "/:dbName/procedures",
+  "/procedures",
   dbController.getProcedures ||
     ((req, res) => {
       res.status(501).json({ error: "Procedures endpoint not implemented yet" });
@@ -83,7 +72,6 @@ dbRouter.get(
 );
 
 // Table information routes
-dbRouter.get("/:dbName/:table/info", dbController.getTableInfo);
-dbRouter.post("/:dbName/info", dbController.getMultipleTablesInfo);
-
+dbRouter.get("/table-info", dbController.getTableInfo);
+dbRouter.post("/info", dbController.getMultipleTablesInfo);
 module.exports = dbRouter;

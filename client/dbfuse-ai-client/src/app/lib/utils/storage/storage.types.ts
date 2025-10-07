@@ -34,6 +34,15 @@ export interface IndTableInfo {
 
 interface Column {
     column_name: string;
+    // Optional richer metadata for AI and UI features
+    data_type?: string;
+    is_nullable?: boolean;
+    default_value?: any;
+    extra?: string;
+    is_primary_key?: boolean;
+    length?: number | null;
+    precision?: number | null;
+    scale?: number | null;
 }
 
 interface Table {
@@ -168,6 +177,9 @@ export interface TableInfo {
         extra?: string;
         data_length?: number;
         is_primary_key?: boolean;
+        length?: number | null;
+        precision?: number | null;
+        scale?: number | null;
     }[];
     indexes: {
         index_name: string;

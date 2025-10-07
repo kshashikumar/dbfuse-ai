@@ -1,11 +1,11 @@
 import { Injectable } from '@angular/core';
 import { environment } from '@env/environment';
-import { Observable } from 'rxjs';
+import { Observable, forkJoin, of } from 'rxjs';
+import { map, switchMap, catchError } from 'rxjs/operators';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import {
     DbMeta,
     MultipleTablesInfo,
-    OpenAIPrompt,
     OpenAIPromptResponse,
     TableInfo,
     DatabaseStats,
@@ -23,13 +23,36 @@ import {
 })
 export class BackendService {
     BASE_URL = environment.apiUrl;
+    // Simple in-memory cache for table columns per database to speed up repeated AI prompts
+    private tableInfoCache: Map<
+        string,
+        {
+            columnsByTable: Map<
+                string,
+                {
+                    column_name: string;
+                    data_type?: string;
+                    is_nullable?: boolean;
+                    default_value?: any;
+                    extra?: string;
+                    is_primary_key?: boolean;
+                    length?: number | null;
+                    precision?: number | null;
+                    scale?: number | null;
+                }[]
+            >;
+            timestamp: number;
+        }
+    > = new Map();
 
     private getHeaders(): HttpHeaders {
         const token = sessionStorage.getItem('token');
         const dbType = sessionStorage.getItem('dbType') || 'mysql2'; // Default to 'mysql2' if not set
+        const connectionId = sessionStorage.getItem('connectionId') || '';
         return new HttpHeaders({
             'Content-Type': 'application/json',
             'x-db-type': dbType,
+            'x-connection-id': connectionId,
             Authorization: token ? token : '',
         });
     }
@@ -53,41 +76,41 @@ export class BackendService {
     }
 
     getTables(dbName: string): Observable<{ tables: string[]; count: number; database: string; retrievedAt: string }> {
-        return this._http.get<{ tables: string[]; count: number; database: string; retrievedAt: string }>(
-            `${this.BASE_URL}/api/sql/${dbName}/tables`,
-            { headers: this.getHeaders() },
-        );
+        const url = `${this.BASE_URL}/api/sql/tables${dbName ? `?dbName=${encodeURIComponent(dbName)}` : ''}`;
+        return this._http.get<{ tables: string[]; count: number; database: string; retrievedAt: string }>(url, {
+            headers: this.getHeaders(),
+        });
     }
 
     getViews(dbName: string): Observable<{ views: any[]; count: number; database: string; retrievedAt: string }> {
-        return this._http.get<{ views: any[]; count: number; database: string; retrievedAt: string }>(
-            `${this.BASE_URL}/api/sql/${dbName}/views`,
-            { headers: this.getHeaders() },
-        );
+        const url = `${this.BASE_URL}/api/sql/views${dbName ? `?dbName=${encodeURIComponent(dbName)}` : ''}`;
+        return this._http.get<{ views: any[]; count: number; database: string; retrievedAt: string }>(url, {
+            headers: this.getHeaders(),
+        });
     }
 
     getProcedures(
         dbName: string,
     ): Observable<{ procedures: any[]; count: number; database: string; retrievedAt: string }> {
-        return this._http.get<{ procedures: any[]; count: number; database: string; retrievedAt: string }>(
-            `${this.BASE_URL}/api/sql/${dbName}/procedures`,
-            { headers: this.getHeaders() },
-        );
+        const url = `${this.BASE_URL}/api/sql/procedures${dbName ? `?dbName=${encodeURIComponent(dbName)}` : ''}`;
+        return this._http.get<{ procedures: any[]; count: number; database: string; retrievedAt: string }>(url, {
+            headers: this.getHeaders(),
+        });
     }
 
     getTableInfo(dbName: string, table: string): Observable<TableInfo & { retrievedAt: string }> {
-        return this._http.get<TableInfo & { retrievedAt: string }>(`${this.BASE_URL}/api/sql/${dbName}/${table}/info`, {
-            headers: this.getHeaders(),
-        });
+        const url = `${this.BASE_URL}/api/sql/table-info?table=${encodeURIComponent(table)}${dbName ? `&dbName=${encodeURIComponent(dbName)}` : ''}`;
+        return this._http.get<TableInfo & { retrievedAt: string }>(url, { headers: this.getHeaders() });
     }
 
     getMultipleTablesInfo(
         dbName: string,
         tables: string[],
     ): Observable<MultipleTablesInfo & { count: number; database: string; retrievedAt: string }> {
-        const payload = { tables };
+        const payload: any = { tables };
+        if (dbName) payload.dbName = dbName;
         return this._http.post<MultipleTablesInfo & { count: number; database: string; retrievedAt: string }>(
-            `${this.BASE_URL}/api/sql/${dbName}/info`,
+            `${this.BASE_URL}/api/sql/info`,
             payload,
             { headers: this.getHeaders() },
         );
@@ -97,22 +120,20 @@ export class BackendService {
     executeQuery(
         query: string,
         dbName: string,
-        options: {
-            page?: number;
-            pageSize?: number;
-            timeout?: number;
-        } = {},
+        options: { page?: number; pageSize?: number; timeout?: number } = {},
     ): Observable<QueryResult> {
         const { page = 1, pageSize = 10, timeout } = options;
-        const payload = { query, page, pageSize, timeout };
-        return this._http.post<QueryResult>(`${this.BASE_URL}/api/sql/${dbName}/query`, payload, {
+        const payload: any = { query, page, pageSize, timeout };
+        if (dbName) payload.dbName = dbName;
+        return this._http.post<QueryResult>(`${this.BASE_URL}/api/sql/query`, payload, {
             headers: this.getHeaders(),
         });
     }
 
     executeBatchQueries(dbName: string, queries: string[], transaction: boolean = false): Observable<BatchQueryResult> {
-        const payload = { queries, transaction };
-        return this._http.post<BatchQueryResult>(`${this.BASE_URL}/api/sql/${dbName}/batch`, payload, {
+        const payload: any = { queries, transaction };
+        if (dbName) payload.dbName = dbName;
+        return this._http.post<BatchQueryResult>(`${this.BASE_URL}/api/sql/batch`, payload, {
             headers: this.getHeaders(),
         });
     }
@@ -134,12 +155,21 @@ export class BackendService {
         database?: string;
     }> {
         sessionStorage.setItem('dbType', connection.dbType);
-        return this._http.post<{
-            message: string;
-            connectionId?: string;
-            timestamp: string;
-            database?: string;
-        }>(`${this.BASE_URL}/api/sql/connect`, connection, { headers: this.getHeaders() });
+        return this._http
+            .post<{
+                message: string;
+                connectionId?: string;
+                timestamp: string;
+                database?: string;
+            }>(`${this.BASE_URL}/api/sql/connect`, connection, { headers: this.getHeaders() })
+            .pipe(
+                map((resp) => {
+                    if (resp?.connectionId) {
+                        sessionStorage.setItem('connectionId', resp.connectionId);
+                    }
+                    return resp;
+                }),
+            );
     }
 
     switchDatabase(dbName: string): Observable<{
@@ -159,8 +189,9 @@ export class BackendService {
     }
 
     // AI Integration Methods
-    executeOpenAIPrompt(dbMeta: DbMeta[], databaseName: string, prompt: string): Observable<OpenAIPromptResponse> {
-        const payload: OpenAIPrompt = { dbMeta, databaseName, prompt };
+    // Server now fetches schema using x-connection-id; client sends only databaseName (optional) and prompt
+    executeOpenAIPrompt(_dbMeta: DbMeta[], databaseName: string, prompt: string): Observable<OpenAIPromptResponse> {
+        const payload = { databaseName, prompt };
         return this._http.post<OpenAIPromptResponse>(`${this.BASE_URL}/api/openai/prompt`, payload, {
             headers: this.getHeaders(),
         });

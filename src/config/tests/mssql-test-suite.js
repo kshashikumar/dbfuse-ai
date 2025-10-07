@@ -9,6 +9,7 @@ class MSSQLTester {
     this.passed = 0;
     this.failed = 0;
     this.errors = [];
+    this.connectionId = null;
 
     // Configuration - UPDATE THESE VALUES
     this.config = {
@@ -44,6 +45,11 @@ class MSSQLTester {
         },
         timeout: 30000,
       };
+
+      // Attach connectionId to headers when available
+      if (this.connectionId) {
+        config.headers["x-connection-id"] = this.connectionId;
+      }
 
       if (data) config.data = data;
 
@@ -154,6 +160,8 @@ class MSSQLTester {
           `Connection failed: ${JSON.stringify(result.error)} (Status: ${result.status})`,
         );
       }
+      // Save connectionId for subsequent requests
+      this.connectionId = result.data?.connectionId || null;
       this.log(`Connected: ${result.data.message}`, "success");
     });
 
@@ -186,7 +194,7 @@ class MSSQLTester {
 
     // 6. GET TABLES
     await this.test("List Tables", async () => {
-      const result = await this.request("GET", "/api/sql/tempdb/tables");
+      const result = await this.request("GET", "/api/sql/tables?dbName=tempdb");
       if (!result.success || !Array.isArray(result.data.tables)) {
         throw new Error("Failed to get tables list");
       }
@@ -195,8 +203,9 @@ class MSSQLTester {
 
     // 7. SIMPLE SELECT QUERY
     await this.test("Simple SELECT Query", async () => {
-      const result = await this.request("POST", "/api/sql/master/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT name FROM sys.databases", // no ORDER BY; let server handle pagination if any
+        dbName: "master",
         page: 1,
         pageSize: 3,
       });
@@ -209,8 +218,9 @@ class MSSQLTester {
 
     // 8. SYSTEM TABLES QUERY (MSSQL style)
     await this.test("System Tables Query", async () => {
-      const result = await this.request("POST", "/api/sql/master/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT @@VERSION AS sql_version",
+        dbName: "master",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -221,8 +231,9 @@ class MSSQLTester {
 
     // 9. SHOW TABLES COMMAND (MSSQL style / server emulation)
     await this.test("SHOW Tables Command", async () => {
-      const result = await this.request("POST", "/api/sql/master/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SHOW TABLES",
+        dbName: "master",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -234,21 +245,24 @@ class MSSQLTester {
     // 10. DESCRIBE COMMAND (MSSQL style / server emulation)
     await this.test("DESCRIBE Command", async () => {
       // First create a test table to describe
-      await this.request("POST", "/api/sql/tempdb/query", {
+      await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_describe_table (
           id INT IDENTITY(1,1) PRIMARY KEY,
           name NVARCHAR(100),
           created_date DATETIME2 DEFAULT GETDATE()
         )`,
+        dbName: "tempdb",
       });
 
-      const result = await this.request("POST", "/api/sql/tempdb/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "DESCRIBE test_describe_table",
+        dbName: "tempdb",
       });
 
       // Clean up
-      await this.request("POST", "/api/sql/tempdb/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE IF EXISTS test_describe_table",
+        dbName: "tempdb",
       });
 
       const count = this.extractColumnCount(result.data);
@@ -260,8 +274,9 @@ class MSSQLTester {
 
     // 11. PAGINATION (MSSQL style)
     await this.test("Query Pagination", async () => {
-      const result = await this.request("POST", "/api/sql/master/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT name, database_id FROM sys.databases", // no ORDER BY; server may add for pagination
+        dbName: "master",
         page: 1,
         pageSize: 5,
       });
@@ -281,7 +296,7 @@ class MSSQLTester {
     // 12. TABLE INFO
     await this.test("Get Table Info", async () => {
       // Create a test table with various features
-      await this.request("POST", "/api/sql/tempdb/query", {
+      await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_table_info (
           id INT IDENTITY(1,1) PRIMARY KEY,
           name NVARCHAR(100) NOT NULL,
@@ -289,13 +304,18 @@ class MSSQLTester {
           created_at DATETIME2 DEFAULT GETDATE(),
           status BIT DEFAULT 1
         )`,
+        dbName: "tempdb",
       });
 
-      const result = await this.request("GET", "/api/sql/tempdb/test_table_info/info");
+      const result = await this.request(
+        "GET",
+        "/api/sql/table-info?table=test_table_info&dbName=tempdb",
+      );
 
       // Clean up
-      await this.request("POST", "/api/sql/tempdb/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE IF EXISTS test_table_info",
+        dbName: "tempdb",
       });
 
       if (!result.success || !result.data.columns) {
@@ -307,29 +327,34 @@ class MSSQLTester {
     // 13. MULTIPLE TABLES INFO
     await this.test("Multiple Tables Info", async () => {
       // Create test tables
-      await this.request("POST", "/api/sql/tempdb/query", {
+      await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_multi_1 (
           id INT IDENTITY(1,1) PRIMARY KEY,
           name NVARCHAR(50)
         )`,
+        dbName: "tempdb",
       });
-      await this.request("POST", "/api/sql/tempdb/query", {
+      await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_multi_2 (
           id INT IDENTITY(1,1) PRIMARY KEY,
           description NVARCHAR(MAX)
         )`,
+        dbName: "tempdb",
       });
 
-      const result = await this.request("POST", "/api/sql/tempdb/info", {
+      const result = await this.request("POST", "/api/sql/info", {
         tables: ["test_multi_1", "test_multi_2"],
+        dbName: "tempdb",
       });
 
       // Clean up
-      await this.request("POST", "/api/sql/tempdb/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE IF EXISTS test_multi_1",
+        dbName: "tempdb",
       });
-      await this.request("POST", "/api/sql/tempdb/query", {
+      await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE IF EXISTS test_multi_2",
+        dbName: "tempdb",
       });
 
       if (!result.success || !Array.isArray(result.data.tables)) {
@@ -354,8 +379,9 @@ class MSSQLTester {
 
     // 15. MSSQL-SPECIFIC QUERIES
     await this.test("MSSQL System Views", async () => {
-      const result = await this.request("POST", "/api/sql/master/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELECT name FROM sys.databases WHERE database_id > 4",
+        dbName: "master",
         page: 1,
         pageSize: 3,
       });
@@ -369,15 +395,17 @@ class MSSQLTester {
     // 16. TRANSACTION TEST
     await this.test("Transaction Test", async () => {
       // Test each operation separately
-      let result = await this.request("POST", "/api/sql/tempdb/query", {
+      let result = await this.request("POST", "/api/sql/query", {
         query: "CREATE TABLE temp_transaction_test (id INT)",
+        dbName: "tempdb",
       });
       if (!result.success) {
         throw new Error(`Create table failed: ${JSON.stringify(result.error)}`);
       }
 
-      result = await this.request("POST", "/api/sql/tempdb/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "DROP TABLE temp_transaction_test",
+        dbName: "tempdb",
       });
       if (!result.success) {
         throw new Error(`Drop table failed: ${JSON.stringify(result.error)}`);
@@ -388,8 +416,9 @@ class MSSQLTester {
 
     // 17. ERROR HANDLING - SYNTAX ERROR
     await this.test("Error Handling - Syntax Error", async () => {
-      const result = await this.request("POST", "/api/sql/master/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "SELCT * FROM invalid_table_name", // Intentional typos
+        dbName: "master",
       });
 
       if (!result.success) {
@@ -420,7 +449,7 @@ class MSSQLTester {
       const config = {
         method: "POST",
         url: `${this.baseURL}/api/sql/databases`,
-        headers: { "Content-Type": "application/json" }, // Missing x-db-type
+        headers: { "Content-Type": "application/json", "x-db-type": "mssql" },
         timeout: 30000,
       };
 
@@ -438,8 +467,9 @@ class MSSQLTester {
 
     // 19. CREATE TEST DATABASE (if permissions allow)
     await this.test("Create Test Database", async () => {
-      const result = await this.request("POST", "/api/sql/master/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "CREATE DATABASE test_mssql_strategy",
+        dbName: "master",
       });
       if (!result.success) {
         this.log("⚠️ Could not create test database (may not have permissions)", "warning");
@@ -460,13 +490,14 @@ class MSSQLTester {
       }
 
       // Create table
-      result = await this.request("POST", "/api/sql/test_mssql_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: `CREATE TABLE test_users (
           id INT IDENTITY(1,1) PRIMARY KEY,
           name NVARCHAR(100),
           email NVARCHAR(100) UNIQUE,
           created_at DATETIME2 DEFAULT GETDATE()
         )`,
+        dbName: "test_mssql_strategy",
       });
       if (!result.success) {
         this.log("⚠️ Could not create test table", "warning");
@@ -474,8 +505,9 @@ class MSSQLTester {
       }
 
       // Insert test data
-      result = await this.request("POST", "/api/sql/test_mssql_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "INSERT INTO test_users (name, email) VALUES ('Test User', 'test@example.com')",
+        dbName: "test_mssql_strategy",
       });
       if (!result.success) {
         this.log("⚠️ Could not insert test data", "warning");
@@ -483,8 +515,9 @@ class MSSQLTester {
       }
 
       // Select test data
-      result = await this.request("POST", "/api/sql/test_mssql_strategy/query", {
+      result = await this.request("POST", "/api/sql/query", {
         query: "SELECT * FROM test_users",
+        dbName: "test_mssql_strategy",
       });
       const rows = this.extractRows(result.data);
       if (!result.success || !Array.isArray(rows)) {
@@ -501,8 +534,9 @@ class MSSQLTester {
         dbName: "master",
       });
 
-      const result = await this.request("POST", "/api/sql/master/query", {
+      const result = await this.request("POST", "/api/sql/query", {
         query: "DROP DATABASE IF EXISTS test_mssql_strategy",
+        dbName: "master",
       });
       if (!result.success) {
         this.log("⚠️ Could not cleanup test database", "warning");

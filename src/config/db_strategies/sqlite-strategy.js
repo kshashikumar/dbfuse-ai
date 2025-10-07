@@ -1,6 +1,7 @@
 // sqlite-strategy.js (Enhanced with optional parameters)
 const sqlite3 = require("sqlite3").verbose();
 
+const chalk = require("chalk");
 const DatabaseStrategy = require("../database-strategy");
 
 class SQLiteStrategy extends DatabaseStrategy {
@@ -27,7 +28,7 @@ class SQLiteStrategy extends DatabaseStrategy {
     } = config;
 
     this.databaseName = database || ":memory:";
-    console.log(
+    chalk.green(
       `> Connecting to SQLite database: ${this.databaseName}${readOnly ? " (read-only)" : ""}`,
     );
 
@@ -147,7 +148,8 @@ class SQLiteStrategy extends DatabaseStrategy {
   }
 
   async switchDatabase(dbName) {
-    throw new Error("SQLite does not support switching databases");
+    console.log("SQLite does not support switching databases");
+    return;
   }
 
   async executeQuery(query, options = { page: 1, pageSize: 10 }) {
@@ -437,13 +439,34 @@ class SQLiteStrategy extends DatabaseStrategy {
     return {
       db_name: dbName,
       table_name: tableName,
-      columns: columns.map((col) => ({
-        column_name: col.name,
-        data_type: col.type,
-        is_nullable: !col.notnull,
-        default_value: col.dflt_value,
-        is_primary_key: col.pk === 1,
-      })),
+      columns: columns.map((col) => {
+        let length = null;
+        let precision = null;
+        let scale = null;
+        if (col.type) {
+          const m = /\((\d+)(?:\s*,\s*(\d+))?\)/.exec(col.type);
+          if (m) {
+            const first = parseInt(m[1], 10);
+            const second = m[2] ? parseInt(m[2], 10) : null;
+            if (second != null) {
+              precision = first;
+              scale = second;
+            } else {
+              length = first;
+            }
+          }
+        }
+        return {
+          column_name: col.name,
+          data_type: col.type,
+          is_nullable: !col.notnull,
+          default_value: col.dflt_value,
+          is_primary_key: col.pk === 1,
+          length: length,
+          precision: precision,
+          scale: scale,
+        };
+      }),
       indexes: indexes.map((idx) => ({
         index_name: idx.name,
         is_unique: idx.unique === 1,
@@ -476,6 +499,26 @@ class SQLiteStrategy extends DatabaseStrategy {
     }
 
     return tableDetails;
+  }
+
+  async getViews(dbName) {
+    if (!this.db) throw new Error("SQLite connection not initialized");
+    if (dbName !== this.databaseName && dbName !== ":memory:") {
+      throw new Error("SQLite does not support switching databases");
+    }
+    const rows = await new Promise((resolve, reject) => {
+      this.db.all(`SELECT name AS view_name FROM sqlite_master WHERE type='view'`, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+    return rows.map((r) => ({ name: r.view_name }));
+  }
+
+  async getProcedures(dbName) {
+    if (!this.db) throw new Error("SQLite connection not initialized");
+    // SQLite does not support stored procedures
+    return [];
   }
 }
 

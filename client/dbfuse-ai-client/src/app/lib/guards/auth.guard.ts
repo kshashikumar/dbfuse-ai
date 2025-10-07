@@ -33,7 +33,11 @@ export class AuthGuard {
                 }
             }),
             catchError((error: HttpErrorResponse) => {
-                this.router.navigate(['/login'], { replaceUrl: true }); // Absolute path with replaceUrl
+                const state =
+                    error?.status === 401
+                        ? { authError: 'Invalid username or password. Please try again.' }
+                        : { authError: 'Unable to verify authentication. Please sign in.' };
+                this.router.navigate(['/login'], { replaceUrl: true, state }); // Absolute path with replaceUrl
                 return of(false);
             }),
         );

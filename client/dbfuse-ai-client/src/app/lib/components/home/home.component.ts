@@ -77,6 +77,17 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         if (this.InitDBInfo) {
             this.initializeData(this.InitDBInfo);
         }
+        // Pick up a globally selected database (from Sidebar) if it matches current connection type
+        try {
+            const persisted = sessionStorage.getItem('selectedDB');
+            const persistedType = sessionStorage.getItem('selectedDBType');
+            const currentType = sessionStorage.getItem('dbType');
+            if (persisted && (!persistedType || !currentType || persistedType === currentType)) {
+                this.selectedDB = persisted;
+            } else {
+                this.selectedDB = '';
+            }
+        } catch {}
         this.setupDarkModeObserver();
     }
 
@@ -304,6 +315,11 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
                 bindKey: { win: 'Ctrl-H', mac: 'Command-Option-F' },
                 exec: (editor) => editor.execCommand('replace'),
             });
+            this.editorInstance.commands.addCommand({
+                name: 'newQuery',
+                bindKey: { win: 'Ctrl-N', mac: 'Command-N' },
+                exec: () => this.addNewQueryTab(this.selectedDB),
+            });
         }
     }
 
@@ -371,33 +387,92 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
 
         // Generate generic display name (remove table/db from title)
         const displayName = `Query ${this.nextTabNumber++}`;
+        // Prefer the database selected in Sidebar (sessionStorage), then fall back to provided or current,
+        // ensuring it matches the current connection type
+        let boundDb = dbName || this.selectedDB || '';
+        try {
+            const persisted = sessionStorage.getItem('selectedDB');
+            const persistedType = sessionStorage.getItem('selectedDBType');
+            const currentType = sessionStorage.getItem('dbType');
+            if (!boundDb && persisted && (!persistedType || !currentType || persistedType === currentType)) {
+                boundDb = persisted;
+            }
+        } catch {}
 
-        this.tabs.push({
-            id,
-            dbName,
-            tableName,
-            displayName: displayName,
-        });
+        // Create and push the new tab entry
+        this.tabs.push({ id, dbName: boundDb || dbName, tableName, displayName });
 
         // Pre-fill editor with a database-specific SELECT query (do not auto-execute)
-        const selectQuery = this.generateSelectQuery(dbName, tableName, this.databaseType);
+        const selectQuery = this.generateSelectQuery(boundDb || dbName, tableName, this.databaseType);
         this.tabContent.push(selectQuery);
 
+        // Select the newly added tab
         this.selectTab(this.tabs.length - 1);
 
         if (!this.editorInstance) {
             this.needsEditorInit = true;
         } else {
-            this.editorInstance.setValue(this.tabContent[this.selectedTab]);
-            this.selectedDB = dbName;
+            this.editorInstance.setValue(selectQuery);
             this.currentTabId = id;
         }
 
         if (this.openAIEnabled?.openAIEnabled) {
-            this.updateDatabaseInfoIfNeeded(dbName);
+            this.updateDatabaseInfoIfNeeded(boundDb || dbName);
         }
 
         this.cdr.markForCheck();
+    }
+
+    // Create a new blank query tab; if dbName provided, bind to that database
+    addNewQueryTab(dbName: string = '') {
+        if (this.tabs.length >= this.maxTabs) {
+            alert(`Maximum number of tabs (${this.maxTabs}) reached. Please close some tabs.`);
+            return;
+        }
+
+        const id = `new-query#${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const displayName = `Query ${this.nextTabNumber++}`;
+        const initialSql = '-- Write your SQL here\n';
+
+        // If no dbName is provided but we have an active selectedDB, use that
+        let boundDb = dbName || this.selectedDB || '';
+        // If still empty, try sessionStorage (e.g., invoked from overview without tabs)
+        if (!boundDb) {
+            try {
+                boundDb = sessionStorage.getItem('selectedDB') || '';
+            } catch {}
+        }
+
+        this.tabs.push({ id, dbName: boundDb, tableName: '', displayName });
+        this.tabContent.push(initialSql);
+        this.selectTab(this.tabs.length - 1);
+
+        if (this.editorInstance) {
+            this.editorInstance.setValue(initialSql);
+        } else {
+            this.needsEditorInit = true;
+        }
+
+        // Update component + persist selection for other components
+        this.setSelectedDB(boundDb);
+
+        this.cdr.markForCheck();
+    }
+
+    // Centralize how we track/persist selected DB
+    private setSelectedDB(dbName: string) {
+        this.selectedDB = dbName || '';
+        try {
+            if (this.selectedDB) {
+                sessionStorage.setItem('selectedDB', this.selectedDB);
+                const currentType = sessionStorage.getItem('dbType') || '';
+                if (currentType) sessionStorage.setItem('selectedDBType', currentType);
+            } else {
+                sessionStorage.removeItem('selectedDB');
+                sessionStorage.removeItem('selectedDBType');
+            }
+        } catch {}
+        // Do not call backend here; Sidebar handles server-side switching to avoid duplicates and cross-engine issues
     }
 
     private updateDatabaseInfoIfNeeded(dbName: string) {
@@ -419,7 +494,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
             this.tabContent[tabIndex] = '';
         }
         this.selectedTab = tabIndex;
-        this.selectedDB = this.tabs[tabIndex].dbName;
+        this.setSelectedDB(this.tabs[tabIndex].dbName);
         // Do not set triggerQuery on tab switch to avoid auto-execution
         this.triggerQuery = '';
         this.currentTabId = this.tabs[tabIndex].id;
@@ -446,13 +521,13 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
             this.editorInstance.setValue(this.tabContent[this.selectedTab]);
             // Do not automatically set query to avoid unintended execution
             this.triggerQuery = '';
-            this.selectedDB = this.tabs[this.selectedTab]?.dbName || '';
+            this.setSelectedDB(this.tabs[this.selectedTab]?.dbName || '');
             this.currentTabId = this.tabs[this.selectedTab]?.id || '';
         } else {
             this.editorInstance?.destroy();
             this.editorInstance = null;
             this.needsEditorInit = true;
-            this.selectedDB = '';
+            this.setSelectedDB('');
             this.currentTabId = '';
             this.triggerQuery = '';
         }
@@ -466,7 +541,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         this.tabs = [];
         this.tabContent = [];
         this.selectedTab = -1;
-        this.selectedDB = '';
+        this.setSelectedDB('');
         this.currentTabId = '';
         this.triggerQuery = '';
         this.executeTriggered = false;
@@ -528,6 +603,17 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     }
 
     handleExecQueryClick() {
+        // Ensure execution targets the most recently selected DB and matching engine
+        try {
+            const persisted = sessionStorage.getItem('selectedDB');
+            const persistedType = sessionStorage.getItem('selectedDBType');
+            const currentType = sessionStorage.getItem('dbType');
+            if (persisted && (!persistedType || !currentType || persistedType === currentType)) {
+                this.selectedDB = persisted;
+            } else if (persisted && persistedType && currentType && persistedType !== currentType) {
+                this.selectedDB = '';
+            }
+        } catch {}
         this.triggerQuery = this.tabContent[this.selectedTab] || '';
         // flip the boolean so ngOnChanges in child sees a change every click
         this.executeTriggered = !this.executeTriggered;
@@ -559,6 +645,15 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     }
 
     handleOpenAIPrompt() {
+        // Ensure we use the most recent DB selected in Sidebar and matching current engine
+        try {
+            const persisted = sessionStorage.getItem('selectedDB');
+            const persistedType = sessionStorage.getItem('selectedDBType');
+            const currentType = sessionStorage.getItem('dbType');
+            if (persisted && (!persistedType || !currentType || persistedType === currentType)) {
+                this.selectedDB = persisted;
+            }
+        } catch {}
         this.dbService
             .executeOpenAIPrompt(this.InitDBInfo, this.selectedDB, this.tabContent[this.selectedTab])
             .subscribe({

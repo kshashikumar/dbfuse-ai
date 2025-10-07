@@ -68,6 +68,15 @@
                     </ng-template>
                 </div>
             </div>
+            <!-- New Query button in tab management section -->
+            <button
+                (click)="addNewQueryTab(selectedDB)"
+                class="ml-2 px-2 py-1 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors duration-200"
+                title="Open new query tab"
+                aria-label="Open new query tab"
+            >
+                <span class="icon-[mdi--plus-box] w-4 h-4"></span>
+            </button>
             <button
                 *ngIf="tabs.length > 0"
                 (click)="closeAllTabs()"
@@ -188,9 +197,20 @@
 <ng-template #showInitDBInfo>
     <div class="flex h-full flex-col bg-white dark:bg-gray-800">
         <!-- Header -->
-        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Database Overview</h2>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Connected databases and their statistics</p>
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div>
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Database Overview</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Connected databases and their statistics</p>
+            </div>
+            <!-- New Query button on overview header (right) -->
+            <button
+                (click)="addNewQueryTab('')"
+                class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+                aria-label="Open new query tab"
+            >
+                <span class="icon-[mdi--plus] w-3 h-3 mr-1"></span>
+                New Query
+            </button>
         </div>
 
         <!-- Content with Modern Scrollbar -->

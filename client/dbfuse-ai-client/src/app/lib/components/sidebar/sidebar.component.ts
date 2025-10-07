@@ -57,6 +57,10 @@ export class SideBarComponent implements OnInit {
         this.isRefreshing = true;
         this.openSections = {};
         this.selectedDatabase = null; // Reset selection on refresh
+        try {
+            sessionStorage.removeItem('selectedDB');
+            sessionStorage.removeItem('selectedDBType');
+        } catch {}
         this.getDatabases();
         this._cdr.markForCheck();
     }
@@ -122,12 +126,25 @@ export class SideBarComponent implements OnInit {
     selectDatabase(databaseName: string): void {
         // Toggle selection if clicking the same database
         if (this.selectedDatabase === databaseName) {
-            this.selectedDatabase = null;
             this.toggleSection(databaseName);
         } else {
             this.selectedDatabase = databaseName;
             this.toggleSection(databaseName);
-            this.databaseSelected.emit(databaseName); // Emit selection event
+            this.databaseSelected.emit(databaseName);
+            // Persist selected database and its type; inform backend
+            try {
+                if (this.selectedDatabase) {
+                    sessionStorage.setItem('selectedDB', this.selectedDatabase);
+                    const dbType = sessionStorage.getItem('dbType') || '';
+                    if (dbType) sessionStorage.setItem('selectedDBType', dbType);
+                }
+            } catch {}
+            if (this.selectedDatabase) {
+                this.dbService.switchDatabase(this.selectedDatabase).subscribe({
+                    next: () => {},
+                    error: () => {},
+                });
+            }
         }
         this._cdr.markForCheck();
     }
@@ -190,7 +207,32 @@ export class SideBarComponent implements OnInit {
     }
 
     openNewTab(dbName: string, tableName: string) {
-        this.newTabEmitter.emit({ dbName: dbName, tableName: tableName });
+        // Ensure we have a valid database context
+        let effectiveDb = dbName || this.selectedDatabase || '';
+        if (!effectiveDb) {
+            try {
+                effectiveDb = sessionStorage.getItem('selectedDB') || '';
+            } catch {}
+        }
+
+        // Persist selection for other components and future actions
+        try {
+            if (effectiveDb) {
+                sessionStorage.setItem('selectedDB', effectiveDb);
+                const dbType = sessionStorage.getItem('dbType') || '';
+                if (dbType) sessionStorage.setItem('selectedDBType', dbType);
+            }
+        } catch {}
+
+        // Optionally switch backend context if the user opened directly from a table without hitting the DB header first
+        if (effectiveDb && this.selectedDatabase !== effectiveDb) {
+            this.dbService.switchDatabase(effectiveDb).subscribe({
+                next: () => {},
+                error: () => {},
+            });
+        }
+
+        this.newTabEmitter.emit({ dbName: effectiveDb, tableName: tableName });
     }
 
     // Helper method to check if a database is selected

@@ -56,7 +56,6 @@ const writeConnectionsToFile = async (connections) => {
 /* ---------------------- Route handlers ---------------------- */
 const getConnections = async (req, res) => {
   try {
-    console.log("Fetching connections...");
     const connections = await readConnectionsFromFile();
 
     const withDisplay = connections.map((c) => {
@@ -64,7 +63,6 @@ const getConnections = async (req, res) => {
       const { databaseDisplay, databaseShort, extras = {} } = policy.display(c);
       return { ...c, databaseDisplay, databaseShort, ...extras };
     });
-    console.log(withDisplay);
     return res.status(200).json({
       connections: withDisplay,
       count: withDisplay.length,
@@ -171,9 +169,7 @@ const editConnection = async (req, res) => {
 
 const deleteConnection = async (req, res) => {
   try {
-    console.log("Delete connection endpoint hit");
     const { id } = req.params;
-    console.log("Deleting connection with ID:", id);
 
     if (!id) return res.status(400).json({ error: "Connection ID is required for deletion." });
 

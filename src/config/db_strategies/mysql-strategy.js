@@ -2,6 +2,7 @@
 const mysql = require("mysql2/promise");
 
 const DatabaseStrategy = require("../database-strategy");
+const chalk = require("chalk");
 
 class MySQLStrategy extends DatabaseStrategy {
   constructor() {
@@ -29,7 +30,7 @@ class MySQLStrategy extends DatabaseStrategy {
       idleTimeout,
     } = config;
 
-    console.log(
+    chalk.green(
       `> Connecting to MySQL server @ ${host || "localhost"}:${port || 3306} with user ${username}${
         database ? ` and database ${database}` : ""
       }${socketPath ? ` using socket ${socketPath}` : ""}${ssl ? " with SSL" : ""}`,
@@ -364,14 +365,19 @@ class MySQLStrategy extends DatabaseStrategy {
     // Switch to database first
     await this.pool.query(`USE \`${dbName}\``);
 
-    // Get columns
+    // Get columns (include size/precision/scale when available)
     const [columns] = await this.pool.query(
       `SELECT COLUMN_NAME as column_name, 
             DATA_TYPE as data_type, 
             IS_NULLABLE as is_nullable, 
             COLUMN_DEFAULT as column_default,
             EXTRA as extra,
-            COLUMN_KEY as column_key
+            COLUMN_KEY as column_key,
+            CHARACTER_MAXIMUM_LENGTH as char_max_length,
+            NUMERIC_PRECISION as numeric_precision,
+            NUMERIC_SCALE as numeric_scale,
+            DATETIME_PRECISION as datetime_precision,
+            COLUMN_TYPE as column_type
      FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? 
      ORDER BY ORDINAL_POSITION`,
@@ -446,14 +452,39 @@ class MySQLStrategy extends DatabaseStrategy {
     return {
       db_name: dbName,
       table_name: tableName,
-      columns: columns.map((col) => ({
-        column_name: col.column_name,
-        data_type: col.data_type,
-        is_nullable: col.is_nullable === "YES",
-        default_value: col.column_default,
-        extra: col.extra,
-        is_primary_key: col.column_key === "PRI",
-      })),
+      columns: columns.map((col) => {
+        // Derive length/precision/scale with sensible fallbacks
+        let length = col.char_max_length != null ? Number(col.char_max_length) : null;
+        let precision = col.numeric_precision != null ? Number(col.numeric_precision) : null;
+        let scale = col.numeric_scale != null ? Number(col.numeric_scale) : null;
+
+        // Fallback: parse from COLUMN_TYPE e.g., varchar(255), decimal(10,2), bit(1)
+        if (length == null && precision == null && col.column_type) {
+          const sizeMatch = /\((\d+)(?:,(\d+))?\)/.exec(col.column_type);
+          if (sizeMatch) {
+            const first = parseInt(sizeMatch[1], 10);
+            const second = sizeMatch[2] ? parseInt(sizeMatch[2], 10) : null;
+            if (second != null) {
+              precision = first;
+              scale = second;
+            } else {
+              length = first;
+            }
+          }
+        }
+
+        return {
+          column_name: col.column_name,
+          data_type: col.data_type,
+          is_nullable: col.is_nullable === "YES",
+          default_value: col.column_default,
+          extra: col.extra,
+          is_primary_key: col.column_key === "PRI",
+          length: length,
+          precision: precision,
+          scale: scale,
+        };
+      }),
       indexes: indexes.map((idx) => ({
         index_name: idx.index_name,
         is_unique: idx.non_unique === 0,
@@ -487,6 +518,30 @@ class MySQLStrategy extends DatabaseStrategy {
     }
 
     return tableDetails;
+  }
+
+  async getViews(dbName) {
+    if (!this.pool) throw new Error("MySQL connection not initialized");
+    await this.switchDatabase(dbName);
+    const [views] = await this.pool.query(
+      `SELECT TABLE_NAME AS view_name 
+       FROM INFORMATION_SCHEMA.VIEWS 
+       WHERE TABLE_SCHEMA = ?`,
+      [dbName],
+    );
+    return views.map((v) => ({ name: v.view_name }));
+  }
+
+  async getProcedures(dbName) {
+    if (!this.pool) throw new Error("MySQL connection not initialized");
+    await this.switchDatabase(dbName);
+    const [procs] = await this.pool.query(
+      `SELECT ROUTINE_NAME AS procedure_name, ROUTINE_SCHEMA AS routine_schema 
+       FROM INFORMATION_SCHEMA.ROUTINES 
+       WHERE ROUTINE_TYPE = 'PROCEDURE' AND ROUTINE_SCHEMA = ?`,
+      [dbName],
+    );
+    return procs.map((p) => ({ name: p.procedure_name, schema: p.routine_schema }));
   }
 }
 

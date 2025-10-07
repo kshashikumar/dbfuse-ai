@@ -2,6 +2,7 @@
 const mssql = require("mssql");
 
 const DatabaseStrategy = require("../database-strategy");
+const chalk = require("chalk");
 
 class MSSQLStrategy extends DatabaseStrategy {
   constructor() {
@@ -29,7 +30,7 @@ class MSSQLStrategy extends DatabaseStrategy {
       appName,
     } = config;
 
-    console.log(
+    chalk.green(
       `> Connecting to MSSQL server @ ${host || "localhost"}:${port || 1433} with user ${username}${
         database ? ` and database ${database}` : ""
       }${instanceName ? ` instance ${instanceName}` : ""}${encrypt || ssl ? " with encryption" : ""}`,
@@ -350,10 +351,18 @@ class MSSQLStrategy extends DatabaseStrategy {
     request.input("tableName", mssql.NVarChar, tableName);
 
     const { recordset: columns } = await request.query(
-      `SELECT column_name, data_type, is_nullable, column_default
-       FROM ${dbName}.information_schema.columns 
-       WHERE table_name = @tableName
-       ORDER BY ordinal_position`,
+      `SELECT 
+       column_name, 
+       data_type, 
+       is_nullable, 
+       column_default,
+       CHARACTER_MAXIMUM_LENGTH AS char_max_length,
+       NUMERIC_PRECISION AS numeric_precision,
+       NUMERIC_SCALE AS numeric_scale,
+       DATETIME_PRECISION AS datetime_precision
+     FROM ${dbName}.information_schema.columns 
+     WHERE table_name = @tableName
+     ORDER BY ordinal_position`,
     );
 
     const { recordset: indexes } = await this.pool.request().query(
@@ -379,12 +388,23 @@ class MSSQLStrategy extends DatabaseStrategy {
     return {
       db_name: dbName,
       table_name: tableName,
-      columns: columns.map((col) => ({
-        column_name: col.column_name,
-        data_type: col.data_type,
-        is_nullable: col.is_nullable === "YES",
-        default_value: col.column_default,
-      })),
+      columns: columns.map((col) => {
+        // MSSQL returns -1 for MAX types; normalize to null length
+        const rawLen = col.char_max_length != null ? Number(col.char_max_length) : null;
+        const length = rawLen === -1 ? null : rawLen;
+        const precision = col.numeric_precision != null ? Number(col.numeric_precision) : null;
+        const scale = col.numeric_scale != null ? Number(col.numeric_scale) : null;
+
+        return {
+          column_name: col.column_name,
+          data_type: col.data_type,
+          is_nullable: col.is_nullable === "YES",
+          default_value: col.column_default,
+          length: length,
+          precision: precision,
+          scale: scale,
+        };
+      }),
       indexes: indexes.map((idx) => ({
         index_name: idx.index_name,
         is_unique: idx.is_unique,
