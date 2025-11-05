@@ -16,7 +16,6 @@ services:
       # AI configuration (optional)
       - AI_PROVIDER=gemini
       - AI_MODEL=gemini-2.5-flash
-      # Leave AI_API_KEY empty in versioned files. Provide via local env or secrets.
       - AI_API_KEY=
     healthcheck:
       test:

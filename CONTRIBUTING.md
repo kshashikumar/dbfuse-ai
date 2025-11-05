@@ -1,4 +1,4 @@
-# Contributing to [DBFuse]
+# Contributing to [DBFuse AI]
 
 Thank you for considering contributing to [DBFuse]! We welcome contributions from everyone. Please take a moment to review the following guidelines to help make the process smooth and enjoyable for all.
 

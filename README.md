@@ -1,6 +1,6 @@
 <img src="assets/dbfuse-ai-logo.png" width=75 height=75 align=left />
 
-# DBFuse
+# DBFuse AI
 
 [![npm version](https://img.shields.io/npm/v/dbfuse-ai.svg?color=success)](https://www.npmjs.com/package/dbfuse-ai)
 [![Known Vulnerabilities](https://snyk.io/test/github/kshashikumar/dbfuse-ai/badge.svg)](https://snyk.io/test/github/kshashikumar/dbfuse-ai)
@@ -55,7 +55,18 @@
 
 Pick the option that fits your setup. All commands below assume a Bash-compatible shell (Windows users can use Git Bash).
 
-1. Docker (production image)
+1. Global CLI (optional)
+
+- Install the CLI globally from npm and run directly:
+
+  ```bash
+  npm install -g dbfuse-ai
+  dbfuse-ai -p 5000 --model gemini-2.5-flash --apikey <YOUR_API_KEY>
+  ```
+
+  Then open http://localhost:5000.
+
+2. Docker (production image)
 
 - Use the prebuilt image for a quick start. Create a `docker-compose.yml` like:
 
@@ -93,7 +104,7 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   docker compose down
   ```
 
-2. Docker (development, hot reload)
+3. Docker (development, hot reload)
 
 - Run straight from your source tree with live reload using the provided `docker-compose-dev.yml`:
 
@@ -107,7 +118,7 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   - Leave `AI_API_KEY` empty in the YAML; export it locally instead of committing a real key.
   - You can copy `.env.example` to `.env` and customize values for local development.
 
-3. Local development (server + client)
+4. Local development (server + client)
 
 - Install dependencies at the repo root:
 
@@ -125,7 +136,7 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   - Backend (Express) with hot reload at http://localhost:5000
   - Frontend (Angular dev server) at http://localhost:4200
 
-4. Local development (server only)
+5. Local development (server only)
 
 - Build frontend assets once and serve them from the backend:
 
@@ -138,17 +149,6 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   ```
 
   The backend serves the built UI from `src/public` at http://localhost:5000.
-
-5. Global CLI (optional)
-
-- Install the CLI globally from npm and run directly:
-
-  ```bash
-  npm install -g dbfuse-ai
-  dbfuse-ai -p 5000 --model gemini-2.5-flash --apikey <YOUR_API_KEY>
-  ```
-
-  Then open http://localhost:5000.
 
 ## AI Integration
 
@@ -259,10 +259,13 @@ To disable authentication, remove these variables from `.env` and restart the se
 
 ## Upcoming Features
 
-- **Multi-Relational DB Support**: PostgreSQL, MariaDB, SQLite3, Oracle, Amazon Redshift, and more.
-- **Dynamic Filtering**: Filter data directly within result grids.
-- **Result Limit Options**: Control the number of records displayed.
-- **Enhanced AI Integration**: Leverage AI for complex query generation and analysis.
+- Additional databases: MariaDB, NoSQL and caches via strategy adapters (MongoDB, Redis)
+- SSH tunneling and client certificate auth for secure remote connections
+- Query history, saved connections/snippets, and export to CSV/JSON/Excel
+- Schema explorer improvements (indexes/constraints), and ER diagram view
+- AI: Explain/optimize queries and suggest indexes in addition to SQL generation
+- Charts and visual analysis for query results (line/bar/pie), with quick pivots
+- Pluggable driver/extension SDK to add new databases and tools
 
 ## Contributions
 

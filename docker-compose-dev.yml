@@ -14,14 +14,11 @@ services:
       - DBFUSE_PASSWORD=admin
       - AI_PROVIDER=gemini
       - AI_MODEL=gemini-2.5-flash
-      # Leave AI_API_KEY empty in versioned files. Provide via local env or secrets.
       - AI_API_KEY=
       - BODY_SIZE=50mb
-    # Database connections are configured via the UI; no DB URL envs are consumed by the server
     volumes:
       - ./:/workspace
       - /workspace/node_modules
     extra_hosts:
-      # Ensures the container can reach host services on Windows/Mac and Linux (host-gateway)
       - "host.docker.internal:host-gateway"
     tty: true
