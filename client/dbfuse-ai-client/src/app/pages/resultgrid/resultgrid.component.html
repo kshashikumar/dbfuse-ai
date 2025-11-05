@@ -19,6 +19,7 @@
                 >
                     Page {{ currentPage }} of {{ totalPages }}
                 </div>
+                <!-- Page size selector moved to the right controls for a cleaner header -->
             </div>
 
             <!-- Pagination Controls -->
@@ -26,6 +27,37 @@
                 *ngIf="totalPages > 1"
                 class="flex items-center space-x-1"
             >
+                <!-- Clean page size selector (compact pill) -->
+                <div
+                    *ngIf="totalRows > 0"
+                    class="flex items-center"
+                >
+                    <label
+                        class="sr-only"
+                        for="rg-page-size"
+                        >Rows per page</label
+                    >
+                    <div class="inline-flex items-center gap-1 px-2 py-1 rounded dark:bg-gray-700 shadow-sm">
+                        <span class="text-[11px] text-gray-600 dark:text-gray-300">Rows</span>
+                        <div class="relative">
+                            <select
+                                id="rg-page-size"
+                                class="appearance-none bg-transparent text-[11px] font-medium w-12 px-1 py-0.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-0"
+                                [value]="pageSize"
+                                (change)="changePageSize($event)"
+                                title="Rows per page"
+                            >
+                                <option
+                                    *ngFor="let size of pageSizeOptions"
+                                    [value]="size"
+                                >
+                                    {{ size }}
+                                </option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
                 <button
                     (click)="changePage(1)"
                     [disabled]="currentPage === 1"

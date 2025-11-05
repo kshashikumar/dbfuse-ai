@@ -41,7 +41,8 @@ export class ResultGridComponent implements OnInit {
     copiedPosition = { left: 0, top: 0 };
 
     currentPage: number = 1;
-    pageSize: number = 50; // Increased for better UX
+    pageSize: number = 50; // default
+    pageSizeOptions: number[] = [10, 25, 50, 100, 200, 500];
     totalRows: number = 0;
     totalPages: number = 1;
 
@@ -271,10 +272,10 @@ export class ResultGridComponent implements OnInit {
                     this._cdr.markForCheck();
                 }, 2000);
 
-                console.log('Copied to clipboard:', text);
+                // Copied to clipboard
             },
             (err) => {
-                console.error('Failed to copy:', err);
+                // Clipboard API failed; using fallback
                 // Fallback for older browsers
                 this.fallbackCopyTextToClipboard(String(text));
             },
@@ -296,9 +297,8 @@ export class ResultGridComponent implements OnInit {
 
         try {
             document.execCommand('copy');
-            console.log('Fallback: Copied to clipboard');
         } catch (err) {
-            console.error('Fallback: Unable to copy', err);
+            // ignore
         }
 
         document.body.removeChild(textArea);
@@ -308,6 +308,16 @@ export class ResultGridComponent implements OnInit {
         if (newPage > 0 && newPage <= this.totalPages && newPage !== this.currentPage) {
             this.currentPage = newPage;
             this.executeQuery(); // backend paginates current SELECT; we keep active index
+        }
+    }
+
+    // Change page size via dropdown and re-run the query
+    changePageSize(event: Event): void {
+        const value = Number((event.target as HTMLSelectElement).value);
+        if (!isNaN(value) && value > 0 && value !== this.pageSize) {
+            this.pageSize = value;
+            this.currentPage = 1;
+            this.executeQuery();
         }
     }
 

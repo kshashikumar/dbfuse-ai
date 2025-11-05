@@ -47,13 +47,13 @@
                 *ngIf="messageType === 'success'"
                 class="bg-green-100 text-green-800 border border-green-200"
             >
-                ✅ {{ message }}
+                {{ message }}
             </div>
             <div
                 *ngIf="messageType === 'error'"
                 class="bg-red-100 text-red-800 border border-red-200"
             >
-                ❌ {{ message }}
+                {{ message }}
             </div>
             <div
                 *ngIf="messageType === 'info'"

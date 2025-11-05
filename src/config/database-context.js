@@ -7,6 +7,7 @@ const PostgreSQLStrategy = require("./db_strategies/postgresql-strategy");
 const SQLiteStrategy = require("./db_strategies/sqlite-strategy");
 const MSSQLStrategy = require("./db_strategies/mssql-strategy");
 const OracleStrategy = require("./db_strategies/oracle-strategy");
+const logger = require("../utils/logger");
 
 class DatabaseContext {
   constructor() {
@@ -123,14 +124,14 @@ class DatabaseContext {
           socketPath: conn.socketPath,
           status: conn.status || "Available",
         }));
-        console.log("Loaded connections from file:", connections);
+        logger.debug("Loaded connections from file:", connections);
       } catch (fileErr) {
-        console.log("No existing connections file exist");
+        logger.info("No existing connections file exist");
         throw fileErr;
       }
       return connections;
     } catch (err) {
-      console.error("Error fetching connections:", err);
+      logger.error("Error fetching connections:", err);
       return [];
     }
   }
@@ -139,9 +140,9 @@ class DatabaseContext {
     try {
       const filePath = path.join(__dirname, "dbConnections.json");
       await fs.writeFile(filePath, JSON.stringify(connections, null, 2), "utf8");
-      console.log("Connections saved to file:", connections);
+      logger.info("Connections saved to file:", connections);
     } catch (err) {
-      console.error("Error saving connections to file:", err);
+      logger.error("Error saving connections to file:", err);
       throw err;
     }
   }

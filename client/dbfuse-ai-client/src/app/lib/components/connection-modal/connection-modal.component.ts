@@ -1,4 +1,15 @@
-import { Component, EventEmitter, Input, Output, OnInit, OnChanges, SimpleChanges } from '@angular/core';
+import {
+    Component,
+    EventEmitter,
+    Input,
+    Output,
+    OnInit,
+    OnChanges,
+    SimpleChanges,
+    DestroyRef,
+    inject,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormGroup } from '@angular/forms';
 import { ConnectionConfig, DatabaseType, ValidationResult } from '@lib/utils/storage/storage.types';
@@ -32,6 +43,7 @@ export class ConnectionModalComponent implements OnInit, OnChanges {
     currentFields: FormFieldConfig[] = [];
     validationResult: ValidationResult = { isValid: false, errors: [] };
 
+    private readonly _destroyRef = inject(DestroyRef);
     constructor(private formHelper: ConnectionFormHelper) {}
 
     ngOnInit(): void {
@@ -50,13 +62,16 @@ export class ConnectionModalComponent implements OnInit, OnChanges {
         this.validateForm();
 
         // Subscribe to dbType changes only to update fields
-        this.connectionForm.get('dbType')?.valueChanges.subscribe((dbType) => {
-            this.updateCurrentFields();
-            this.validateForm();
-        });
+        this.connectionForm
+            .get('dbType')
+            ?.valueChanges.pipe(takeUntilDestroyed(this._destroyRef))
+            .subscribe(() => {
+                this.updateCurrentFields();
+                this.validateForm();
+            });
 
         // Subscribe to form changes for validation only
-        this.connectionForm.valueChanges.subscribe(() => {
+        this.connectionForm.valueChanges.pipe(takeUntilDestroyed(this._destroyRef)).subscribe(() => {
             this.validateForm();
         });
     }

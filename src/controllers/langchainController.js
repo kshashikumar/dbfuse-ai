@@ -1,4 +1,5 @@
 const { getAIModel } = require("../models/model");
+const logger = require("../utils/logger");
 const connectionManager = require("../config/connection-manager-singleton");
 
 const argv = require("minimist")(process.argv.slice(2));
@@ -204,11 +205,11 @@ const executePrompt = async (req, res) => {
     const llm = initializeLLM();
 
     // Resolve strategy and current database
-    console.log("Fetching connection for ID:", connectionId);
+    logger.debug("Fetching connection for ID:", connectionId);
     const strategy = connectionManager.getConnection(connectionId);
-    console.log("Strategy for connection:", strategy ? "found" : "not found");
+    logger.debug("Strategy for connection:", strategy ? "found" : "not found");
     const info = connectionManager.getConnectionInfo(connectionId);
-    console.log("Connection info:", info);
+    logger.debug("Connection info:", info);
     const currentDb = bodyDbName || info?.currentDatabase || info?.config?.database;
     if (!currentDb) {
       return res.status(400).json({ error: "Unable to determine target database" });
@@ -300,7 +301,7 @@ const executePrompt = async (req, res) => {
 
     res.status(200).json({ query });
   } catch (err) {
-    console.error("Error generating query:", err.message);
+    logger.error("Error generating query:", err.message);
     res.status(500).json({ error: err.message });
   }
 };

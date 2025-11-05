@@ -13,6 +13,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
 import { BackendService } from '@lib/services';
 import { newTabData, TableInfo } from '@lib/utils/storage/storage.types';
+import { getSafeSessionStorage } from '@lib/utils/browser-adapter';
 
 @Component({
     selector: 'app-sidebar',
@@ -40,7 +41,6 @@ export class SideBarComponent implements OnInit {
     constructor(private dbService: BackendService) {}
 
     ngOnInit(): void {
-        console.log('SidebarComponent initialized');
         this.getDatabases();
     }
 
@@ -58,8 +58,9 @@ export class SideBarComponent implements OnInit {
         this.openSections = {};
         this.selectedDatabase = null; // Reset selection on refresh
         try {
-            sessionStorage.removeItem('selectedDB');
-            sessionStorage.removeItem('selectedDBType');
+            const storage = getSafeSessionStorage();
+            storage.removeItem('selectedDB');
+            storage.removeItem('selectedDBType');
         } catch {}
         this.getDatabases();
         this._cdr.markForCheck();
@@ -73,7 +74,7 @@ export class SideBarComponent implements OnInit {
             next: (data) => {
                 this.databases = data;
                 this.filteredDatabases = data['databases'] || [];
-                console.log('Databases loaded:', data);
+                // Databases loaded
                 this.initDBInfoEmitter.emit(this.filteredDatabases);
                 this._cdr.markForCheck();
             },
@@ -133,10 +134,11 @@ export class SideBarComponent implements OnInit {
             this.databaseSelected.emit(databaseName);
             // Persist selected database and its type; inform backend
             try {
+                const storage = getSafeSessionStorage();
                 if (this.selectedDatabase) {
-                    sessionStorage.setItem('selectedDB', this.selectedDatabase);
-                    const dbType = sessionStorage.getItem('dbType') || '';
-                    if (dbType) sessionStorage.setItem('selectedDBType', dbType);
+                    storage.setItem('selectedDB', this.selectedDatabase);
+                    const dbType = storage.getItem('dbType') || '';
+                    if (dbType) storage.setItem('selectedDBType', dbType);
                 }
             } catch {}
             if (this.selectedDatabase) {
@@ -211,16 +213,17 @@ export class SideBarComponent implements OnInit {
         let effectiveDb = dbName || this.selectedDatabase || '';
         if (!effectiveDb) {
             try {
-                effectiveDb = sessionStorage.getItem('selectedDB') || '';
+                effectiveDb = getSafeSessionStorage().getItem('selectedDB') || '';
             } catch {}
         }
 
         // Persist selection for other components and future actions
         try {
+            const storage = getSafeSessionStorage();
             if (effectiveDb) {
-                sessionStorage.setItem('selectedDB', effectiveDb);
-                const dbType = sessionStorage.getItem('dbType') || '';
-                if (dbType) sessionStorage.setItem('selectedDBType', dbType);
+                storage.setItem('selectedDB', effectiveDb);
+                const dbType = storage.getItem('dbType') || '';
+                if (dbType) storage.setItem('selectedDBType', dbType);
             }
         } catch {}
 

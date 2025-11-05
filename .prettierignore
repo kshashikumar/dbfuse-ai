@@ -2,3 +2,4 @@ node_modules
 dist
 build
 coverage
+client/dbfuse-ai-client/src/**/*.component.html

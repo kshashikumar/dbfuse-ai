@@ -3,6 +3,7 @@ const mysql = require("mysql2/promise");
 
 const DatabaseStrategy = require("../database-strategy");
 const chalk = require("chalk");
+const logger = require("../../utils/logger");
 
 class MySQLStrategy extends DatabaseStrategy {
   constructor() {
@@ -11,7 +12,7 @@ class MySQLStrategy extends DatabaseStrategy {
   }
 
   async connect(config) {
-    const {
+    let {
       host,
       port,
       username,
@@ -23,52 +24,54 @@ class MySQLStrategy extends DatabaseStrategy {
       poolSize,
       charset,
       timezone,
-      acquireTimeout,
       waitForConnections,
       queueLimit,
-      reconnect,
-      idleTimeout,
     } = config;
 
+    // Normalize host for container environments
+    const normalizedHost = this.normalizeHost(host || "localhost");
+
     chalk.green(
-      `> Connecting to MySQL server @ ${host || "localhost"}:${port || 3306} with user ${username}${
+      `> Connecting to MySQL server @ ${normalizedHost}:${port || 3306} with user ${username}${
         database ? ` and database ${database}` : ""
       }${socketPath ? ` using socket ${socketPath}` : ""}${ssl ? " with SSL" : ""}`,
     );
 
     // Build connection configuration with all optional parameters
     const connectionConfig = {
-      host: host || "localhost",
-      port: host === "localhost" && !port ? undefined : parseInt(port) || 3306,
+      host: normalizedHost,
+      port: parseInt(port) || 3306,
       user: username,
       password,
       database: database || undefined,
-      socketPath: host === "localhost" && socketPath ? socketPath : undefined,
+      // Use socket only for local connections
+      socketPath:
+        (host === "localhost" || host === "127.0.0.1" || host === "::1") && socketPath
+          ? socketPath
+          : undefined,
 
       // SSL Configuration
       ssl: ssl
         ? typeof ssl === "object"
           ? ssl
           : { rejectUnauthorized: false }
-        : host !== "localhost"
+        : normalizedHost !== "localhost" &&
+            normalizedHost !== "127.0.0.1" &&
+            normalizedHost !== "::1"
           ? { rejectUnauthorized: false }
           : undefined,
 
       // Pool Configuration
       connectionLimit: parseInt(poolSize) || 10,
-      acquireTimeout: parseInt(acquireTimeout) || parseInt(connectionTimeout) || 60000,
       waitForConnections: waitForConnections !== undefined ? waitForConnections : true,
       queueLimit: parseInt(queueLimit) || 0,
 
       // Connection Options
       charset: charset || "UTF8_GENERAL_CI",
       timezone: timezone || "local",
-      reconnect: reconnect !== undefined ? reconnect : true,
 
       // Timeouts
       connectTimeout: parseInt(connectionTimeout) || 60000,
-      timeout: parseInt(connectionTimeout) || 60000,
-      idleTimeout: parseInt(idleTimeout) || 30000,
 
       // Additional MySQL specific options
       multipleStatements: true,
@@ -92,17 +95,23 @@ class MySQLStrategy extends DatabaseStrategy {
       }
     });
 
-    this.pool = await mysql.createPool(connectionConfig);
-
-    // Test connection
-    await this.pool.query("SELECT 1");
-    console.log("> Successfully connected to MySQL server");
+    try {
+      this.pool = await mysql.createPool(connectionConfig);
+      // Test connection
+      await this.pool.query("SELECT 1");
+      logger.info("> Successfully connected to MySQL server");
+    } catch (err) {
+      logger.error(
+        `> MySQL connection failed to ${connectionConfig.host}:${connectionConfig.port} as ${connectionConfig.user} (${err.code || err.name || "Error"})`,
+      );
+      throw err;
+    }
   }
 
   async switchDatabase(dbName) {
     if (!this.pool) throw new Error("MySQL connection not initialized");
     await this.pool.query(`USE \`${dbName}\``);
-    console.log(`> Switched to MySQL database: ${dbName}`);
+    logger.info(`> Switched to MySQL database: ${dbName}`);
   }
 
   async executeQuery(query, options = { page: 1, pageSize: 10 }) {
@@ -261,7 +270,7 @@ class MySQLStrategy extends DatabaseStrategy {
   async disconnect() {
     if (this.pool) {
       await this.pool.end();
-      console.log("> Disconnected from MySQL database");
+      logger.info("> Disconnected from MySQL database");
       this.pool = null;
     }
   }
@@ -272,7 +281,7 @@ class MySQLStrategy extends DatabaseStrategy {
       await this.pool.query("SELECT 1");
       return true;
     } catch (err) {
-      console.error("MySQL connection validation failed:", err);
+      logger.error("MySQL connection validation failed:", err);
       return false;
     }
   }
@@ -297,7 +306,7 @@ class MySQLStrategy extends DatabaseStrategy {
         return acc;
       }, {});
     } catch (err) {
-      console.error("Error getting connection stats:", err);
+      logger.error("Error getting connection stats:", err);
       return null;
     }
   }

@@ -3,6 +3,7 @@ const dbContext = require("../config/database-context"); // Legacy singleton ins
 // Use shared ConnectionManager singleton so all controllers share connections
 const connectionManager = require("../config/connection-manager-singleton");
 const chalk = require("chalk");
+const logger = require("../utils/logger");
 
 // Enhanced response helper
 const sendResponse = (res, status, data, error = null) => {
@@ -13,7 +14,7 @@ const sendResponse = (res, status, data, error = null) => {
 
 // Enhanced error handler
 const handleError = (res, error, operation) => {
-  console.error(`Error in ${operation}:`, error);
+  logger.error(`Error in ${operation}:`, error);
 
   if (
     error.message.includes("syntax error") ||

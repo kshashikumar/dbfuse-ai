@@ -3,6 +3,7 @@ import { environment } from '@env/environment';
 import { Observable } from 'rxjs';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Connection, ConnectionConfig, ConnectionResponse } from '@lib/utils/storage/storage.types';
+import { getSafeSessionStorage } from '@lib/utils/browser-adapter';
 
 @Injectable({
     providedIn: 'root',
@@ -11,7 +12,7 @@ export class ConnectionService {
     BASE_URL = environment.apiUrl;
 
     private getHeaders(): HttpHeaders {
-        const token = sessionStorage.getItem('token');
+        const token = getSafeSessionStorage().getItem('token');
         return new HttpHeaders({
             'Content-Type': 'application/json',
             Authorization: token ? token : '',

@@ -3,6 +3,7 @@ const { Pool } = require("pg");
 
 const DatabaseStrategy = require("../database-strategy");
 const chalk = require("chalk");
+const logger = require("../../utils/logger");
 
 class PostgreSQLStrategy extends DatabaseStrategy {
   constructor() {
@@ -12,7 +13,7 @@ class PostgreSQLStrategy extends DatabaseStrategy {
   }
 
   async connect(config) {
-    const {
+    let {
       host,
       port,
       username,
@@ -28,6 +29,9 @@ class PostgreSQLStrategy extends DatabaseStrategy {
       application_name,
       schema,
     } = config;
+
+    // Normalize host for container environments
+    host = this.normalizeHost(host);
 
     chalk.green(
       `> Connecting to PostgreSQL server @ ${host || "localhost"}:${port || 5432} with user ${username}${
@@ -78,15 +82,22 @@ class PostgreSQLStrategy extends DatabaseStrategy {
       }
     });
 
-    this.pool = new Pool(connectionConfig);
-    this.currentSchema = schema || "public";
+    try {
+      this.pool = new Pool(connectionConfig);
+      this.currentSchema = schema || "public";
 
-    // Test connection and set schema
-    await this.pool.query("SELECT 1");
-    if (this.currentSchema !== "public") {
-      await this.pool.query(`SET search_path TO "${this.currentSchema}"`);
+      // Test connection and set schema
+      await this.pool.query("SELECT 1");
+      if (this.currentSchema !== "public") {
+        await this.pool.query(`SET search_path TO "${this.currentSchema}"`);
+      }
+      logger.info("> Successfully connected to PostgreSQL server");
+    } catch (err) {
+      logger.error(
+        `> PostgreSQL connection failed to ${connectionConfig.host}:${connectionConfig.port} as ${connectionConfig.user} (${err.code || err.name || "Error"})`,
+      );
+      throw err;
     }
-    console.log("> Successfully connected to PostgreSQL server");
   }
 
   async switchDatabase(dbName) {
@@ -134,7 +145,7 @@ class PostgreSQLStrategy extends DatabaseStrategy {
     // Reset to public schema in the new database
     this.currentSchema = "public";
 
-    console.log(`> Switched to PostgreSQL database: ${dbName}`);
+    logger.info(`> Switched to PostgreSQL database: ${dbName}`);
   }
 
   async executeQuery(query, options = { page: 1, pageSize: 10 }) {
@@ -279,7 +290,7 @@ class PostgreSQLStrategy extends DatabaseStrategy {
   async disconnect() {
     if (this.pool) {
       await this.pool.end();
-      console.log("> Disconnected from PostgreSQL database");
+      logger.info("> Disconnected from PostgreSQL database");
       this.pool = null;
     }
   }
@@ -290,7 +301,7 @@ class PostgreSQLStrategy extends DatabaseStrategy {
       await this.pool.query("SELECT 1");
       return true;
     } catch (err) {
-      console.error("PostgreSQL connection validation failed:", err);
+      logger.error("PostgreSQL connection validation failed:", err);
       return false;
     }
   }
@@ -318,7 +329,7 @@ class PostgreSQLStrategy extends DatabaseStrategy {
         poolWaiting: this.pool.waitingCount,
       };
     } catch (err) {
-      console.error("Error getting connection stats:", err);
+      logger.error("Error getting connection stats:", err);
       return null;
     }
   }
@@ -377,7 +388,7 @@ class PostgreSQLStrategy extends DatabaseStrategy {
 
         await tempPool.end();
       } catch (err) {
-        console.warn(`Could not get tables/views for database ${dbName}:`, err.message);
+        logger.warn(`Could not get tables/views for database ${dbName}: ${err.message}`);
         // If we can't connect to that database, continue with empty arrays
       }
 

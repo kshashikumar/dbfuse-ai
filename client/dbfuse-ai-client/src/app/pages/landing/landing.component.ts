@@ -9,6 +9,7 @@ import { AuthService, BackendService } from '@lib/services';
 import { ConnectionService } from '@lib/services/backend';
 import { LogoComponent } from '@lib/components/logo/logo.component';
 import { Connection, ConnectionConfig, DatabaseType } from '@lib/utils/storage/storage.types';
+import { getSafeSessionStorage } from '@lib/utils/browser-adapter';
 
 @Component({
     selector: 'app-landing',
@@ -42,7 +43,7 @@ export class LandingComponent implements OnInit {
         private connectionService: ConnectionService,
         private router: Router,
     ) {
-        sessionStorage.removeItem('dbType'); // Clear dbType on landing page
+        getSafeSessionStorage().removeItem('dbType'); // Clear dbType on landing page
         this.backendService.clearDatabaseType();
     }
 
@@ -57,13 +58,12 @@ export class LandingComponent implements OnInit {
 
         this.connectionService.getConnections().subscribe({
             next: (data) => {
-                console.log('Connections loaded:', data);
                 this.connections = data.connections || [];
                 this.loading = false;
                 this.loadingMessage = null;
             },
             error: (err) => {
-                console.error('Error fetching connections:', err);
+                // Error fetching connections
                 this.error = 'Failed to load connections';
                 this.loading = false;
                 this.loadingMessage = null;
@@ -72,16 +72,13 @@ export class LandingComponent implements OnInit {
     }
 
     logout() {
-        console.log('Logging out...');
-        sessionStorage.clear();
+        getSafeSessionStorage().clear();
         this.backendService.clearDatabaseType();
         this._authService.logout().subscribe({
             next: () => {
-                console.log('Logout successful');
                 this.router.navigate(['/login'], { replaceUrl: true });
             },
             error: (err) => {
-                console.error('Logout failed:', err);
                 this.router.navigate(['/login'], { replaceUrl: true });
             },
         });
@@ -127,14 +124,14 @@ export class LandingComponent implements OnInit {
             // Edit existing connection
             this.connectionService.editConnection(connection.id, connection).subscribe({
                 next: (response) => {
-                    console.log('Connection updated:', response.message);
+                    // Connection updated
                     this.loadConnections();
                     this.isModalOpen = false;
                     this.loading = false;
                     this.loadingMessage = null;
                 },
                 error: (err) => {
-                    console.error('Error updating connection:', err);
+                    // Error updating connection
                     this.error = 'Failed to update connection';
                     this.loading = false;
                     this.loadingMessage = null;
@@ -144,14 +141,14 @@ export class LandingComponent implements OnInit {
             // Add new connection
             this.connectionService.addConnection(connection).subscribe({
                 next: (response) => {
-                    console.log('Connection added:', response.message);
+                    // Connection added
                     this.loadConnections();
                     this.isModalOpen = false;
                     this.loading = false;
                     this.loadingMessage = null;
                 },
                 error: (err) => {
-                    console.error('Error adding connection:', err);
+                    // Error adding connection
                     this.error = 'Failed to add connection';
                     this.loading = false;
                     this.loadingMessage = null;
@@ -174,7 +171,7 @@ export class LandingComponent implements OnInit {
 
             this.connectionService.deleteConnection(this.connectionToDelete).subscribe({
                 next: (response) => {
-                    console.log('Connection deleted:', response.message);
+                    // Connection deleted
                     this.loadConnections();
                     this.isConfirmDialogOpen = false;
                     this.connectionToDelete = null;
@@ -182,7 +179,7 @@ export class LandingComponent implements OnInit {
                     this.loadingMessage = null;
                 },
                 error: (err) => {
-                    console.error('Error deleting connection:', err);
+                    // Error deleting connection
                     this.error = 'Failed to delete connection';
                     this.loading = false;
                     this.loadingMessage = null;
@@ -203,7 +200,6 @@ export class LandingComponent implements OnInit {
     }
 
     onConnectionSelect(connection: Connection): void {
-        console.log('Connecting to server:', connection);
         this.loading = true;
         this.error = null;
         this.testSuccessMessage = null;
@@ -220,14 +216,12 @@ export class LandingComponent implements OnInit {
 
         this.backendService.connect(typedConnectionConfig).subscribe({
             next: (response) => {
-                console.log('Connection successful:', response.message);
-                sessionStorage.setItem('connection', JSON.stringify(connection));
+                getSafeSessionStorage().setItem('connection', JSON.stringify(connection));
                 this.loading = false;
                 this.loadingMessage = null;
                 this.router.navigate(['/connection'], { state: { connection } });
             },
             error: (err) => {
-                console.error('Error connecting to database:', err);
                 this.error = `Connection failed: ${err.error?.error || err.message}`;
                 this.loading = false;
                 this.loadingMessage = null;
@@ -237,8 +231,6 @@ export class LandingComponent implements OnInit {
 
     // Enhanced test connection method with proper error handling and UI feedback
     testConnection(connection: Connection): void {
-        console.log('Testing connection:', connection);
-
         // Validate connection configuration before testing
         if (!this.connectionService.canTestConnection(connection)) {
             this.error = 'Connection configuration is invalid for testing';
@@ -264,7 +256,6 @@ export class LandingComponent implements OnInit {
 
         this.connectionService.testConnection(connectionId).subscribe({
             next: (response) => {
-                console.log('Connection test successful:', response);
                 this.testSuccessMessage = ` Connection test successful! ${response.message || 'Database is reachable.'}`;
                 this.loading = false;
                 this.loadingMessage = null;
@@ -284,7 +275,6 @@ export class LandingComponent implements OnInit {
                 }, 5000);
             },
             error: (err) => {
-                console.error('Connection test failed:', err);
                 this.error = `❌ Connection test failed: ${err.error?.error || err.error?.message || err.message || 'Unknown error'}`;
                 this.loading = false;
                 this.loadingMessage = null;

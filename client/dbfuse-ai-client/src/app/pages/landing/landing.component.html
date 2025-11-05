@@ -33,7 +33,7 @@
             </div>
         </div>
 
-        <!-- Error/Success Messages -->
+        <!-- Error Message -->
         <div
             *ngIf="error"
             class="mb-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
@@ -55,31 +55,30 @@
                 <div class="ml-3">
                     <p class="text-sm text-red-800 dark:text-red-200">{{ error }}</p>
                 </div>
-                <div class="ml-auto pl-3">
-                    <div class="-mx-1.5 -my-1.5">
-                        <button
-                            (click)="error = null"
-                            type="button"
-                            class="inline-flex rounded-md p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-800/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-red-50 focus:ring-red-600"
+                <div class="ml-auto -mx-1.5 -my-1.5">
+                    <button
+                        (click)="error = null"
+                        type="button"
+                        class="inline-flex rounded-md p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-800/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-red-50 focus:ring-red-600"
+                    >
+                        <span class="sr-only">Dismiss</span>
+                        <svg
+                            class="h-5 w-5"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
                         >
-                            <span class="sr-only">Dismiss</span>
-                            <svg
-                                class="h-5 w-5"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                            >
-                                <path
-                                    fill-rule="evenodd"
-                                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                                    clip-rule="evenodd"
-                                ></path>
-                            </svg>
-                        </button>
-                    </div>
+                            <path
+                                fill-rule="evenodd"
+                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                clip-rule="evenodd"
+                            ></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
         </div>
 
+        <!-- Success Message -->
         <div
             *ngIf="testSuccessMessage"
             class="mb-4 p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
@@ -87,7 +86,7 @@
             <div class="flex">
                 <div class="flex-shrink-0">
                     <svg
-                        class="h-5 w-5 text-green-400"
+                        class="h-5 w-5 text-green-500"
                         fill="currentColor"
                         viewBox="0 0 20 20"
                     >
@@ -101,27 +100,25 @@
                 <div class="ml-3">
                     <p class="text-sm text-green-800 dark:text-green-200">{{ testSuccessMessage }}</p>
                 </div>
-                <div class="ml-auto pl-3">
-                    <div class="-mx-1.5 -my-1.5">
-                        <button
-                            (click)="testSuccessMessage = null"
-                            type="button"
-                            class="inline-flex rounded-md p-1.5 text-green-500 hover:bg-green-100 dark:hover:bg-green-800/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-green-50 focus:ring-green-600"
+                <div class="ml-auto -mx-1.5 -my-1.5">
+                    <button
+                        (click)="testSuccessMessage = null"
+                        type="button"
+                        class="inline-flex rounded-md p-1.5 text-green-600 hover:bg-green-100 dark:hover:bg-green-800/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-green-50 focus:ring-green-600"
+                    >
+                        <span class="sr-only">Dismiss</span>
+                        <svg
+                            class="h-5 w-5"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
                         >
-                            <span class="sr-only">Dismiss</span>
-                            <svg
-                                class="h-5 w-5"
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                            >
-                                <path
-                                    fill-rule="evenodd"
-                                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                                    clip-rule="evenodd"
-                                ></path>
-                            </svg>
-                        </button>
-                    </div>
+                            <path
+                                fill-rule="evenodd"
+                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                clip-rule="evenodd"
+                            ></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
         </div>

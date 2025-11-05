@@ -2,6 +2,7 @@
 const sqlite3 = require("sqlite3").verbose();
 
 const chalk = require("chalk");
+const logger = require("../../utils/logger");
 const DatabaseStrategy = require("../database-strategy");
 
 class SQLiteStrategy extends DatabaseStrategy {
@@ -141,14 +142,14 @@ class SQLiteStrategy extends DatabaseStrategy {
         });
       });
 
-      console.log("> Successfully connected to SQLite database");
+      logger.info("> Successfully connected to SQLite database");
     } catch (err) {
       throw new Error(`SQLite configuration error: ${err.message}`);
     }
   }
 
   async switchDatabase(dbName) {
-    console.log("SQLite does not support switching databases");
+    logger.warn("SQLite does not support switching databases");
     return;
   }
 
@@ -296,7 +297,7 @@ class SQLiteStrategy extends DatabaseStrategy {
   async disconnect() {
     if (this.db) {
       await new Promise((resolve) => this.db.close(() => resolve()));
-      console.log("> Disconnected from SQLite database");
+      logger.info("> Disconnected from SQLite database");
       this.db = null;
       this.databaseName = null;
     }
@@ -313,7 +314,7 @@ class SQLiteStrategy extends DatabaseStrategy {
       });
       return true;
     } catch (err) {
-      console.error("SQLite connection validation failed:", err);
+      logger.error("SQLite connection validation failed:", err);
       return false;
     }
   }
@@ -346,7 +347,7 @@ class SQLiteStrategy extends DatabaseStrategy {
         isMemoryDb: this.databaseName === ":memory:",
       };
     } catch (err) {
-      console.error("Error getting connection stats:", err);
+      logger.error("Error getting connection stats:", err);
       return null;
     }
   }

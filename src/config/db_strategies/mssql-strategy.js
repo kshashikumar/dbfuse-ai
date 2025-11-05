@@ -3,6 +3,7 @@ const mssql = require("mssql");
 
 const DatabaseStrategy = require("../database-strategy");
 const chalk = require("chalk");
+const logger = require("../../utils/logger");
 
 class MSSQLStrategy extends DatabaseStrategy {
   constructor() {
@@ -11,7 +12,7 @@ class MSSQLStrategy extends DatabaseStrategy {
   }
 
   async connect(config) {
-    const {
+    let {
       host,
       port,
       username,
@@ -29,6 +30,9 @@ class MSSQLStrategy extends DatabaseStrategy {
       packetSize,
       appName,
     } = config;
+
+    // Normalize host for container environments
+    host = this.normalizeHost(host);
 
     chalk.green(
       `> Connecting to MSSQL server @ ${host || "localhost"}:${port || 1433} with user ${username}${
@@ -89,15 +93,22 @@ class MSSQLStrategy extends DatabaseStrategy {
 
     this.pool = new mssql.ConnectionPool(connectionConfig);
 
-    await this.pool.connect();
-    await this.pool.request().query("SELECT 1");
-    console.log("> Successfully connected to MSSQL server");
+    try {
+      await this.pool.connect();
+      await this.pool.request().query("SELECT 1");
+      logger.info("> Successfully connected to MSSQL server");
+    } catch (err) {
+      logger.error(
+        `> MSSQL connection failed to ${connectionConfig.server}:${connectionConfig.port} as ${connectionConfig.user} (${err.code || err.name || "Error"})`,
+      );
+      throw err;
+    }
   }
 
   async switchDatabase(dbName) {
     if (!this.pool) throw new Error("MSSQL connection not initialized");
     await this.pool.request().query(`USE [${dbName}]`);
-    console.log(`> Switched to MSSQL database: ${dbName}`);
+    logger.info(`> Switched to MSSQL database: ${dbName}`);
   }
 
   async executeQuery(query, options = { page: 1, pageSize: 10, dbName: undefined }) {
@@ -240,7 +251,7 @@ class MSSQLStrategy extends DatabaseStrategy {
   async disconnect() {
     if (this.pool) {
       await this.pool.close();
-      console.log("> Disconnected from MSSQL database");
+      logger.info("> Disconnected from MSSQL database");
       this.pool = null;
     }
   }
@@ -251,7 +262,7 @@ class MSSQLStrategy extends DatabaseStrategy {
       await this.pool.request().query("SELECT 1");
       return true;
     } catch (err) {
-      console.error("MSSQL connection validation failed:", err);
+      logger.error("MSSQL connection validation failed:", err);
       return false;
     }
   }
@@ -276,7 +287,7 @@ class MSSQLStrategy extends DatabaseStrategy {
         poolConnecting: this.pool.connecting,
       };
     } catch (err) {
-      console.error("Error getting connection stats:", err);
+      logger.error("Error getting connection stats:", err);
       return null;
     }
   }

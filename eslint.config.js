@@ -5,6 +5,15 @@ import eslintConfigPrettier from "eslint-config-prettier";
 
 /** @type {import('eslint').Linter.FlatConfig[]} */
 export default [
+  {
+    ignores: [
+      "**/dist/**", // Angular build output
+      "**/build/**",
+      "**/coverage/**",
+      "**/node_modules/**",
+      "**/.angular/**",
+    ],
+  },
   { files: ["**/*.{js,mjs,cjs}"] },
   js.configs.recommended,
   {

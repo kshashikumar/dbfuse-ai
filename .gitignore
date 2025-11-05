@@ -1,2 +1,53 @@
-node_modules
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.eslintcache
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env & secrets (do not commit real keys)
 .env
+.env.*
+!.env.example
+
+# Logs & pids
+logs/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage / reports
+coverage/
+.nyc_output/
+
+# Docker
+docker-compose.override.yml
+.docker/
+.env.docker*
+
+# Backend build artifacts (serves built client)
+src/public/
+
+# Angular client build & caches
+client/dbfuse-ai-client/dist/
+client/dbfuse-ai-client/.angular/
+client/dbfuse-ai-client/.cache/
+
+# Cypress artifacts (client)
+client/dbfuse-ai-client/cypress/videos/
+client/dbfuse-ai-client/cypress/screenshots/
+client/dbfuse-ai-client/cypress/downloads/

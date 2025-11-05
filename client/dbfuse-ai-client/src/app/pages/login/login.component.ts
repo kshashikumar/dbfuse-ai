@@ -79,14 +79,12 @@ export class LoginComponent implements OnInit {
 
         this._authService.login(username, password).subscribe({
             next: (data) => {
-                console.log('Login successful:', data);
                 sessionStorage.setItem('token', data.basicToken);
                 this.isLoading = false;
                 this._cdr.markForCheck();
                 this._router.navigate([''], { replaceUrl: true });
             },
             error: (error) => {
-                console.error('Login failed:', error);
                 this.handleLoginError(error);
                 this.isLoading = false;
                 this._cdr.markForCheck();

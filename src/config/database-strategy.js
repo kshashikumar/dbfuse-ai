@@ -1,4 +1,5 @@
 // database-strategy.js
+const fs = require("fs");
 const { QUERY_TYPES, ERROR_MESSAGES } = require("../constants/constants");
 
 class DatabaseStrategy {
@@ -107,6 +108,29 @@ class DatabaseStrategy {
   // Utility methods for all database types
   sanitizeIdentifier(identifier) {
     return identifier.replace(/[^\w_]/g, "");
+  }
+
+  // Detect if running inside a container
+  isRunningInContainer() {
+    try {
+      if (process.env.DOCKER === "true") return true;
+      // /.dockerenv exists in most Docker images
+      if (fs.existsSync("/.dockerenv")) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  // Normalize host when running inside Docker so "localhost" points to the host machine
+  normalizeHost(host) {
+    if (!host) return host;
+    const h = String(host).toLowerCase();
+    const isLocal = h === "localhost" || h === "127.0.0.1" || h === "::1";
+    if (isLocal && this.isRunningInContainer()) {
+      return "host.docker.internal";
+    }
+    return host;
   }
 
   buildPaginationQuery(baseQuery, page, pageSize) {

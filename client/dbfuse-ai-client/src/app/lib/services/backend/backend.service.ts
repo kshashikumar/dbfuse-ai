@@ -17,6 +17,7 @@ import {
     ConfigData,
     SaveResponse,
 } from '@lib/utils/storage/storage.types';
+import { getSafeSessionStorage } from '@lib/utils/browser-adapter';
 
 @Injectable({
     providedIn: 'root',
@@ -46,9 +47,10 @@ export class BackendService {
     > = new Map();
 
     private getHeaders(): HttpHeaders {
-        const token = sessionStorage.getItem('token');
-        const dbType = sessionStorage.getItem('dbType') || 'mysql2'; // Default to 'mysql2' if not set
-        const connectionId = sessionStorage.getItem('connectionId') || '';
+        const storage = getSafeSessionStorage();
+        const token = storage.getItem('token');
+        const dbType = storage.getItem('dbType') || 'mysql2'; // Default to 'mysql2' if not set
+        const connectionId = storage.getItem('connectionId') || '';
         return new HttpHeaders({
             'Content-Type': 'application/json',
             'x-db-type': dbType,
@@ -154,7 +156,7 @@ export class BackendService {
         timestamp: string;
         database?: string;
     }> {
-        sessionStorage.setItem('dbType', connection.dbType);
+        getSafeSessionStorage().setItem('dbType', connection.dbType);
         return this._http
             .post<{
                 message: string;
@@ -165,7 +167,7 @@ export class BackendService {
             .pipe(
                 map((resp) => {
                     if (resp?.connectionId) {
-                        sessionStorage.setItem('connectionId', resp.connectionId);
+                        getSafeSessionStorage().setItem('connectionId', resp.connectionId);
                     }
                     return resp;
                 }),
@@ -199,15 +201,15 @@ export class BackendService {
 
     // Utility Methods
     setDatabaseType(dbType: string): void {
-        sessionStorage.setItem('dbType', dbType);
+        getSafeSessionStorage().setItem('dbType', dbType);
     }
 
     getDatabaseType(): string {
-        return sessionStorage.getItem('dbType') || 'mysql2';
+        return getSafeSessionStorage().getItem('dbType') || 'mysql2';
     }
 
     clearDatabaseType(): void {
-        sessionStorage.removeItem('dbType');
+        getSafeSessionStorage().removeItem('dbType');
     }
 
     // Helper method to update headers after dbType change

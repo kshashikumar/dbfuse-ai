@@ -3,6 +3,7 @@ const cors = require("cors");
 const argv = require("minimist")(process.argv.slice(2));
 const gZipper = require("connect-gzip-static");
 const bodyParser = require("body-parser");
+const path = require("path");
 
 const authMiddleware = require("./middleware/authentication");
 const dbRouter = require("./routes/dbRoutes");
@@ -11,6 +12,7 @@ const authRouter = require("./routes/authRoutes");
 const connectionRouter = require("./routes/connectionRoutes");
 const configRouter = require("./routes/configRoutes");
 
+const logger = require("./utils/logger");
 const app = express();
 
 app.use(
@@ -30,11 +32,19 @@ app.use(
   }),
 );
 
-app.use(express.static("public/dbfuse-ai-client"));
-app.use(gZipper(__dirname + "/public/dbfuse-ai-client"));
+// Serve pre-compressed assets first (gz), then fall back to normal static if needed
+const staticDir = path.join(__dirname, "public", "dbfuse-ai-client");
+app.use(gZipper(staticDir));
+app.use(express.static(staticDir));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json({ limit: process.env.BODY_SIZE || "50mb" }));
-app.get("/", (req, res) => res.sendFile(__dirname + "/public/dbfuse-ai-client/index.html"));
+// Serve SPA index (gzipped) at root
+app.get("/", (req, res) => {
+  const gzIndex = path.join(staticDir, "index.html.gz");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Content-Encoding", "gzip");
+  return res.sendFile(gzIndex);
+});
 
 app.use(authMiddleware.authentication);
 
@@ -44,17 +54,27 @@ app.use("/api/connections", connectionRouter);
 app.use("/api/openai", langchainRouter);
 app.use("/api/config", configRouter);
 
-const port = process.env.PORT || 5000;
-app.listen(port, () => {
-  console.log(`> Access DBFuse AI at http://localhost:${port}`);
+// Respect PORT when provided, including 0 (ephemeral). Fallback to 5000 only when unset or invalid.
+let port = 5000;
+if (process.env.PORT !== undefined) {
+  const parsed = Number(process.env.PORT);
+  if (!Number.isNaN(parsed)) {
+    port = parsed;
+  }
+}
+const server = app.listen(port, () => {
+  const actualPort = server.address().port;
+  logger.info(`Access DBFuse AI at http://localhost:${actualPort}`);
 });
 
 // error handler
 app.use((err, req, res, next) => {
-  console.log(err);
+  logger.error("Unhandled error:", err);
   const error = {
-    errmsg: err.errmsg,
-    name: err.name,
+    errmsg: err?.errmsg || err?.message || "Internal Server Error",
+    name: err?.name || "Error",
   };
   return res.status(500).send(error);
 });
+
+module.exports = { app, server };

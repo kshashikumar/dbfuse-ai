@@ -2,6 +2,7 @@
 const path = require("path");
 const { getPolicy } = require("../utils/policyUtil");
 const fs = require("fs").promises;
+const logger = require("../utils/logger");
 
 exports.fs = fs;
 
@@ -27,7 +28,7 @@ const readConnectionsFromFile = async () => {
       lastUsed: conn.lastUsed || null,
     }));
   } catch {
-    console.log("No connections file found, returning empty array");
+    logger.info("No connections file found, returning empty array");
     return [];
   }
 };
@@ -69,7 +70,7 @@ const getConnections = async (req, res) => {
       retrievedAt: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("Error fetching connections:", err);
+    logger.error("Error fetching connections:", err);
     return res.status(500).json({ error: "Error fetching connections" });
   }
 };
@@ -110,14 +111,14 @@ const addConnection = async (req, res) => {
     await writeConnectionsToFile(connections);
 
     const { databaseDisplay, databaseShort, extras = {} } = policy.display(connectionToAdd);
-    console.log("Connection added:", connectionToAdd);
+    logger.info("Connection added:", connectionToAdd);
 
     return res.status(201).json({
       message: "Connection added successfully",
       connection: { ...connectionToAdd, databaseDisplay, databaseShort, ...extras },
     });
   } catch (err) {
-    console.error("Error adding connection:", err);
+    logger.error("Error adding connection:", err);
     return res.status(500).json({ error: "Error adding connection" });
   }
 };
@@ -155,14 +156,14 @@ const editConnection = async (req, res) => {
     await writeConnectionsToFile(connections);
 
     const { databaseDisplay, databaseShort, extras = {} } = policy.display(next);
-    console.log("Connection updated:", next);
+    logger.info("Connection updated:", next);
 
     return res.status(200).json({
       message: "Connection updated successfully",
       connection: { ...next, databaseDisplay, databaseShort, ...extras },
     });
   } catch (err) {
-    console.error("Error editing connection:", err);
+    logger.error("Error editing connection:", err);
     return res.status(500).json({ error: "Error editing connection" });
   }
 };
@@ -179,9 +180,9 @@ const deleteConnection = async (req, res) => {
     let connections = await readConnectionsFromFile();
     const initialLength = connections.length;
 
-    console.log("Initial connections length:", initialLength);
+    logger.debug("Initial connections length:", initialLength);
     connections = connections.filter((c) => c.id !== idNum);
-    console.log("Connections after filter:", connections.length);
+    logger.debug("Connections after filter:", connections.length);
 
     if (connections.length === initialLength) {
       return res.status(404).json({ error: "Connection not found." });
@@ -189,14 +190,14 @@ const deleteConnection = async (req, res) => {
 
     await writeConnectionsToFile(connections);
 
-    console.log("Connection deleted with ID:", id);
+    logger.info("Connection deleted with ID:", id);
     return res.status(200).json({
       message: "Connection deleted successfully",
       deletedId: idNum,
       deletedAt: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("Error deleting connection:", err);
+    logger.error("Error deleting connection:", err);
     return res.status(500).json({ error: "Error deleting connection" });
   }
 };
@@ -227,14 +228,14 @@ const saveConnections = async (req, res) => {
 
     await writeConnectionsToFile(normalized);
 
-    console.log("Connections saved to file.");
+    logger.info("Connections saved to file.");
     return res.status(200).json({
       message: "Connections saved successfully",
       count: normalized.length,
       savedAt: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("Error saving connections to file:", err);
+    logger.error("Error saving connections to file:", err);
     return res.status(500).json({ error: "Error saving connections" });
   }
 };
@@ -270,7 +271,7 @@ const testConnection = async (req, res) => {
       testedAt: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("Error testing connection:", err);
+    logger.error("Error testing connection:", err);
     return res.status(500).json({ error: "Error testing connection" });
   }
 };

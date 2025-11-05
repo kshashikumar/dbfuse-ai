@@ -1,3 +1,5 @@
+const logger = require("../utils/logger");
+
 function _decodeCredentials(header) {
   try {
     const base64Part = header.trim().replace(/^Basic\s+/i, "");
@@ -7,7 +9,8 @@ function _decodeCredentials(header) {
     const [username, password] = decoded.split(":");
     return [username, password];
   } catch (err) {
-    console.error("Failed to decode credentials:", err);
+    // avoid logging raw header; just log error
+    logger.warn("Failed to decode basic auth credentials");
     return [];
   }
 }
@@ -22,12 +25,12 @@ const login = async (req, res) => {
 
   // Basic validation
   if (!username || !password) {
-    console.log("Missing username or password in login request");
+    logger.warn("Missing username or password in login request");
     return res.status(400).json({ error: "Username and password are required" });
   }
 
   if (!process.env.DBFUSE_USERNAME || !process.env.DBFUSE_PASSWORD) {
-    console.log("No env variables set, allowing login without validation");
+    logger.info("No auth env set; allowing login without validation");
     return res.status(200).json({ basicToken: basicToken(username, username) }); // Dummy token
   }
 
@@ -36,7 +39,7 @@ const login = async (req, res) => {
   }
 
   // Invalid credentials
-  console.warn("Invalid credentials provided");
+  logger.warn("Invalid credentials provided");
   return res.status(401).json({ error: "Invalid username or password" });
 };
 
@@ -46,15 +49,14 @@ const logout = async (req, res) => {
 
 const isAuthenticated = async (req, res) => {
   if (!process.env.DBFUSE_USERNAME || !process.env.DBFUSE_PASSWORD) {
-    console.log("No env variables set, returning authenticated without validation");
+    logger.info("No auth env set; returning authenticated without validation");
     return res.status(200).json({ authenticated: true });
   }
 
   const [username, password] = _decodeCredentials(req.headers.authorization || "");
-  console.log("username:", username);
-  console.log("password:", password);
+  // Do not log raw credentials
   if (username === process.env.DBFUSE_USERNAME && password === process.env.DBFUSE_PASSWORD) {
-    console.log("User is authenticated");
+    logger.debug("User is authenticated");
     return res.status(200).json({ authenticated: true });
   }
   return res.status(401).json({ authenticated: false });

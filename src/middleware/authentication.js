@@ -1,8 +1,9 @@
 const authController = require("../controllers/authController");
 require("dotenv").config();
+const logger = require("../utils/logger");
 
 function authentication(req, res, next) {
-  console.log("Request path:", req.path);
+  logger.debug("Request path:", req.path);
 
   if (req.method === "OPTIONS") {
     return next(); // Skip auth for OPTIONS

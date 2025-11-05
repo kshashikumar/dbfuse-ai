@@ -1,11 +1,12 @@
 import { StorageObjectData, StorageObjectType } from './storage.types';
+import { getSafeLocalStorage, getSafeSessionStorage } from '../browser-adapter';
 
 type StorageOptions = {
     api?: 'LocalStorage' | 'SessionStorage';
 };
 
 function getStorageApi(api: StorageOptions['api']): Storage {
-    return api === 'SessionStorage' ? sessionStorage : localStorage;
+    return api === 'SessionStorage' ? (getSafeSessionStorage() as Storage) : (getSafeLocalStorage() as Storage);
 }
 
 function getItem<T extends StorageObjectType>(item: T, options?: StorageOptions): StorageObjectData<T>['data'] | null {

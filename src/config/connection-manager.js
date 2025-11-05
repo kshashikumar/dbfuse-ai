@@ -3,6 +3,7 @@ const fs = require("fs").promises;
 const path = require("path");
 
 const { CONNECTION_STATES, ERROR_MESSAGES, DEFAULT_CONFIG } = require("../constants/constants");
+const logger = require("../utils/logger");
 
 class ConnectionManager {
   constructor() {
@@ -65,7 +66,7 @@ class ConnectionManager {
       try {
         await connection.disconnect();
       } catch (error) {
-        console.warn(`Error closing connection ${connectionId}:`, error.message);
+        logger.warn(`Error closing connection ${connectionId}: ${error.message}`);
       }
 
       this.activeConnections.delete(connectionId);
@@ -167,7 +168,7 @@ class ConnectionManager {
 
       await fs.writeFile(this.configPath, JSON.stringify(connectionsData, null, 2), "utf8");
     } catch (error) {
-      console.error("Error saving connections:", error);
+      logger.error("Error saving connections:", error);
       throw error;
     }
   }
@@ -229,7 +230,7 @@ class ConnectionManager {
     }
 
     for (const connectionId of connectionsToClose) {
-      console.log(`Closing idle connection: ${connectionId}`);
+      logger.info(`Closing idle connection: ${connectionId}`);
       await this.closeConnection(connectionId);
     }
 

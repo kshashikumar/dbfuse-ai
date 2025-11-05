@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { environment } from '@env/environment';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { getSafeSessionStorage } from '@lib/utils/browser-adapter';
 
 @Injectable({
     providedIn: 'root',
@@ -12,7 +13,7 @@ export class AuthService {
     constructor(private _http: HttpClient) {}
 
     private getHeaders(): HttpHeaders {
-        const token = sessionStorage.getItem('token');
+        const token = getSafeSessionStorage().getItem('token');
         return new HttpHeaders({
             'Content-Type': 'application/json',
             Authorization: token ? token : '',

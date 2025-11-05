@@ -3,6 +3,7 @@ const oracledb = require("oracledb");
 
 const DatabaseStrategy = require("../database-strategy");
 const chalk = require("chalk");
+const logger = require("../../utils/logger");
 
 class OracleStrategy extends DatabaseStrategy {
   constructor() {
@@ -12,7 +13,7 @@ class OracleStrategy extends DatabaseStrategy {
   }
 
   async connect(config) {
-    const {
+    let {
       host,
       port,
       username,
@@ -30,6 +31,9 @@ class OracleStrategy extends DatabaseStrategy {
       privilege,
       externalAuth,
     } = config;
+
+    // Normalize host for container environments
+    host = this.normalizeHost(host);
 
     chalk.green(
       `> Connecting to Oracle server @ ${host || "localhost"}:${port || 1521}/${serviceName || database || "XE"} with user ${username}${
@@ -92,21 +96,28 @@ class OracleStrategy extends DatabaseStrategy {
       }
     });
 
-    this.pool = await oracledb.createPool(poolConfig);
-    this.currentSchema = username; // Default to connected user's schema
+    try {
+      this.pool = await oracledb.createPool(poolConfig);
+      this.currentSchema = username; // Default to connected user's schema
 
-    // Test connection
-    const connection = await this.pool.getConnection();
-    await connection.execute("SELECT 1 FROM DUAL");
-    await connection.close();
-    console.log("> Successfully connected to Oracle server");
+      // Test connection
+      const connection = await this.pool.getConnection();
+      await connection.execute("SELECT 1 FROM DUAL");
+      await connection.close();
+      logger.info("> Successfully connected to Oracle server");
+    } catch (err) {
+      logger.error(
+        `> Oracle connection failed to ${connectString} as ${username} (${err.errorNum || err.code || err.name || "Error"})`,
+      );
+      throw err;
+    }
   }
 
   async switchDatabase(dbName) {
     if (!this.pool) throw new Error("Oracle connection not initialized");
     // In Oracle, we switch schemas, not databases - just track the schema name
     this.currentSchema = dbName;
-    console.log(`> Switched to Oracle schema: ${dbName}`);
+    logger.info(`> Switched to Oracle schema: ${dbName}`);
   }
 
   async executeQuery(query, options = { page: 1, pageSize: 10 }) {
@@ -273,7 +284,7 @@ class OracleStrategy extends DatabaseStrategy {
   async disconnect() {
     if (this.pool) {
       await this.pool.close();
-      console.log("> Disconnected from Oracle database");
+      logger.info("> Disconnected from Oracle database");
       this.pool = null;
     }
   }
@@ -286,7 +297,7 @@ class OracleStrategy extends DatabaseStrategy {
       await connection.close();
       return true;
     } catch (err) {
-      console.error("Oracle connection validation failed:", err);
+      logger.error("Oracle connection validation failed:", err);
       return false;
     }
   }
@@ -322,7 +333,7 @@ class OracleStrategy extends DatabaseStrategy {
         await connection.close();
       }
     } catch (err) {
-      console.error("Error getting connection stats:", err);
+      logger.error("Error getting connection stats:", err);
       return null;
     }
   }

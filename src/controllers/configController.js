@@ -4,6 +4,7 @@ const path = require("path");
 const express = require("express");
 
 const router = express.Router();
+const logger = require("../utils/logger");
 
 // Path to .env file
 const ENV_PATH = path.join(process.cwd(), ".env");
@@ -44,7 +45,7 @@ DBFUSE_PASSWORD=root`;
 
     return config;
   } catch (error) {
-    console.error("Error reading .env file:", error);
+    logger.error("Error reading .env file:", error);
     return {
       AI_MODEL: "",
       AI_API_KEY: "",
@@ -71,7 +72,7 @@ function writeEnvFile(config) {
     fs.writeFileSync(ENV_PATH, envContent);
     return true;
   } catch (error) {
-    console.error("Error writing .env file:", error);
+    logger.error("Error writing .env file:", error);
     return false;
   }
 }
@@ -88,7 +89,7 @@ const readConfig = async (req, res) => {
     const config = readEnvFile();
     res.json(config);
   } catch (error) {
-    console.error("Error getting config:", error);
+    logger.error("Error getting config:", error);
     res.status(500).json({ error: "Failed to load configuration" });
   }
 };
@@ -128,7 +129,7 @@ const updateConfig = async (req, res) => {
 
       // Schedule server restart after response is sent
       setTimeout(() => {
-        console.log(`Port changed from ${currentPort} to ${newPort}. Restarting server...`);
+        logger.info(`Port changed from ${currentPort} to ${newPort}. Restarting server...`);
         process.exit(0); // Exit process - nodemon will restart it
       }, 1000);
     } else {
@@ -138,7 +139,7 @@ const updateConfig = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error("Error saving config:", error);
+    logger.error("Error saving config:", error);
     res.status(500).json({ error: "Failed to save configuration" });
   }
 };

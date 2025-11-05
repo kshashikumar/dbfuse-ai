@@ -6,7 +6,7 @@
 [![Known Vulnerabilities](https://snyk.io/test/github/kshashikumar/dbfuse-ai/badge.svg)](https://snyk.io/test/github/kshashikumar/dbfuse-ai)
 [![GitHub stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai.svg?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
 
-**DBFuse** is a web-based Graphical User Interface designed to streamline database management and accelerate development workflows for MySQL, with planned future support for all major relational databases. This tool enhances user interaction with databases, allowing developers to manage data more efficiently.
+**DBFuse AI** is a simple web UI to connect to your databases, run SQL, and generate SQL with AI. It works with MySQL, PostgreSQL, SQL Server, Oracle, and SQLite.
 
 ## Features
 
@@ -49,81 +49,106 @@
   ```bash
   npm i -g npm
   ```
-- **MYSQL Server**
-  A running MySQL server instance
+- A running database you can connect to (or a SQLite file)
 
-## Installation
+## Ways to run
 
-DBFuse AI can be installed in multiple ways:
+Pick the option that fits your setup. All commands below assume a Bash-compatible shell (Windows users can use Git Bash).
 
-### From npm
+1. Docker (production image)
 
-1. Install globally:
-   ```bash
-   npm install -g dbfuse-ai
-   ```
-2. Run the application:
-   ```bash
-   dbfuse-ai
-   ```
+- Use the prebuilt image for a quick start. Create a `docker-compose.yml` like:
 
-### From npm
+  ```yaml
+  version: "3.8"
+  services:
+    dbfuse-ai:
+      container_name: dbfuse-ai
+      image: shashikumarkasturi/dbfuse-ai:latest
+      restart: unless-stopped
+      ports:
+        - "5000:5000"
+      environment:
+        - PORT=5000
+        # Optional basic auth for UI (set both to enable)
+        - DBFUSE_USERNAME=admin
+        - DBFUSE_PASSWORD=admin
+        # AI configuration (optional) — DO NOT commit real keys to Git
+        - AI_PROVIDER=gemini
+        - AI_MODEL=gemini-2.5-flash
+        - AI_API_KEY=
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+  ```
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/kshashikumar/dbfuse-ai.git
-   ```
-2. Navigate into the directory:
-   ```bash
-   cd dbfuse-ai
-   ```
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-4. Start the application:
-   ```bash
-   npm run start
-   ```
+  Then run:
 
-### From Docker Hub
+  ```bash
+  docker compose up -d
+  ```
 
-You can run DBFuse AI using Docker for easy setup and deployment. Follow the steps below to get started:
+  Open http://localhost:5000 and log in. To stop:
 
-### Running with Docker Compose
+  ```bash
+  docker compose down
+  ```
 
-To run DBFuse AI with Docker Compose, use the following `docker-compose.yml` file:
+2. Docker (development, hot reload)
 
-```yaml
-version: "3"
+- Run straight from your source tree with live reload using the provided `docker-compose-dev.yml`:
 
-services:
-  dbfuse-ai:
-    container_name: "dbfuse-ai"
-    image: shashikumarkasturi/dbfuse-ai
-    restart: always
-    ports:
-      - "5000:5000"
-    environment:
-      - MYSQL_URL=mysql://root:root@host.docker.internal:3306
-      - AI_MODEL=<Model Name> #gpt-4, gpt-3.5-turbo, text-davinci-003, gemini-2.5-flash, gemini-2.5-pro
-      - AI_API_KEY=<API Key>
-```
+  ```bash
+  docker compose -f docker-compose-dev.yml up
+  ```
 
-### Steps to Run
+  Notes:
+  - The container mounts your working folder and runs `npm install && npm run start` (nodemon) for the server.
+  - It includes `extra_hosts: host.docker.internal:host-gateway` so the app can reach databases running on your host.
+  - Leave `AI_API_KEY` empty in the YAML; export it locally instead of committing a real key.
+  - You can copy `.env.example` to `.env` and customize values for local development.
 
-1. Create a `docker-compose.yml` file in your project directory and paste the configuration above.
-2. Start the container using the following command:
+3. Local development (server + client)
 
-```bash
-docker-compose up -d
-```
+- Install dependencies at the repo root:
 
-This command will start DBFuse AI in detached mode, running in the background. 3. Once the container is running, open your browser and navigate to <http://localhost:5000> to use DBFuse. 4. To stop the container, run:
+  ```bash
+  npm install
+  ```
 
-```bash
-docker-compose down
-```
+- Start both backend and frontend together (concurrently):
+
+  ```bash
+  npm run dev
+  ```
+
+  This runs:
+  - Backend (Express) with hot reload at http://localhost:5000
+  - Frontend (Angular dev server) at http://localhost:4200
+
+4. Local development (server only)
+
+- Build frontend assets once and serve them from the backend:
+
+  ```bash
+  cd client/dbfuse-ai-client
+  npm install
+  npm run clean-build-compress
+  cd ../../
+  npm run start
+  ```
+
+  The backend serves the built UI from `src/public` at http://localhost:5000.
+
+5. Global CLI (optional)
+
+- Install the CLI globally from npm and run directly:
+
+  ```bash
+  npm install -g dbfuse-ai
+  dbfuse-ai -p 5000 --model gemini-2.5-flash --apikey <YOUR_API_KEY>
+  ```
+
+  Then open http://localhost:5000.
 
 ## AI Integration
 
@@ -137,10 +162,11 @@ To enable AI-powered prompt querying, you need to set up the API keys for OpenAI
    - For OpenAI: Visit OpenAI's platform and generate an API key.
    - For Google Gemini: Follow Google's platform to obtain an API key (free tier provides 15 requests per minute).
 2. **Add the API Key to Your Environment Variables**
-   In the root directory of your project, create a .env file (or update it if it exists) and add the following lines:
+   In the root directory of your project, create a .env file (or set env vars in Docker):
 
 ```bash
-AI_MODEL=<MODEL_NAME>  # e.g., gpt-4 or gemini-2.5-flash
+AI_PROVIDER=gemini
+AI_MODEL=gemini-2.5-flash
 AI_API_KEY=<YOUR_API_KEY>
 ```
 
@@ -170,24 +196,50 @@ SELECT Department, AVG(Salary) AS AvgSalary FROM employeerecords GROUP BY Depart
 
 ### Environment Variables
 
-- **MYSQL_URL**: Replace `mysql://root:root@host.docker.internal:3306` with the URL of your MySQL database if it's hosted elsewhere or has different credentials.
+- PORT: Server port (default 5000)
+- DBFUSE_USERNAME / DBFUSE_PASSWORD: enable Basic Auth for the web UI (optional)
+- AI_PROVIDER, AI_MODEL, AI_API_KEY: AI settings (optional)
+- BODY_SIZE: request body size limit (default 50mb)
+- NODE_ENV: set to `production` in containers for best performance
+  Note: Database connection details are entered via the UI; no DB URL environment variables are used by the server.
 
-## Usage
+Tips:
 
-By default, DBFuse AI launches with the following configuration:
+- When running inside Docker, use `host.docker.internal` to connect to databases on your host machine (we add `extra_hosts` for Linux compatibility).
+- Prefer exporting secrets (like AI_API_KEY) in your shell or using Docker secrets; avoid committing real keys to version control.
+- For a quick start, copy `.env.example` to `.env` and adjust values. The app reads `.env` automatically.
 
-- **Database URL (-u)**: `mysql://root:root@localhost:3306`
-- **Port (-p)**: `5000`
+### Supported Databases
 
-The app will be accessible at `http://localhost:5000`.
+- MySQL
+- PostgreSQL
+- Microsoft SQL Server
+- Oracle Database
+- SQLite
 
-### Options
+## CLI (optional)
 
-- **-u**: Specify the database URL to connect to a MySQL instance.
-- **-p**: Port number for DBFuse AI to listen on
-- **--model**: Specify the AI model to be used
-  `(supporting model: gpt-4, gpt-3.5-turbo, text-davinci-003, gemini-2.5-flash, gemini-2.5-pro)`
-- **--apikey**: Specify the API key for the chosen AI model.
+If you installed globally with npm, you can start with:
+
+```bash
+dbfuse-ai -p 5000 --model gemini-2.5-flash --apikey <YOUR_API_KEY>
+```
+
+Then open http://localhost:5000.
+
+## Testing (optional)
+
+Basic connectivity test suites are available:
+
+```bash
+npm run test:all       # run all DB connectivity tests (requires databases available)
+npm run test:mysql     # MySQL
+npm run test:postgres  # PostgreSQL
+npm run test:mssql     # SQL Server
+npm run test:oracle    # Oracle
+```
+
+These tests expect databases reachable at the configured defaults; adjust environment variables as needed.
 
 ## Basic Authentication (Optional)
 
@@ -197,13 +249,13 @@ Protect data with basic authentication when running on remote servers.
 2. Add the following variables
 
 ```bash
-USERNAME=<your_username>
-PASSWORD=<your_password>
+DBFUSE_USERNAME=<your_username>
+DBFUSE_PASSWORD=<your_password>
 ```
 
 3. Restart the server.
 
-To disable authentication, comment out or remove these variables from `.env` and restart the server.
+To disable authentication, remove these variables from `.env` and restart the server.
 
 ## Upcoming Features
 

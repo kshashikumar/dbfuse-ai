@@ -126,23 +126,33 @@
                                         >
                                     </label>
 
-                                    <!-- Text/Number Input -->
-                                    <input
-                                        *ngIf="field.type === 'text' || field.type === 'number'"
-                                        [type]="field.name === 'password' && !showPassword ? 'password' : field.type"
-                                        [id]="field.name"
-                                        [formControlName]="field.name"
-                                        [placeholder]="field.placeholder || ''"
-                                        class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
-                                        [class.pr-10]="field.name === 'password'"
-                                    />
-
-                                    <!-- Password Toggle Button -->
+                                    <!-- Text/Number/Password Input (with password toggle) -->
                                     <div
-                                        *ngIf="field.name === 'password'"
+                                        *ngIf="
+                                            field.type === 'text' ||
+                                            field.type === 'number' ||
+                                            field.type === 'password'
+                                        "
                                         class="relative"
                                     >
+                                        <input
+                                            [type]="
+                                                field.name === 'password'
+                                                    ? showPassword
+                                                        ? 'text'
+                                                        : 'password'
+                                                    : field.type
+                                            "
+                                            [id]="field.name"
+                                            [formControlName]="field.name"
+                                            [placeholder]="field.placeholder || ''"
+                                            class="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md"
+                                            [class.pr-10]="field.name === 'password'"
+                                        />
+
+                                        <!-- Password Toggle Button -->
                                         <button
+                                            *ngIf="field.name === 'password'"
                                             type="button"
                                             (click)="togglePasswordVisibility()"
                                             class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"

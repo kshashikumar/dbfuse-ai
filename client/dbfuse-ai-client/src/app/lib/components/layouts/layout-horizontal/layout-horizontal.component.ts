@@ -1,12 +1,14 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, inject } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { HomeComponent } from '@lib/components/home/home.component';
 import { NavbarComponent } from '@lib/components/navbar/navbar.component';
 import { SideBarComponent } from '@lib/components/sidebar/sidebar.component';
 import { BackendService } from '@lib/services';
 import { ConnectionConfig, newTabData, openAIEvent } from '@lib/utils/storage/storage.types';
-import { ConnectConfig } from 'rxjs';
+import { filter } from 'rxjs/operators';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { getSafeSessionStorage } from '@lib/utils/browser-adapter';
 
 @Component({
     selector: 'app-layout-horizontal',
@@ -19,6 +21,7 @@ export class LayoutHorizontalComponent implements OnInit {
     private readonly _router = inject(Router);
     private readonly _backendService = inject(BackendService);
     private readonly _cdr = inject(ChangeDetectorRef);
+    private readonly _destroyRef = inject(DestroyRef);
 
     tabData: newTabData | null = null;
     databases: any = {};
@@ -27,11 +30,12 @@ export class LayoutHorizontalComponent implements OnInit {
     currentDbName: string | null = null;
 
     ngOnInit(): void {
-        this._router.events.subscribe((event) => {
-            if (event instanceof NavigationEnd) {
-                this.handleNavigationEnd();
-            }
-        });
+        this._router.events
+            .pipe(
+                filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+                takeUntilDestroyed(this._destroyRef),
+            )
+            .subscribe(() => this.handleNavigationEnd());
     }
 
     private handleNavigationEnd(): void {
@@ -39,7 +43,7 @@ export class LayoutHorizontalComponent implements OnInit {
 
         if (!connection) {
             // Fallback to sessionStorage if history.state.connection is not available
-            const storedConnection = sessionStorage.getItem('connection');
+            const storedConnection = getSafeSessionStorage().getItem('connection');
             if (storedConnection) {
                 try {
                     connection = JSON.parse(storedConnection);
@@ -49,7 +53,7 @@ export class LayoutHorizontalComponent implements OnInit {
                     return;
                 }
             } else {
-                console.warn('No connection found in history state or sessionStorage');
+                // No connection found; return to home
                 this.navigateToHome();
                 return;
             }
@@ -58,7 +62,6 @@ export class LayoutHorizontalComponent implements OnInit {
         if (connection) {
             this.connectToServer(connection);
         } else {
-            console.warn('No connection state found in navigation or sessionStorage');
             this.navigateToHome();
         }
     }

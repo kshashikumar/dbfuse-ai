@@ -65,6 +65,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     Math = Math;
     private databaseType: DatabaseType = sessionStorage.getItem('dbType') as DatabaseType;
     private document = inject(DOCUMENT);
+    private draggingIndex: number | null = null;
     // Sequential counter for generic tab names (ytab 1, ytab 2, ...)
     private nextTabNumber: number = 1;
 
@@ -294,7 +295,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
             if (editorContainer) {
                 editorContainer.style.zIndex = '9999';
             }
-            const aceOverlays = document.querySelectorAll('.ace_autocomplete, .ace_tooltip');
+            const aceOverlays = this.document.querySelectorAll('.ace_autocomplete, .ace_tooltip');
             aceOverlays.forEach((overlay) => {
                 (overlay as HTMLElement).style.zIndex = '10000';
             });
@@ -482,7 +483,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
                 (table: any) => table.columns && table.columns.length > 0,
             );
             if (!allTablesPopulated) {
-                console.log(`Calling updateDatabaseInfo for ${dbName} as not all tables have columns populated.`);
+                // Refreshing table info as not all columns are populated
                 this.updateDatabaseInfo();
             }
         }
@@ -572,7 +573,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     }
 
     handleDragStart(index: number) {
-        console.log(`Drag started on tab ${index}`);
+        this.draggingIndex = index;
     }
 
     handleDragOver(event: Event) {
@@ -580,9 +581,16 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
         (event as DragEvent).dataTransfer!.dropEffect = 'move';
     }
 
-    handleDrop(targetIndex: number) {
-        const sourceIndex = parseInt((event as DragEvent).dataTransfer!.getData('text/plain'), 10);
-        console.log(`Dropped tab ${sourceIndex} onto tab ${targetIndex}`);
+    handleDrop(targetIndex: number, event?: DragEvent) {
+        let sourceIndex: number | null = null;
+        if (event?.dataTransfer) {
+            const data = event.dataTransfer.getData('text/plain');
+            if (data) sourceIndex = parseInt(data, 10);
+        }
+        if (sourceIndex === null && this.draggingIndex !== null) {
+            sourceIndex = this.draggingIndex;
+        }
+        if (sourceIndex === null || isNaN(sourceIndex)) return;
         if (sourceIndex === targetIndex) return;
         const [movedTab] = this.tabs.splice(sourceIndex, 1);
         this.tabs.splice(targetIndex, 0, movedTab);
@@ -599,7 +607,7 @@ export class HomeComponent implements OnInit, OnChanges, AfterViewInit, AfterVie
     }
 
     handleDragEnd() {
-        console.log('Drag ended');
+        this.draggingIndex = null;
     }
 
     handleExecQueryClick() {
