@@ -57,16 +57,27 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
 
 1. Global CLI (optional)
 
-- Install the CLI globally from npm and run directly:
+- The command name is `dbfuse-ai`. Install it globally from npm, then run it with optional flags:
 
   ```bash
   npm install -g dbfuse-ai
+  dbfuse-ai              # starts interactively and asks for options
+
+  # or non-interactive with arguments
   dbfuse-ai -p 5000 --model gemini-2.5-flash --apikey <YOUR_API_KEY>
   ```
 
+  Command-line options:
+  - `-p, --port <number>`: Server port (default 5000)
+  - `--dbuser <username>` and `--dbpass <password>`: Set Basic Auth credentials for the web UI
+  - `--model <name>` and `--apikey <key>`: Enable AI with the selected model and API key
+  - `-v, --verbose`: Show detailed prompts and info in the CLI
+
+  Supported AI providers include: Gemini, OpenAI, Anthropic, Mistral, Cohere, Hugging Face, and Perplexity. Without `--model` and `--apikey`, the CLI will ask whether to enable AI and guide you interactively.
+
   Then open http://localhost:5000.
 
-2. Docker (production image)
+2. Docker
 
 - Use the prebuilt image for a quick start. Create a `docker-compose.yml` like:
 
