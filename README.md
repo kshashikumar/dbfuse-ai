@@ -277,6 +277,7 @@ To disable authentication, remove these variables from `.env` and restart the se
 - AI: Explain/optimize queries and suggest indexes in addition to SQL generation
 - Charts and visual analysis for query results (line/bar/pie), with quick pivots
 - Pluggable driver/extension SDK to add new databases and tools
+- MCP servers implementation to connect to different databases
 
 ## Contributions
 
