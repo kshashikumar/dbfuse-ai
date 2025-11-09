@@ -22,12 +22,7 @@
                 <!-- Page size selector moved to the right controls for a cleaner header -->
             </div>
 
-            <!-- Pagination Controls -->
-            <div
-                *ngIf="totalPages > 1"
-                class="flex items-center space-x-1"
-            >
-                <!-- Clean page size selector (compact pill) -->
+            <!-- Clean page size selector (compact pill) -->
                 <div
                     *ngIf="totalRows > 0"
                     class="flex items-center"
@@ -57,6 +52,13 @@
                         </div>
                     </div>
                 </div>
+
+            <!-- Pagination Controls -->
+            <div
+                *ngIf="totalPages > 1"
+                class="flex items-center space-x-1"
+            >
+                
 
                 <button
                     (click)="changePage(1)"
