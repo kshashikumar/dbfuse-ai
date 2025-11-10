@@ -54,7 +54,7 @@
     "host": "",
     "port": 0,
     "dbType": "sqlite3",
-    "database": "D:\\vs-code\\mysql-gui\\test\\sakila.db",
+    "database": "D:\\vs-code\\dbfuse-ai\\test\\sakila.db",
     "socketPath": "",
     "ssl": false,
     "connectionTimeout": 60000,
