@@ -278,6 +278,7 @@ To disable authentication, remove these variables from `.env` and restart the se
 - AI: Explain/optimize queries and suggest indexes in addition to SQL generation
 - Charts and visual analysis for query results (line/bar/pie), with quick pivots
 - Pluggable driver/extension SDK to add new databases and tools
+- MCP servers implementation to connect to different databases
 
 ## Contributions
 
@@ -285,12 +286,12 @@ DBFuse AI is open for **contributions**! If you have ideas for features, improve
 
 ## Demo
 
-<div align="center">
-  <video src="assets/basic_working.mp4" width="800" controls title="DBFuse AI Demo"></video>
-  <p><em>If the video does not play in preview, <a href="assets/basic_working.mp4">click here to download/view</a>.</em></p>
-</div>
+<p align="center">
+  <video src="assets/basic_working.mp4" width="800" controls title="DBFuse AI Demo">
+    Your browser does not support the video tag.
+  </video>
+</p>
 
 ## License
 
-DBFuse- MCP servers implementation to connect to different databases
-AI is distributed under the [MIT License](LICENSE). This license permits commercial use, modification, distribution, and private use, with the requirement to include the original copyright and license notice.
+DBFuse AI is distributed under the [MIT License](LICENSE). This license permits commercial use, modification, distribution, and private use, with the requirement to include the original copyright and license notice.
