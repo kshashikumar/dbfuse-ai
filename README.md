@@ -1,10 +1,10 @@
-<img src="assets/dbfuse-ai-logo.png" width=75 height=75 align=left />
+<img src="https://raw.githubusercontent.com/kshashikumar/dbfuse-ai/main/assets/dbfuse-ai-logo.png" alt="DBFuse AI" width="75" height="75" align="left" />
 
 # DBFuse AI
 
 [![npm version](https://img.shields.io/npm/v/dbfuse-ai.svg?color=success)](https://www.npmjs.com/package/dbfuse-ai)
 [![Known Vulnerabilities](https://snyk.io/test/github/kshashikumar/dbfuse-ai/badge.svg)](https://snyk.io/test/github/kshashikumar/dbfuse-ai)
-[![GitHub stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai.svg?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
 
 **DBFuse AI** is a simple web UI to connect to your databases, run SQL, and generate SQL with AI. It works with MySQL, PostgreSQL, SQL Server, Oracle, and SQLite.
 
