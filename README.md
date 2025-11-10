@@ -287,7 +287,7 @@ DBFuse AI is open for **contributions**! If you have ideas for features, improve
 ## Demo
 
 <p align="center">
-  <video src="assets/basic_working.mp4" width="800" controls title="DBFuse AI Demo">
+  <video src="https://github.com/user-attachments/assets/0cf93034-246e-4938-8531-4a1b92b9ad01" width="800" controls title="DBFuse AI Demo">
     Your browser does not support the video tag.
   </video>
 </p>
