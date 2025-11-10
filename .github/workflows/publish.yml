@@ -41,11 +41,6 @@ jobs:
         run: |
           test -d src/public && ls -la src/public || (echo 'src/public missing. Did the client build step run?' && exit 1)
 
-      - name: Run tests (optional)
-        run: npm run test:all
-        continue-on-error: true
-
-      # Explicit npm auth config (some setups require a token in ~/.npmrc)
       - name: Configure npm auth
         if: ${{ env.IS_TAG == 'true' && env.NPM_TOKEN != '' }}
         run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
