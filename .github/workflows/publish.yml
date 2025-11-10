@@ -3,12 +3,16 @@ name: Build and Publish (npm + Docker)
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*.*.*"
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    env:
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
     steps:
@@ -40,11 +44,13 @@ jobs:
 
       # Explicit npm auth config (some setups require a token in ~/.npmrc)
       - name: Configure npm auth
+        if: ${{ env.IS_TAG == 'true' && secrets.NPM_TOKEN }}
         run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
+        if: ${{ env.IS_TAG == 'true' && secrets.NPM_TOKEN }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -54,11 +60,11 @@ jobs:
 
       # Docker build and push
       - name: Log in to Docker Hub
-        if: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
+        if: ${{ env.IS_TAG == 'true' && secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
       - name: Build Docker image
-        if: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
+        if: ${{ env.IS_TAG == 'true' && secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
         run: |
           IMAGE="${{ secrets.DOCKER_USERNAME }}/dbfuse-ai"
           TAG="${{ github.ref_name }}"
@@ -66,7 +72,7 @@ jobs:
           docker tag $IMAGE:$TAG $IMAGE:latest
 
       - name: Push Docker image
-        if: ${{ secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
+        if: ${{ env.IS_TAG == 'true' && secrets.DOCKER_USERNAME && secrets.DOCKER_PASSWORD }}
         run: |
           IMAGE="${{ secrets.DOCKER_USERNAME }}/dbfuse-ai"
           TAG="${{ github.ref_name }}"
