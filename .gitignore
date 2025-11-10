@@ -51,3 +51,6 @@ client/dbfuse-ai-client/.cache/
 client/dbfuse-ai-client/cypress/videos/
 client/dbfuse-ai-client/cypress/screenshots/
 client/dbfuse-ai-client/cypress/downloads/
+
+# Temporary files
+src/config/dbConnections.json
