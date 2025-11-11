@@ -13,6 +13,18 @@ const connectionRouter = require("./routes/connectionRoutes");
 const configRouter = require("./routes/configRoutes");
 
 const logger = require("./utils/logger");
+// Start live .env sync so manual edits take effect without a restart (except port changes)
+try {
+  const { startEnvSync } = require("./utils/envWatcher");
+  startEnvSync({
+    onPortChange: () => {
+      logger.info("Detected PORT change in .env. Restarting to apply new port...");
+      setTimeout(() => process.exit(0), 200);
+    },
+  });
+} catch (e) {
+  logger.warn("envWatcher not initialized:", e?.message || e);
+}
 const app = express();
 
 app.use(

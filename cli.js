@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const path = require("path");
+const fs = require("fs");
 const readline = require("readline");
 const { execSync } = require("child_process");
 
@@ -216,6 +217,50 @@ async function askForAPIKey(provider) {
   return await askQuestion(`   Enter your ${providerInfo.name} API key`);
 }
 
+// Merge / create .env in the execution CWD so the UI reflects CLI selections.
+// Existing keys not in our config remain untouched.
+function syncEnvFile(config) {
+  try {
+    const baseDir =
+      process.env.DBFUSE_CONFIG_DIR && process.env.DBFUSE_CONFIG_DIR.trim()
+        ? process.env.DBFUSE_CONFIG_DIR.trim()
+        : path.resolve(__dirname);
+    const envPath = path.join(baseDir, ".env");
+    let existing = {};
+    if (fs.existsSync(envPath)) {
+      const raw = fs.readFileSync(envPath, "utf8");
+      raw.split("\n").forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) return;
+        const [key, ...rest] = trimmed.split("=");
+        if (!key || !rest.length) return;
+        let val = rest.join("=");
+        val = val.replace(/^"|"$/g, "");
+        existing[key] = val;
+      });
+    }
+    const merged = {
+      ...existing,
+      AI_MODEL: config.aiModel || existing.AI_MODEL || "",
+      AI_API_KEY: config.apiKey || existing.AI_API_KEY || "",
+      AI_PROVIDER: config.aiProvider || existing.AI_PROVIDER || "",
+      PORT: String(config.port || existing.PORT || 5000),
+      DBFUSE_USERNAME: config.dbUsername || existing.DBFUSE_USERNAME || "root",
+      DBFUSE_PASSWORD: config.dbPassword || existing.DBFUSE_PASSWORD || "root",
+    };
+    const content = Object.entries(merged)
+      .map(([k, v]) => {
+        const needsQuotes = /\s|=/.test(v);
+        return `${k}=${needsQuotes ? `"${v}"` : v}`;
+      })
+      .join("\n");
+    fs.writeFileSync(envPath, content);
+    if (isVerbose) displayInfo(`Synchronized .env at ${envPath}`);
+  } catch (e) {
+    displayWarning(`Failed to sync .env file: ${e.message}`);
+  }
+}
+
 function validateEnvironment() {
   displaySection("Environment Check");
 
@@ -342,6 +387,24 @@ async function main() {
     process.env.AI_MODEL = config.aiModel;
     process.env.AI_API_KEY = config.apiKey;
 
+    // Provider-specific API key export (for downstream model loader convenience)
+    if (config.apiKey) {
+      const providerMap = {
+        OpenAI: "OPENAI_API_KEY",
+        Gemini: "GOOGLE_API_KEY",
+        Anthropic: "ANTHROPIC_API_KEY",
+        Mistral: "MISTRAL_API_KEY",
+        Cohere: "COHERE_API_KEY",
+        HuggingFace: "HUGGINGFACE_API_KEY",
+        Perplexity: "PPLX_API_KEY",
+      };
+      const varName = providerMap[config.aiProvider];
+      if (varName) process.env[varName] = config.apiKey;
+    }
+
+    // Persist selections for UI / subsequent restarts
+    syncEnvFile(config);
+
     // Display final configuration
     displayConfiguration(config);
 
@@ -350,9 +413,14 @@ async function main() {
     console.log();
 
     const scriptPath = path.resolve(__dirname, "src/index.js");
+    // Run nodemon with a controlled working directory and limited watch scope
+    // to avoid picking up unrelated filesystem changes (e.g., VSCode workspace storage)
     nodemon({
       script: scriptPath,
       stdout: false,
+      cwd: path.resolve(__dirname),
+      watch: [path.resolve(__dirname, "src")],
+      ignore: ["**/node_modules/**", "**/.vscode/**", "**/workspaceStorage/**"],
     });
 
     nodemon.on("start", () => {
