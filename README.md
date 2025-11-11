@@ -205,6 +205,28 @@ AI_API_KEY=<YOUR_API_KEY>
 SELECT Department, AVG(Salary) AS AvgSalary FROM employeerecords GROUP BY Department;
 ```
 
+### Supported AI Models
+
+Below is the current list of model IDs you can use with `--model` (CLI), the Config UI, or via environment variables. Keep provider + model aligned (provider casing is normalized automatically).
+
+| Provider    | Models                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| Gemini      | `gemini-2.5-flash`, `gemini-2.5-pro`                                                                  |
+| OpenAI      | `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-4.1`, `gpt-4o`                                              |
+| Anthropic   | `claude-opus-4-1`, `claude-opus-4`, `claude-sonnet-4`, `claude-3-7-sonnet`, `claude-3-5-haiku`        |
+| Mistral     | `mistral-medium-2508`, `mistral-large-2411`, `mistral-small-2407`, `codestral-2508`                   |
+| Cohere      | `command-a-03-2025`, `command-a-reasoning-08-2025`, `command-a-vision-07-2025`, `command-r7b-12-2024` |
+| HuggingFace | `microsoft/DialoGPT-medium`, `facebook/blenderbot-400M-distill`, `microsoft/DialoGPT-large`           |
+| Perplexity  | `sonar`, `sonar-pro`, `sonar-reasoning`, `sonar-reasoning-pro`, `sonar-deep-research`                 |
+
+Notes:
+
+1. HuggingFace models are examples; you can substitute any compatible chat/text model available to your account.
+2. Perplexity models use the OpenAI-compatible API surface; the app sets the correct base URL automatically.
+3. Additional models can be added by editing `src/models/model.js` (server) and `cli.js` (CLI list) — keep both in sync for best UX.
+4. If you only set `AI_MODEL`, the provider is inferred automatically (e.g. any `claude-*` → Anthropic).
+5. The generic `AI_API_KEY` is mirrored to provider-specific variables (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, etc.) internally.
+
 ## Security Note
 
 - Confidentiality: Never expose your .env file containing the API key.
