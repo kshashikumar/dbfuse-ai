@@ -1,6 +1,6 @@
 {
   "name": "dbfuse-ai",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A GUI application for mysql, postgreSQL, MSSQL ,oracledb and sqlite, which helps developers in faster development",
   "main": "src/index.js",
   "scripts": {
