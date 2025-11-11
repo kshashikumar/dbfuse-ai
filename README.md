@@ -1,10 +1,15 @@
-<img src="assets/dbfuse-ai-logo.png" alt="DBFuse AI" width="75" height="75" align="left" />
+<img src="assets/dbfuse-ai-logo.png" width="75" height="75" align="left" />
 
 # DBFuse AI
 
 [![npm version](https://img.shields.io/npm/v/dbfuse-ai.svg?color=success)](https://www.npmjs.com/package/dbfuse-ai)
 [![Known Vulnerabilities](https://snyk.io/test/github/kshashikumar/dbfuse-ai/badge.svg)](https://snyk.io/test/github/kshashikumar/dbfuse-ai)
 [![GitHub stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
+[![GitHub Stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
+[![Issues](https://img.shields.io/github/issues/kshashikumar/dbfuse-ai?color=0088ff)](https://github.com/kshashikumar/dbfuse-ai/issues)
+[![Pull Requests](https://img.shields.io/github/issues-pr/kshashikumar/dbfuse-ai?color=0088ff)](https://github.com/kshashikumar/dbfuse-ai/pulls)
+[![Contributors](https://img.shields.io/github/contributors/kshashikumar/dbfuse-ai)](https://github.com/kshashikumar/dbfuse-ai/graphs/contributors)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/kshashikumar/dbfuse-ai/badge)](https://securityscorecards.dev/viewer/?uri=github.com/kshashikumar/dbfuse-ai)
 
 **DBFuse AI** is a simple web UI to connect to your databases, run SQL, and generate SQL with AI. It works with MySQL, PostgreSQL, SQL Server, Oracle, and SQLite.
 
