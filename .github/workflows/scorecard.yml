@@ -9,19 +9,15 @@ on:
   push:
     branches: [main]
 
-permissions:
-  # Required for uploading SARIF results to GitHub code scanning
-  security-events: write
-  # Required for Scorecard to read repository content
-  contents: read
-  # Required for publishing results to the public Scorecard database (via OIDC)
-  id-token: write
-  # Good practice: limit other permissions
-  actions: read
+permissions: read-all
 
 jobs:
   analysis:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4

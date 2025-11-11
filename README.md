@@ -4,7 +4,6 @@
 
 [![npm version](https://img.shields.io/npm/v/dbfuse-ai.svg?color=success)](https://www.npmjs.com/package/dbfuse-ai)
 [![Known Vulnerabilities](https://snyk.io/test/github/kshashikumar/dbfuse-ai/badge.svg)](https://snyk.io/test/github/kshashikumar/dbfuse-ai)
-[![GitHub stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
 [![GitHub Stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
 [![Issues](https://img.shields.io/github/issues/kshashikumar/dbfuse-ai?color=0088ff)](https://github.com/kshashikumar/dbfuse-ai/issues)
 [![Pull Requests](https://img.shields.io/github/issues-pr/kshashikumar/dbfuse-ai?color=0088ff)](https://github.com/kshashikumar/dbfuse-ai/pulls)
