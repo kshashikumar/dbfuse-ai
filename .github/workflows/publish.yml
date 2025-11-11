@@ -22,6 +22,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Sync package.json version with tag
+        if: ${{ env.IS_TAG == 'true' }}
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(jq -r '.version' package.json)
+          echo "Tag: v$TAG_VERSION | package.json: $PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Updating package.json version to $TAG_VERSION"
+            npm pkg set version=$TAG_VERSION
+            echo "package.json updated. New version: $(jq -r '.version' package.json)"
+          else
+            echo "Versions match; no change needed."
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -52,6 +66,7 @@ jobs:
         run: |
           git config user.name "kshashikumar"
           git config user.email "skastu01@nyit.edu"
+          echo "Final package.json version before publish: $(jq -r '.version' package.json)"
           npm publish --access public
 
       # Docker build and push
