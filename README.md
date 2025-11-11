@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/kshashikumar/dbfuse-ai/main/assets/dbfuse-ai-logo.png" alt="DBFuse AI" width="75" height="75" align="left" />
+<img src="assets/dbfuse-ai-logo.png" alt="DBFuse AI" width="75" height="75" align="left" />
 
 # DBFuse AI
 
