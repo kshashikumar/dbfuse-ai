@@ -318,6 +318,69 @@ DBFuse AI is open for **contributions**! If you have ideas for features, improve
   </video>
 </p>
 
+## Merging Guidelines
+
+Follow these guidelines to keep the repo healthy and the history clean.
+
+- Branches
+  - Create feature branches from main: feature/<short-description>, fix/<issue-id>, chore/<task>.
+  - Use issue numbers in branch name when applicable (e.g. feature/123-add-pagination).
+
+- Commits
+  - Use concise, conventional commit-style messages: type(scope): short summary
+    - types: feat, fix, docs, chore, refactor, test, ci
+  - Keep commits focused and atomic.
+
+- Local workflow (recommended)
+  1. git checkout main
+  2. git pull --rebase origin main
+  3. git checkout -b feature/your-change
+  4. Make changes, run lint/tests
+     - npm run lint
+     - npm test
+  5. git add .
+  6. git commit -m "feat(scope): short description"
+  7. git pull --rebase origin main
+  8. git push origin feature/your-change
+
+- Pull Requests
+  - Open PR against main with a clear description and testing steps.
+  - Include related issue/issue number.
+  - Attach screenshots or logs when UI/behavior changes.
+  - Add labels and set reviewers as needed.
+  - PR checklist:
+    - Code compiles and passes lint/tests
+    - No console errors/warnings for UI changes
+    - Updated README or docs when behavior/config changed
+    - Minimal, descriptive PR title and body
+
+- CI & Tests
+  - Ensure CI passes before merging.
+  - Fix failing tests locally before pushing.
+  - If CI fails after your merge, revert or patch promptly.
+
+- Merge strategy
+  - Prefer "Squash and merge" for feature/fix PRs to keep main history clean.
+  - Use "Rebase and merge" only when preserving individual commits is required.
+  - Avoid direct merges to main; always use PRs.
+
+- Conflict resolution
+  - Rebase your branch onto the latest main, resolve conflicts locally, run tests, then force-push:
+    - git fetch origin
+    - git rebase origin/main
+    - Resolve conflicts, git add <file>, git rebase --continue
+    - git push --force-with-lease origin feature/your-change
+
+- Small PRs and Reviews
+  - Prefer small, focused PRs (max ~300 lines changed) for faster review.
+  - Respond to review comments promptly and request re-review.
+
+- Release notes / Changelog
+  - Add notable user-facing changes to the PR description; maintainers will add to changelog as needed.
+  
+- Emergency hotfixes
+  - Create a hotfix branch from main, test thoroughly, and open a PR with high priority reviewers.
+
 ## License
 
 DBFuse AI is distributed under the [MIT License](LICENSE). This license permits commercial use, modification, distribution, and private use, with the requirement to include the original copyright and license notice.
