@@ -92,7 +92,7 @@ jobs:
 
       - name: Update Docker Hub README
         if: ${{ env.IS_TAG == 'true' && env.DOCKER_USERNAME != '' && env.DOCKER_PASSWORD != '' }}
-        uses: peter-evans/dockerhub-description@v3
+        uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
