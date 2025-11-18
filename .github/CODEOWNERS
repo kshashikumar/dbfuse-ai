@@ -1,1 +1,23 @@
-.github/workflows/* @kshashikumar
+# .github/CODEOWNERS
+
+# Global owner (everything defaults to you)
+
+- @kshashikumar
+
+# Backend / core source code
+
+src/ @kshashikumar @pharika999
+
+# Client / UI app
+
+client/dbfuse-ai-client/ @kshashikumar @pharika999
+
+# GitHub workflows, actions, security configs
+
+.github/ @kshashikumar @pharika999
+
+# Documentation / Markdown files (including README)
+
+README.md @kshashikumar @pharika999
+\*.md @kshashikumar @pharika999
+docs/ @kshashikumar @pharika999

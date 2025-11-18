@@ -1,6 +1,6 @@
 {
   "name": "dbfuse-ai",
-  "version": "0.0.7",
+  "version": "0.0.9",
   "description": "A GUI application for mysql, postgreSQL, MSSQL ,oracledb and sqlite, which helps developers in faster development",
   "keywords": [
     "database",
@@ -32,6 +32,7 @@
     "client": "cd client/dbfuse-ai-client && npm run start",
     "dev": "concurrently \"npm run start\" \"npm run client\"",
     "test": "npm run test:all",
+    "test:fuzz": "node tests/fuzz/connection.fuzz.test.js",
     "test:all": "node src/config/tests/run-all-tests.js",
     "test:mysql": "node src/config/tests/mysql-test-suite.js",
     "test:postgres": "node src/config/tests/postgres-test-suite.js",
@@ -59,6 +60,7 @@
     "@langchain/cohere": "^0.3.4",
     "@langchain/community": "^0.3.49",
     "@langchain/google-genai": "^0.2.18",
+    "fast-check": "^3.14.0",
     "@langchain/mistralai": "^0.2.1",
     "@langchain/openai": "^0.3.14",
     "axios": "^1.11.0",
@@ -97,6 +99,7 @@
     "eslint": "^9.36.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",
+    "fast-check": "^4.3.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.3",
     "prettier": "^3.6.2"
