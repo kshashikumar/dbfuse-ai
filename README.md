@@ -3,6 +3,9 @@
 # DBFuse AI
 
 [![npm version](https://img.shields.io/npm/v/dbfuse-ai.svg?color=success)](https://www.npmjs.com/package/dbfuse-ai)
+[![Docker Pulls](https://img.shields.io/docker/pulls/shashikumarkasturi/dbfuse-ai)](https://hub.docker.com/r/shashikumarkasturi/dbfuse-ai)
+[![Image Size](https://img.shields.io/docker/image-size/shashikumarkasturi/dbfuse-ai/latest)](https://hub.docker.com/r/shashikumarkasturi/dbfuse-ai)
+[![Docker Stars](https://img.shields.io/docker/stars/shashikumarkasturi/dbfuse-ai)](https://hub.docker.com/r/shashikumarkasturi/dbfuse-ai)
 [![Known Vulnerabilities](https://snyk.io/test/github/kshashikumar/dbfuse-ai/badge.svg)](https://snyk.io/test/github/kshashikumar/dbfuse-ai)
 [![GitHub Stars](https://img.shields.io/github/stars/kshashikumar/dbfuse-ai?style=social)](https://github.com/kshashikumar/dbfuse-ai/stargazers)
 [![Issues](https://img.shields.io/github/issues/kshashikumar/dbfuse-ai?color=0088ff)](https://github.com/kshashikumar/dbfuse-ai/issues)
@@ -11,6 +14,13 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/kshashikumar/dbfuse-ai/badge)](https://securityscorecards.dev/viewer/?uri=github.com/kshashikumar/dbfuse-ai)
 
 **DBFuse AI** is a simple web UI to connect to your databases, run SQL, and generate SQL with AI. It works with MySQL, PostgreSQL, SQL Server, Oracle, and SQLite.
+
+Quick links:
+
+- NPM: https://www.npmjs.com/package/dbfuse-ai
+- Docker Hub: https://hub.docker.com/r/shashikumarkasturi/dbfuse-ai
+- Issues: https://github.com/kshashikumar/dbfuse-ai/issues
+- Pull Requests: https://github.com/kshashikumar/dbfuse-ai/pulls
 
 ## Features
 
@@ -309,6 +319,41 @@ To disable authentication, remove these variables from `.env` and restart the se
 ## Contributions
 
 DBFuse AI is open for **contributions**! If you have ideas for features, improvements, or bug fixes, feel free to submit a pull request or open an issue.
+
+### Contributors quickstart
+
+- Fork and clone the repository.
+- Install deps at repo root: `npm install`.
+- Dev server + client: `npm run dev` (backend on 5000, Angular dev server on 4200).
+- Server only with built UI: build via `client/dbfuse-ai-client` → `npm run clean-build-compress`, then `npm run start`.
+- Configuration:
+  - `.env` is hot-reloaded (most changes apply instantly). PORT change triggers an automatic restart.
+  - You can override where `.env` lives by setting `DBFUSE_CONFIG_DIR`.
+  - Prefer setting AI keys via your shell variables (do not commit real keys).
+
+### Adding a new AI model/provider
+
+1. Backend: Update `src/models/model.js` to include the new model ID and provider; wire the provider’s key name if needed.
+2. CLI: Add the model to `supportedModels` in `cli.js` so it appears in interactive selection.
+3. UI: Update the list in `client/dbfuse-ai-client/src/app/lib/components/config/config.component.ts`.
+4. Keep README’s Supported AI Models table in sync (or ask maintainers to update).
+
+### Adding a new database strategy
+
+1. Create a strategy in `src/config/db_strategies/` (follow patterns from existing drivers).
+2. Register it in the connection manager.
+3. Add a minimal connectivity test under `src/config/tests/`.
+
+### Tests & formatting
+
+- Run all DB connectivity tests: `npm run test:all` (requires accessible databases).
+- Lint/format: `npm run check` (eslint + prettier) or `npm run lint:fix` / `npm run format:fix`.
+
+### Releases & publishing (maintainers)
+
+- Version bump in package.json, then create a git tag `vX.Y.Z` and push the tag.
+- CI builds the Angular client, publishes the npm package, builds/pushes Docker image, and syncs Docker Hub README.
+- Publishing is gated to tag builds; main runs build/verify only.
 
 ## Demo
 
