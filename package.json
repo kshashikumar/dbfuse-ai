@@ -59,7 +59,7 @@
     "@langchain/anthropic": "^0.3.25",
     "@langchain/cohere": "^0.3.4",
     "@langchain/community": "^0.3.49",
-    "@langchain/google-genai": "^0.2.18",
+    "@langchain/google-genai": "^1.0.1",
     "fast-check": "^3.14.0",
     "@langchain/mistralai": "^0.2.1",
     "@langchain/openai": "^0.3.14",
