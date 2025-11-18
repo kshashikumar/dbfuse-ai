@@ -2,7 +2,7 @@
 
 # Global owner (everything defaults to you)
 
-- @kshashikumar
+* @kshashikumar
 
 # Backend / core source code
 
@@ -19,5 +19,5 @@ client/dbfuse-ai-client/ @kshashikumar @pharika999
 # Documentation / Markdown files (including README)
 
 README.md @kshashikumar @pharika999
-\*.md @kshashikumar @pharika999
+*.md @kshashikumar @pharika999
 docs/ @kshashikumar @pharika999
