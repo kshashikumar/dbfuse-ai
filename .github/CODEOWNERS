@@ -1,1 +1,9 @@
-.github/workflows/* @kshashikumar
+# .github/CODEOWNERS
+
+# Global owner – you own everything by default
+* @kshashikumar
+
+# Explicit ownership if you want to split later
+/src/ @kshashikumar
+/client/dbfuse-ai-client/ @kshashikumar
+/.github/ @kshashikumar
