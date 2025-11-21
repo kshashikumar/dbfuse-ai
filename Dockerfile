@@ -1,4 +1,4 @@
-FROM node:22.10.0-slim
+FROM node:25.2.1-slim
 
 ENV NODE_ENV=production
 
