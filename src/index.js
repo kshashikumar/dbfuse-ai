@@ -1,9 +1,10 @@
 const express = require("express");
 const cors = require("cors");
-const argv = require("minimist")(process.argv.slice(2));
 const gZipper = require("connect-gzip-static");
 const bodyParser = require("body-parser");
-const path = require("path");
+
+// Load .env with override to ensure we pick up changes even if parent process set env vars
+require("dotenv").config({ override: true });
 
 const authMiddleware = require("./middleware/authentication");
 const dbRouter = require("./routes/dbRoutes");
@@ -11,15 +12,24 @@ const langchainRouter = require("./routes/langchainRoutes");
 const authRouter = require("./routes/authRoutes");
 const connectionRouter = require("./routes/connectionRoutes");
 const configRouter = require("./routes/configRoutes");
-
 const logger = require("./utils/logger");
+const {
+  CORS_OPTIONS,
+  STATIC_ASSET_DIRECTORY,
+  STATIC_INDEX_GZIP_PATH,
+  resolveBodyLimit,
+  SERVER_LOG_MESSAGES,
+  SERVER_CONSTANTS,
+  ROUTE_PATHS,
+} = require("./core/app");
+const { GENERAL_ERRORS } = require("./core/constants");
 // Start live .env sync so manual edits take effect without a restart (except port changes)
 try {
   const { startEnvSync } = require("./utils/envWatcher");
   startEnvSync({
     onPortChange: () => {
-      logger.info("Detected PORT change in .env. Restarting to apply new port...");
-      setTimeout(() => process.exit(0), 200);
+      logger.info(SERVER_LOG_MESSAGES.ENV_PORT_CHANGE_DETECTED);
+      setTimeout(() => process.exit(0), SERVER_CONSTANTS.ENV_EXIT_DELAY_MS);
     },
   });
 } catch (e) {
@@ -27,63 +37,60 @@ try {
 }
 const app = express();
 
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-DB-Type",
-      "X-Db-Type",
-      "x-db-type",
-      "x-connection-id",
-      "X-Connection-Id",
-    ],
-    credentials: true,
-  }),
-);
+app.use(cors(CORS_OPTIONS));
 
 // Serve pre-compressed assets first (gz), then fall back to normal static if needed
-const staticDir = path.join(__dirname, "public", "dbfuse-ai-client");
-app.use(gZipper(staticDir));
-app.use(express.static(staticDir));
+app.use(gZipper(STATIC_ASSET_DIRECTORY));
+app.use(express.static(STATIC_ASSET_DIRECTORY));
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json({ limit: process.env.BODY_SIZE || "50mb" }));
+app.use(bodyParser.json({ limit: resolveBodyLimit() }));
 // Serve SPA index (gzipped) at root
 app.get("/", (req, res) => {
-  const gzIndex = path.join(staticDir, "index.html.gz");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Content-Encoding", "gzip");
-  return res.sendFile(gzIndex);
+  return res.sendFile(STATIC_INDEX_GZIP_PATH);
 });
 
 app.use(authMiddleware.authentication);
 
-app.use("/api/auth", authRouter);
-app.use("/api/sql", dbRouter);
-app.use("/api/connections", connectionRouter);
-app.use("/api/openai", langchainRouter);
-app.use("/api/config", configRouter);
+app.use(ROUTE_PATHS.AUTH, authRouter);
+app.use(ROUTE_PATHS.SQL, dbRouter);
+app.use(ROUTE_PATHS.CONNECTIONS, connectionRouter);
+app.use(ROUTE_PATHS.OPENAI, langchainRouter);
+app.use(ROUTE_PATHS.CONFIG, configRouter);
 
-// Respect PORT when provided, including 0 (ephemeral). Fallback to 5000 only when unset or invalid.
-let port = 5000;
+// Respect PORT when provided, including 0 (ephemeral). Fallback only when unset or invalid.
+// Respect PORT when provided, including 0 (ephemeral). Fallback only when unset or invalid.
+let port = SERVER_CONSTANTS.DEFAULT_PORT;
 if (process.env.PORT !== undefined) {
   const parsed = Number(process.env.PORT);
   if (!Number.isNaN(parsed)) {
     port = parsed;
   }
 }
-const server = app.listen(port, () => {
-  const actualPort = server.address().port;
-  logger.info(`Access DBFuse AI at http://localhost:${actualPort}`);
-});
+
+// Check for MCP Mode
+const isMcpEnabled = process.env.MCP_ENABLED === "true";
+let server;
+
+if (isMcpEnabled) {
+  const mcpManager = require("./mcp/manager");
+  mcpManager.start().catch((err) => {
+    logger.error("Failed to start MCP Manager:", err);
+    process.exit(1);
+  });
+} else {
+  server = app.listen(port, () => {
+    const actualPort = server.address().port;
+    logger.info(SERVER_LOG_MESSAGES.STARTUP_URL(actualPort));
+  });
+}
 
 // error handler
 app.use((err, req, res, next) => {
   logger.error("Unhandled error:", err);
   const error = {
-    errmsg: err?.errmsg || err?.message || "Internal Server Error",
+    errmsg: err?.errmsg || err?.message || GENERAL_ERRORS.INTERNAL_SERVER_ERROR,
     name: err?.name || "Error",
   };
   return res.status(500).send(error);

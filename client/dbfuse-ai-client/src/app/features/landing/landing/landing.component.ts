@@ -1,0 +1,358 @@
+// src/app/landing/landing.component.ts
+import { CommonModule } from '@angular/common';
+import { Component, OnInit } from '@angular/core';
+import { Router, RouterModule } from '@angular/router';
+import { ConnectionConfig, Connection, DatabaseType } from '@core/utils/storage/storage.types';
+import { getSafeSessionStorage } from '@core/utils/browser-adapter';
+import { AuthService } from '@core/services/auth/auth.service';
+import { BackendService } from '@core/services/backend/backend.service';
+import { ConnectionService } from '@core/services/backend/connection.service';
+import { ConnectionListComponent } from '@features/connections/components/connection-list/connection-list.component';
+import { ConnectionModalComponent } from '@features/connections/components/connection-modal/connection-modal.component';
+import { NavbarComponent } from '@layouts/components/navbar/navbar.component';
+import { ConfirmationDialogComponent } from '@shared/components/confirmation-dialog/confirmation-dialog.component';
+
+@Component({
+    selector: 'app-landing',
+    standalone: true,
+    imports: [
+        CommonModule,
+        RouterModule,
+        ConnectionListComponent,
+        ConnectionModalComponent,
+        ConfirmationDialogComponent,
+        NavbarComponent,
+    ],
+    templateUrl: './landing.component.html',
+})
+export class LandingComponent implements OnInit {
+    connections: Connection[] = [];
+    isModalOpen = false;
+    isConfirmDialogOpen = false;
+    selectedConnection: ConnectionConfig | null = null;
+    connectionToDelete: number | null = null;
+    loading = false;
+    error: string | null = null;
+    testSuccessMessage: string | null = null;
+    loadingMessage: string | null = null;
+    isResettingStore = false;
+
+    constructor(
+        private backendService: BackendService,
+        private _authService: AuthService,
+        private connectionService: ConnectionService,
+        private router: Router,
+    ) {
+        getSafeSessionStorage().removeItem('dbType'); // Clear dbType on landing page
+        this.backendService.clearDatabaseType();
+    }
+
+    ngOnInit(): void {
+        this.loadConnections();
+    }
+
+    loadConnections(): void {
+        this.loading = true;
+        this.error = null;
+        this.loadingMessage = 'Loading connections...';
+
+        this.connectionService.getConnections().subscribe({
+            next: (data) => {
+                this.connections = data.connections || [];
+                this.loading = false;
+                this.loadingMessage = null;
+            },
+            error: (err) => {
+                // Error fetching connections
+                console.error('Error loading connections:', err);
+                if (err.status === 409 && err.error?.requiresKey) {
+                    this.error =
+                        'Encrypted connections detected but no key was provided. Use Reset Saved Connections or set the encryption key in Settings.';
+                } else {
+                    this.error = err.error?.error || 'Failed to load connections';
+                }
+                this.loading = false;
+                this.loadingMessage = null;
+            },
+        });
+    }
+
+    logout() {
+        getSafeSessionStorage().clear();
+        this.backendService.clearDatabaseType();
+        this._authService.logout().subscribe({
+            next: () => {
+                this.router.navigate(['/login'], { replaceUrl: true });
+            },
+            error: (err) => {
+                this.router.navigate(['/login'], { replaceUrl: true });
+            },
+        });
+    }
+
+    openAddModal(): void {
+        this.selectedConnection = {
+            username: '',
+            password: '',
+            host: 'localhost',
+            port: 3306,
+            dbType: 'mysql2',
+            database: '',
+            socketPath: '',
+        };
+        this.isModalOpen = true;
+    }
+
+    openEditModal(connection: Connection): void {
+        // Convert Connection to ConnectionConfig for editing
+        const { id, status, createdAt, lastUsed, ...configData } = connection;
+        this.selectedConnection = { ...configData };
+        // Store the ID for update operation
+        (this.selectedConnection as any).id = id;
+        this.isModalOpen = true;
+    }
+
+    saveConnection(connection: ConnectionConfig & { id?: number }): void {
+        // Enhanced validation
+        const validation = this.connectionService.validateConnectionConfig(connection);
+        if (!validation.isValid) {
+            console.error('Validation errors:', validation.errors);
+            this.error = validation.errors.join(', ');
+            return;
+        }
+
+        this.loading = true;
+        this.error = null;
+        this.testSuccessMessage = null;
+        this.loadingMessage = connection.id ? 'Updating connection...' : 'Adding connection...';
+
+        if (connection.id) {
+            // Edit existing connection
+            this.connectionService.editConnection(connection.id, connection).subscribe({
+                next: (response) => {
+                    // Connection updated
+                    this.loadConnections();
+                    this.isModalOpen = false;
+                    this.loading = false;
+                    this.loadingMessage = null;
+                },
+                error: (err) => {
+                    // Error updating connection
+                    this.error = 'Failed to update connection';
+                    this.loading = false;
+                    this.loadingMessage = null;
+                },
+            });
+        } else {
+            // Add new connection
+            this.connectionService.addConnection(connection).subscribe({
+                next: (response) => {
+                    // Connection added
+                    this.loadConnections();
+                    this.isModalOpen = false;
+                    this.loading = false;
+                    this.loadingMessage = null;
+                },
+                error: (err) => {
+                    // Error adding connection
+                    this.error = 'Failed to add connection';
+                    this.loading = false;
+                    this.loadingMessage = null;
+                },
+            });
+        }
+    }
+
+    openDeleteDialog(id: number | string): void {
+        this.connectionToDelete = typeof id === 'string' ? parseInt(id) : id;
+        this.isConfirmDialogOpen = true;
+    }
+
+    confirmDelete(): void {
+        if (this.connectionToDelete) {
+            this.loading = true;
+            this.error = null;
+            this.testSuccessMessage = null;
+            this.loadingMessage = 'Deleting connection...';
+
+            this.connectionService.deleteConnection(this.connectionToDelete).subscribe({
+                next: (response) => {
+                    // Connection deleted
+                    this.loadConnections();
+                    this.isConfirmDialogOpen = false;
+                    this.connectionToDelete = null;
+                    this.loading = false;
+                    this.loadingMessage = null;
+                },
+                error: (err) => {
+                    // Error deleting connection
+                    this.error = 'Failed to delete connection';
+                    this.loading = false;
+                    this.loadingMessage = null;
+                },
+            });
+        }
+    }
+
+    closeModal(): void {
+        this.isModalOpen = false;
+        this.selectedConnection = null;
+        this.error = null;
+    }
+
+    closeConfirmDialog(): void {
+        this.isConfirmDialogOpen = false;
+        this.connectionToDelete = null;
+    }
+
+    onConnectionSelect(connection: Connection): void {
+        this.loading = true;
+        this.error = null;
+        this.testSuccessMessage = null;
+        this.loadingMessage = 'Connecting to database...';
+
+        // Convert Connection to ConnectionConfig for backend
+        const { id, status, createdAt, lastUsed, ...connectionConfig } = connection;
+
+        // Ensure dbType is properly typed
+        const typedConnectionConfig: ConnectionConfig = {
+            ...connectionConfig,
+            dbType: connectionConfig.dbType as DatabaseType,
+        };
+
+        this.backendService.connect(typedConnectionConfig).subscribe({
+            next: (response) => {
+                getSafeSessionStorage().setItem('connection', JSON.stringify(connection));
+                this.loading = false;
+                this.loadingMessage = null;
+                this.router.navigate(['/connection'], { state: { connection } });
+            },
+            error: (err) => {
+                this.error = `Connection failed: ${err.error?.error || err.message}`;
+                this.loading = false;
+                this.loadingMessage = null;
+            },
+        });
+    }
+
+    // Enhanced test connection method with proper error handling and UI feedback
+    testConnection(connection: Connection): void {
+        // Validate connection configuration before testing
+        if (!this.connectionService.canTestConnection(connection)) {
+            this.error = 'Connection configuration is invalid for testing';
+            this.testSuccessMessage = null;
+            return;
+        }
+
+        // Clear previous messages
+        this.error = null;
+        this.testSuccessMessage = null;
+        this.loading = true;
+        this.loadingMessage = `Testing connection to ${this.connectionService.getConnectionDisplayName(connection)}...`;
+
+        // Ensure connection ID is properly typed
+        const connectionId = typeof connection.id === 'string' ? parseInt(connection.id) : connection.id;
+
+        if (!connectionId || isNaN(connectionId)) {
+            this.error = 'Invalid connection ID for testing';
+            this.loading = false;
+            this.loadingMessage = null;
+            return;
+        }
+
+        this.connectionService.testConnection(connectionId).subscribe({
+            next: (response) => {
+                this.testSuccessMessage = ` Connection test successful! ${response.message || 'Database is reachable.'}`;
+                this.loading = false;
+                this.loadingMessage = null;
+
+                // Optionally update the connection's last tested time or status
+                if (response.connection) {
+                    // Find and update the connection in the local array
+                    const index = this.connections.findIndex((conn) => conn.id === connectionId);
+                    if (index !== -1) {
+                        this.connections[index] = { ...this.connections[index], ...response.connection };
+                    }
+                }
+
+                // Auto-hide success message after 5 seconds
+                setTimeout(() => {
+                    this.testSuccessMessage = null;
+                }, 5000);
+            },
+            error: (err) => {
+                this.error = `❌ Connection test failed: ${err.error?.error || err.error?.message || err.message || 'Unknown error'}`;
+                this.loading = false;
+                this.loadingMessage = null;
+
+                // Auto-hide error message after 10 seconds
+                setTimeout(() => {
+                    this.error = null;
+                }, 10000);
+            },
+        });
+    }
+
+    // Get connection display name for UI
+    getConnectionDisplayName(connection: Connection): string {
+        return this.connectionService.getConnectionDisplayName(connection);
+    }
+
+    // Sort connections
+    sortConnections(sortBy: 'name' | 'type' | 'recent' | 'created'): void {
+        this.connections = this.connectionService.sortConnections(this.connections, sortBy);
+    }
+
+    // Check if connection was recently used
+    isRecentlyUsed(connection: Connection): boolean {
+        return this.connectionService.isRecentlyUsed(connection);
+    }
+
+    // Clear all messages
+    clearMessages(): void {
+        this.error = null;
+        this.testSuccessMessage = null;
+    }
+
+    // Handle connection status updates after test
+    private updateConnectionStatus(connectionId: number, status: Partial<Connection>): void {
+        const index = this.connections.findIndex((conn) => conn.id === connectionId);
+        if (index !== -1) {
+            this.connections[index] = { ...this.connections[index], ...status };
+        }
+    }
+
+    resetConnectionStore(): void {
+        if (this.isResettingStore) {
+            return;
+        }
+
+        const confirmed = window.confirm(
+            'This will delete all saved connections (including encrypted ones). You cannot recover them. Continue?',
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        this.isResettingStore = true;
+        this.loading = true;
+        this.loadingMessage = 'Deleting saved connections...';
+        this.error = null;
+        this.connectionService.resetConnectionStore().subscribe({
+            next: (resp) => {
+                this.testSuccessMessage = resp.message;
+                this.loadConnections();
+            },
+            error: (err) => {
+                console.error('Error deleting connection store:', err);
+                this.error = err.error?.error || 'Failed to delete saved connections';
+                this.loading = false;
+                this.loadingMessage = null;
+                this.isResettingStore = false;
+            },
+            complete: () => {
+                this.isResettingStore = false;
+            },
+        });
+    }
+}

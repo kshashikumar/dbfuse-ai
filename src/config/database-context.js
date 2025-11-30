@@ -1,46 +1,42 @@
 // config/database-context.js (Updated for singleton pattern)
-const fs = require("fs").promises;
-const path = require("path");
-
-const MySQLStrategy = require("./db_strategies/mysql-strategy");
-const PostgreSQLStrategy = require("./db_strategies/postgresql-strategy");
-const SQLiteStrategy = require("./db_strategies/sqlite-strategy");
-const MSSQLStrategy = require("./db_strategies/mssql-strategy");
-const OracleStrategy = require("./db_strategies/oracle-strategy");
 const logger = require("../utils/logger");
+
+const connectionStore = require("./connection-store");
+const { createStrategy, supportedDbTypes } = require("./create-strategy");
 
 class DatabaseContext {
   constructor() {
     this.strategy = null;
     this.currentDbType = null;
     this.isConnected = false;
-    this.strategies = {
-      mysql2: MySQLStrategy,
-      pg: PostgreSQLStrategy,
-      sqlite3: SQLiteStrategy,
-      mssql: MSSQLStrategy,
-      oracledb: OracleStrategy,
-    };
   }
 
   setStrategy(dbType) {
-    // Only create new strategy if dbType changed or no strategy exists
-    if (!this.strategy || this.currentDbType !== dbType) {
-      if (!this.strategies[dbType]) {
-        throw new Error(
-          `Unsupported database type: ${dbType}. Supported types: ${Object.keys(this.strategies).join(", ")}`,
-        );
-      }
-
-      // Disconnect previous strategy if exists
-      if (this.strategy && this.isConnected) {
-        this.strategy.disconnect();
-      }
-
-      this.strategy = new this.strategies[dbType]();
-      this.currentDbType = dbType;
-      this.isConnected = false;
+    if (!dbType) {
+      throw new Error("Database type is required");
     }
+
+    if (!supportedDbTypes.includes(dbType)) {
+      throw new Error(
+        `Unsupported database type: ${dbType}. Supported types: ${supportedDbTypes.join(", ")}`,
+      );
+    }
+
+    if (this.strategy && this.currentDbType === dbType) {
+      return;
+    }
+
+    if (this.strategy && this.isConnected) {
+      try {
+        this.strategy.disconnect();
+      } catch (error) {
+        logger.warn("Error disconnecting previous strategy:", error.message || error);
+      }
+    }
+
+    this.strategy = createStrategy(dbType);
+    this.currentDbType = dbType;
+    this.isConnected = false;
   }
 
   async connect(config) {
@@ -110,26 +106,19 @@ class DatabaseContext {
   // Existing methods that delegate to strategy
   async getConnections() {
     try {
-      const filePath = path.join(__dirname, "dbConnections.json");
-      let connections = [];
-      try {
-        const data = await fs.readFile(filePath, "utf8");
-        connections = JSON.parse(data).map((conn) => ({
-          username: conn.username,
-          password: conn.password,
-          host: conn.host,
-          port: conn.port,
-          dbType: conn.dbType,
-          database: conn.database,
-          socketPath: conn.socketPath,
-          status: conn.status || "Available",
-        }));
-        logger.debug("Loaded connections from file:", connections);
-      } catch (fileErr) {
-        logger.info("No existing connections file exist");
-        throw fileErr;
-      }
-      return connections;
+      const connections = await connectionStore.readConnections();
+      const withoutSecrets = connections.map((conn) => ({
+        id: conn.id,
+        username: conn.username,
+        host: conn.host,
+        port: conn.port,
+        dbType: conn.dbType,
+        database: conn.database,
+        socketPath: conn.socketPath,
+        status: conn.status || "Available",
+      }));
+      logger.debug("Loaded connections from store:", withoutSecrets);
+      return withoutSecrets;
     } catch (err) {
       logger.error("Error fetching connections:", err);
       return [];
@@ -138,8 +127,7 @@ class DatabaseContext {
 
   async saveConnections(connections) {
     try {
-      const filePath = path.join(__dirname, "dbConnections.json");
-      await fs.writeFile(filePath, JSON.stringify(connections, null, 2), "utf8");
+      await connectionStore.writeConnections(connections);
       logger.info("Connections saved to file:", connections);
     } catch (err) {
       logger.error("Error saving connections to file:", err);

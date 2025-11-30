@@ -23,8 +23,11 @@
     "useDefineForClassFields": false,
     "lib": ["ES2022", "dom"],
     "paths": {
-      "@lib/*": ["app/lib/*"],
-      "@pages/*": ["app/pages/*"],
+      "@app/*": ["app/*"],
+      "@core/*": ["app/core/*"],
+      "@features/*": ["app/features/*"],
+      "@shared/*": ["app/shared/*"],
+      "@layouts/*": ["app/layouts/*"],
       "@env/*": ["environments/*"]
     }
   },

@@ -3,9 +3,12 @@
 
 const axios = require("axios");
 
+const { SERVER_CONSTANTS, buildLocalhostBaseUrl, LOCALHOST_HOSTNAME } = require("../../core/app");
+const { DEFAULT_CONFIG, DB_TYPES, DB_DEFAULTS, HEADERS } = require("../../core/constants");
+
 class PostgreSQLTester {
   constructor() {
-    this.baseURL = "http://localhost:5000";
+    this.baseURL = buildLocalhostBaseUrl(SERVER_CONSTANTS.DEFAULT_PORT);
     this.passed = 0;
     this.failed = 0;
     this.errors = [];
@@ -15,9 +18,9 @@ class PostgreSQLTester {
     this.config = {
       username: "root",
       password: "root", // CHANGE THIS TO YOUR POSTGRES PASSWORD
-      host: "localhost",
-      port: "5432",
-      dbType: "pg",
+      host: LOCALHOST_HOSTNAME,
+      port: String(DB_DEFAULTS.PORT.POSTGRESQL),
+      dbType: DB_TYPES.POSTGRESQL,
       database: "mydatabase",
     };
   }
@@ -40,15 +43,15 @@ class PostgreSQLTester {
         method,
         url: `${this.baseURL}${endpoint}`,
         headers: {
-          "Content-Type": "application/json",
-          "x-db-type": "pg",
+          "Content-Type": HEADERS.CONTENT_TYPE,
+          [HEADERS.DB_TYPE]: DB_TYPES.POSTGRESQL,
         },
-        timeout: 30000,
+        timeout: DEFAULT_CONFIG.CONNECTION_TIMEOUT,
       };
 
       // Attach connectionId once available
       if (this.connectionId) {
-        config.headers["x-connection-id"] = this.connectionId;
+        config.headers[HEADERS.CONNECTION_ID] = this.connectionId;
       }
 
       if (data) config.data = data;
@@ -148,7 +151,9 @@ class PostgreSQLTester {
     await this.test("Server Health Check", async () => {
       const result = await this.request("GET", "/api/sql/health");
       if (!result.success && result.status !== 500) {
-        throw new Error("Server not responding - check if Node.js server is running on port 5000");
+        throw new Error(
+          `Server not responding - check if Node.js server is running on port ${SERVER_CONSTANTS.DEFAULT_PORT}`,
+        );
       }
     });
 
@@ -409,8 +414,8 @@ class PostgreSQLTester {
       const config = {
         method: "POST",
         url: `${this.baseURL}/api/sql/databases`,
-        headers: { "Content-Type": "application/json", "x-db-type": "pg" },
-        timeout: 30000,
+        headers: { "Content-Type": HEADERS.CONTENT_TYPE, [HEADERS.DB_TYPE]: DB_TYPES.POSTGRESQL },
+        timeout: DEFAULT_CONFIG.CONNECTION_TIMEOUT,
       };
 
       try {
@@ -542,7 +547,7 @@ class PostgreSQLTester {
     this.log("\n🔧 TROUBLESHOOTING GUIDE:", "info");
     this.log("If tests failed, check:", "info");
     this.log("1. PostgreSQL server is running: psql -U root -d mydatabase", "info");
-    this.log("2. Node.js server is running on port 5000", "info");
+    this.log(`2. Node.js server is running on port ${SERVER_CONSTANTS.DEFAULT_PORT}`, "info");
     this.log("3. Update password in this file (line 12)", "info");
     this.log("4. Check PostgreSQL user permissions", "info");
     this.log("5. Verify API routes are mounted correctly", "info");
@@ -556,12 +561,12 @@ async function quickPostgreSQLTest() {
   try {
     const { Pool } = require("pg");
     const pool = new Pool({
-      host: "localhost",
-      port: 5432,
+      host: LOCALHOST_HOSTNAME,
+      port: DB_DEFAULTS.PORT.POSTGRESQL,
       user: "root",
       password: "root", // ⚠️ UPDATE THIS
       database: "mydatabase", // or 'postgres' if mydatabase doesn't exist
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: DEFAULT_CONFIG.CONNECTION_TIMEOUT,
     });
 
     await pool.query("SELECT 1");

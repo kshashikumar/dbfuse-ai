@@ -1,8 +1,5 @@
 // connection-manager.js
-const fs = require("fs").promises;
-const path = require("path");
-
-const { CONNECTION_STATES, ERROR_MESSAGES, DEFAULT_CONFIG } = require("../constants/constants");
+const { CONNECTION_STATES, ERROR_MESSAGES, DEFAULT_CONFIG } = require("../core/constants");
 const logger = require("../utils/logger");
 
 class ConnectionManager {
@@ -11,7 +8,6 @@ class ConnectionManager {
     this.activeConnections = new Map();
     this.connectionStates = new Map();
     this.lastActivity = new Map();
-    this.configPath = path.join(__dirname, "dbConnections.json");
     // Runtime-only map to hold full configs (including secrets) for reconnect via dbController
     this.connectionConfigs = new Map();
   }
@@ -151,50 +147,6 @@ class ConnectionManager {
     } catch (error) {
       this.setConnectionState(connectionId, CONNECTION_STATES.ERROR);
       throw new Error(ERROR_MESSAGES.DATABASE_SWITCH_FAILED(dbName));
-    }
-  }
-
-  // Connection persistence
-  async saveConnections() {
-    try {
-      const connectionsData = Array.from(this.connections.entries()).map(([id, conn]) => ({
-        id,
-        config: conn.config,
-        createdAt: conn.createdAt,
-        lastUsed: conn.lastUsed,
-        currentDatabase: conn.currentDatabase,
-        state: this.getConnectionState(id),
-      }));
-
-      await fs.writeFile(this.configPath, JSON.stringify(connectionsData, null, 2), "utf8");
-    } catch (error) {
-      logger.error("Error saving connections:", error);
-      throw error;
-    }
-  }
-
-  async loadConnections() {
-    try {
-      const data = await fs.readFile(this.configPath, "utf8");
-      const connectionsData = JSON.parse(data);
-
-      return connectionsData.map((conn) => ({
-        id: conn.id,
-        username: conn.config.username,
-        host: conn.config.host,
-        port: conn.config.port,
-        dbType: conn.config.dbType,
-        database: conn.config.database,
-        socketPath: conn.config.socketPath,
-        status: conn.state || CONNECTION_STATES.DISCONNECTED,
-        lastUsed: conn.lastUsed,
-        currentDatabase: conn.currentDatabase,
-      }));
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        return []; // No connections file exists yet
-      }
-      throw error;
     }
   }
 

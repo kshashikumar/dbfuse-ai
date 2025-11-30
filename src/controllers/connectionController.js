@@ -1,58 +1,11 @@
 // connectionsController.js
-const path = require("path");
 const { getPolicy } = require("../utils/policyUtil");
-const fs = require("fs").promises;
+const connectionStore = require("../config/connection-store");
 const logger = require("../utils/logger");
 
-exports.fs = fs;
+const readConnectionsFromFile = () => connectionStore.readConnections();
 
-/* --------- unchanged file IO helpers (same as you have) --------- */
-const readConnectionsFromFile = async () => {
-  const filePath = path.join(__dirname, "..", "config", "dbConnections.json");
-  try {
-    const data = await fs.readFile(filePath, "utf8");
-    return JSON.parse(data).map((conn) => ({
-      id: conn.id || Date.now() + Math.random(),
-      username: conn.username,
-      password: conn.password,
-      host: conn.host,
-      port: conn.port,
-      dbType: conn.dbType,
-      database: conn.database || "",
-      socketPath: conn.socketPath || "",
-      ssl: conn.ssl || false,
-      connectionTimeout: conn.connectionTimeout || 60000,
-      poolSize: conn.poolSize || 10,
-      status: conn.status || "Available",
-      createdAt: conn.createdAt || new Date().toISOString(),
-      lastUsed: conn.lastUsed || null,
-    }));
-  } catch {
-    logger.info("No connections file found, returning empty array");
-    return [];
-  }
-};
-
-const writeConnectionsToFile = async (connections) => {
-  const filePath = path.join(__dirname, "..", "config", "dbConnections.json");
-  const cleanConnections = connections.map((conn) => ({
-    id: conn.id || Date.now() + Math.random(),
-    username: conn.username,
-    password: conn.password,
-    host: conn.host,
-    port: conn.port,
-    dbType: conn.dbType,
-    database: conn.database || "",
-    socketPath: conn.socketPath || "",
-    ssl: !!conn.ssl,
-    connectionTimeout: conn.connectionTimeout || 60000,
-    poolSize: conn.poolSize || 10,
-    status: conn.status || "Available",
-    createdAt: conn.createdAt || new Date().toISOString(),
-    lastUsed: conn.lastUsed || null,
-  }));
-  await fs.writeFile(filePath, JSON.stringify(cleanConnections, null, 2), "utf8");
-};
+const writeConnectionsToFile = (connections) => connectionStore.writeConnections(connections);
 
 /* ---------------------- Route handlers ---------------------- */
 const getConnections = async (req, res) => {
@@ -70,8 +23,21 @@ const getConnections = async (req, res) => {
       retrievedAt: new Date().toISOString(),
     });
   } catch (err) {
-    logger.error("Error fetching connections:", err);
-    return res.status(500).json({ error: "Error fetching connections" });
+    logger.error("Error fetching connections:", err.message);
+    const needsKey =
+      err?.code === "ENCRYPTED_STORE_KEY_REQUIRED" ||
+      err?.code === "ENCRYPTED_STORE_DECRYPT_FAILED";
+    const statusCode = needsKey ? 409 : 500;
+    return res.status(statusCode).json({
+      error:
+        err.message ||
+        (needsKey
+          ? "Encrypted connection store detected. Provide DBFUSE_CONNECTIONS_KEY or delete the store."
+          : "Error fetching connections"),
+      encrypted: !!needsKey,
+      requiresKey: needsKey,
+      resolutionOptions: needsKey ? ["provide_key", "reset_store"] : undefined,
+    });
   }
 };
 
@@ -276,6 +242,22 @@ const testConnection = async (req, res) => {
   }
 };
 
+const resetConnectionStore = async (req, res) => {
+  try {
+    const deleted = await connectionStore.deleteConnectionStore();
+    return res.status(200).json({
+      message: deleted
+        ? "Deleted saved connections. You can start adding new ones."
+        : "Connection store was already empty.",
+      deleted,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error("Error resetting connection store:", err);
+    return res.status(500).json({ error: "Failed to delete saved connections" });
+  }
+};
+
 module.exports = {
   getConnections,
   addConnection,
@@ -283,4 +265,5 @@ module.exports = {
   deleteConnection,
   saveConnections,
   testConnection,
+  resetConnectionStore,
 };

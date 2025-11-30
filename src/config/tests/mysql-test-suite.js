@@ -3,9 +3,12 @@
 
 const axios = require("axios");
 
+const { SERVER_CONSTANTS, buildLocalhostBaseUrl, LOCALHOST_HOSTNAME } = require("../../core/app");
+const { DEFAULT_CONFIG, DB_TYPES, DB_DEFAULTS, HEADERS } = require("../../core/constants");
+
 class MySQLTester {
   constructor() {
-    this.baseURL = "http://localhost:5000";
+    this.baseURL = buildLocalhostBaseUrl(SERVER_CONSTANTS.DEFAULT_PORT);
     this.passed = 0;
     this.failed = 0;
     this.errors = [];
@@ -15,9 +18,9 @@ class MySQLTester {
     this.config = {
       username: "root",
       password: "root", // ⚠️ CHANGE THIS TO YOUR MYSQL PASSWORD
-      host: "localhost",
-      port: "3306",
-      dbType: "mysql2",
+      host: LOCALHOST_HOSTNAME,
+      port: String(DB_DEFAULTS.PORT.MYSQL),
+      dbType: DB_TYPES.MYSQL,
     };
   }
 
@@ -39,15 +42,15 @@ class MySQLTester {
         method,
         url: `${this.baseURL}${endpoint}`,
         headers: {
-          "Content-Type": "application/json",
-          "x-db-type": "mysql2",
+          "Content-Type": HEADERS.CONTENT_TYPE,
+          [HEADERS.DB_TYPE]: DB_TYPES.MYSQL,
         },
-        timeout: 30000,
+        timeout: DEFAULT_CONFIG.CONNECTION_TIMEOUT,
       };
 
       // Attach connectionId to headers when available
       if (this.connectionId) {
-        config.headers["x-connection-id"] = this.connectionId;
+        config.headers[HEADERS.CONNECTION_ID] = this.connectionId;
       }
 
       if (data) config.data = data;
@@ -147,7 +150,9 @@ class MySQLTester {
     await this.test("Server Health Check", async () => {
       const result = await this.request("GET", "/api/sql/health");
       if (!result.success && result.status !== 500) {
-        throw new Error("Server not responding - check if Node.js server is running on port 5000");
+        throw new Error(
+          `Server not responding - check if Node.js server is running on port ${SERVER_CONSTANTS.DEFAULT_PORT}`,
+        );
       }
     });
 
@@ -447,7 +452,7 @@ class MySQLTester {
     this.log("\n🔧 TROUBLESHOOTING GUIDE:", "info");
     this.log("If tests failed, check:", "info");
     this.log("1. MySQL server is running: mysql -u root -p", "info");
-    this.log("2. Node.js server is running on port 5000", "info");
+    this.log(`2. Node.js server is running on port ${SERVER_CONSTANTS.DEFAULT_PORT}`, "info");
     this.log("3. Update password in this file (line 12)", "info");
     this.log("4. Check MySQL user permissions", "info");
     this.log("5. Verify API routes are mounted correctly", "info");

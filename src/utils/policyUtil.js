@@ -182,6 +182,28 @@ const SqlitePolicy = {
   },
 };
 
+// mongodb
+const MongoDBPolicy = {
+  ...DefaultPolicy,
+  dedupeKey: (c) => `mongodb|${c.host}|${c.port}|${c.database}|${c.username}`,
+  display: (c) => ({
+    databaseDisplay: c.database || "test",
+    databaseShort: c.database || "test",
+    extras: {},
+  }),
+};
+
+// redis
+const RedisPolicy = {
+  ...DefaultPolicy,
+  dedupeKey: (c) => `redis|${c.host}|${c.port}|${c.database}|${c.username}`,
+  display: (c) => ({
+    databaseDisplay: c.database || "0",
+    databaseShort: c.database || "0",
+    extras: {},
+  }),
+};
+
 /* ---------------------- Registry & export ---------------------- */
 const DB_POLICIES = new Map([
   ["mysql2", MySQLPolicy],
@@ -189,6 +211,8 @@ const DB_POLICIES = new Map([
   ["mssql", MSSQLPolicy],
   ["oracledb", OraclePolicy],
   ["sqlite3", SqlitePolicy],
+  ["mongodb", MongoDBPolicy],
+  ["redis", RedisPolicy],
   ["default", DefaultPolicy],
 ]);
 

@@ -3,9 +3,12 @@
 
 const axios = require("axios");
 
+const { SERVER_CONSTANTS, buildLocalhostBaseUrl, LOCALHOST_HOSTNAME } = require("../../core/app");
+const { DEFAULT_CONFIG, DB_TYPES, DB_DEFAULTS, HEADERS } = require("../../core/constants");
+
 class OracleTester {
   constructor() {
-    this.baseURL = "http://localhost:5000";
+    this.baseURL = buildLocalhostBaseUrl(SERVER_CONSTANTS.DEFAULT_PORT);
     this.passed = 0;
     this.failed = 0;
     this.errors = [];
@@ -15,9 +18,9 @@ class OracleTester {
     this.config = {
       username: "SYSTEM",
       password: "root", // ⚠️ CHANGE THIS TO YOUR ORACLE PASSWORD
-      host: "localhost",
-      port: "1521",
-      dbType: "oracledb",
+      host: LOCALHOST_HOSTNAME,
+      port: String(DB_DEFAULTS.PORT.ORACLE),
+      dbType: DB_TYPES.ORACLE,
       database: "MYDATABASE",
     };
   }
@@ -40,15 +43,15 @@ class OracleTester {
         method,
         url: `${this.baseURL}${endpoint}`,
         headers: {
-          "Content-Type": "application/json",
-          "x-db-type": "oracledb",
+          "Content-Type": HEADERS.CONTENT_TYPE,
+          [HEADERS.DB_TYPE]: DB_TYPES.ORACLE,
         },
-        timeout: 30000,
+        timeout: DEFAULT_CONFIG.CONNECTION_TIMEOUT,
       };
 
       // Attach connectionId once available
       if (this.connectionId) {
-        config.headers["x-connection-id"] = this.connectionId;
+        config.headers[HEADERS.CONNECTION_ID] = this.connectionId;
       }
 
       if (data) config.data = data;
@@ -148,7 +151,9 @@ class OracleTester {
     await this.test("Server Health Check", async () => {
       const result = await this.request("GET", "/api/sql/health");
       if (!result.success && result.status !== 500) {
-        throw new Error("Server not responding - check if Node.js server is running on port 5000");
+        throw new Error(
+          `Server not responding - check if Node.js server is running on port ${SERVER_CONSTANTS.DEFAULT_PORT}`,
+        );
       }
     });
 
@@ -428,8 +433,8 @@ class OracleTester {
       const config = {
         method: "POST",
         url: `${this.baseURL}/api/sql/databases`,
-        headers: { "Content-Type": "application/json", "x-db-type": "oracledb" },
-        timeout: 30000,
+        headers: { "Content-Type": HEADERS.CONTENT_TYPE, [HEADERS.DB_TYPE]: DB_TYPES.ORACLE },
+        timeout: DEFAULT_CONFIG.CONNECTION_TIMEOUT,
       };
 
       try {
@@ -570,13 +575,16 @@ class OracleTester {
 
     this.log("\n🔧 TROUBLESHOOTING GUIDE:", "info");
     this.log("If tests failed, check:", "info");
-    this.log("1. Oracle server is running: sqlplus SYSTEM/root@localhost:1521/MYDATABASE", "info");
-    this.log("2. Node.js server is running on port 5000", "info");
+    this.log(
+      `1. Oracle server is running: sqlplus SYSTEM/root@${LOCALHOST_HOSTNAME}:${DB_DEFAULTS.PORT.ORACLE}/MYDATABASE`,
+      "info",
+    );
+    this.log(`2. Node.js server is running on port ${SERVER_CONSTANTS.DEFAULT_PORT}`, "info");
     this.log("3. Update password in this file (line 12)", "info");
     this.log("4. Check Oracle user permissions (SYSTEM should have DBA privileges)", "info");
     this.log("5. Verify API routes are mounted correctly", "info");
     this.log("6. Ensure Oracle XE/EE is properly configured", "info");
-    this.log("7. Check Oracle listener is running on port 1521", "info");
+    this.log(`7. Check Oracle listener is running on port ${DB_DEFAULTS.PORT.ORACLE}`, "info");
   }
 }
 
@@ -589,8 +597,8 @@ async function quickOracleTest() {
     const connection = await oracledb.getConnection({
       user: "SYSTEM",
       password: "root", // ⚠️ UPDATE THIS
-      connectString: "localhost:1521/MYDATABASE", // or XE, ORCL, etc.
-      connectionTimeout: 10000,
+      connectString: `${LOCALHOST_HOSTNAME}:${DB_DEFAULTS.PORT.ORACLE}/MYDATABASE`, // or XE, ORCL, etc.
+      connectionTimeout: DEFAULT_CONFIG.CONNECTION_TIMEOUT,
     });
 
     await connection.execute("SELECT 1 FROM DUAL");
@@ -603,7 +611,7 @@ async function quickOracleTest() {
     console.log("💡 Common issues:");
     console.log("   • Oracle service not running");
     console.log("   • Wrong SID/Service name (try XE, ORCL, or check tnsnames.ora)");
-    console.log("   • Listener not running on port 1521");
+    console.log(`   • Listener not running on port ${DB_DEFAULTS.PORT.ORACLE}`);
     console.log("   • Incorrect username/password");
     return false;
   }

@@ -1,9 +1,12 @@
 // dbController.js (Updated to support connectionId-based routing while keeping legacy handlers)
+const chalk = require("chalk");
+
 const dbContext = require("../config/database-context"); // Legacy singleton instance (kept for backwards compatibility)
 // Use shared ConnectionManager singleton so all controllers share connections
-const connectionManager = require("../config/connection-manager-singleton");
-const chalk = require("chalk");
+const { connectionManager } = require("../config");
 const logger = require("../utils/logger");
+const { HEADERS, HEADER_VARIANTS, DEFAULT_CONFIG, DB_TYPES } = require("../core/constants");
+const { getHeaderValue } = require("../utils/http");
 
 // Enhanced response helper
 const sendResponse = (res, status, data, error = null) => {
@@ -36,12 +39,15 @@ const handleError = (res, error, operation) => {
 
 // Get database type from headers
 const getDbType = (req) => {
-  return req.headers["x-db-type"] || req.headers["X-DB-Type"] || req.headers["X-Db-Type"];
+  return getHeaderValue(req.headers, HEADER_VARIANTS.DB_TYPE);
 };
 
+const getConnectionId = (req) => getHeaderValue(req.headers, HEADER_VARIANTS.CONNECTION_ID);
+
 const getDatabases = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  const connectionId = getConnectionId(req);
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   try {
     const strategy = connectionManager.getConnection(connectionId);
     const databaseStats = await strategy.getDatabases();
@@ -52,9 +58,10 @@ const getDatabases = async (req, res) => {
 };
 
 const getTables = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const connectionId = getConnectionId(req);
   const dbName = req.query.dbName || req.body?.dbName;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   try {
     const strategy = connectionManager.getConnection(connectionId);
     if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
@@ -73,10 +80,11 @@ const getTables = async (req, res) => {
 };
 
 const getTableInfo = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const connectionId = getConnectionId(req);
   const dbName = req.query.dbName || req.body?.dbName;
   const table = req.query.table || req.body?.table;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   if (!table) return sendResponse(res, 400, null, "table is required");
   try {
     const strategy = connectionManager.getConnection(connectionId);
@@ -91,9 +99,10 @@ const getTableInfo = async (req, res) => {
 };
 
 const getMultipleTablesInfo = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const connectionId = getConnectionId(req);
   const { tables, dbName } = req.body;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   if (!tables || !Array.isArray(tables) || tables.length === 0) {
     return sendResponse(res, 400, null, "Tables array is required.");
   }
@@ -115,16 +124,20 @@ const getMultipleTablesInfo = async (req, res) => {
 };
 
 const executeQuery = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  let { query, page = 1, pageSize = 10, dbName } = req.body;
+  const connectionId = getConnectionId(req);
+  let { query, page = 1, pageSize = DEFAULT_CONFIG.PAGE_SIZE, dbName } = req.body;
 
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   if (!query || typeof query !== "string") {
     return sendResponse(res, 400, null, "Query is required and must be a string");
   }
 
   page = Math.max(1, parseInt(page) || 1);
-  pageSize = Math.min(Math.max(1, parseInt(pageSize) || 10), 1000);
+  pageSize = Math.min(
+    Math.max(1, parseInt(pageSize) || DEFAULT_CONFIG.PAGE_SIZE),
+    DEFAULT_CONFIG.MAX_PAGE_SIZE,
+  );
 
   try {
     const strategy = connectionManager.getConnection(connectionId);
@@ -175,11 +188,16 @@ const connect = async (req, res) => {
   } = req.body;
 
   if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
+    return sendResponse(
+      res,
+      400,
+      null,
+      `Database type (${HEADERS.DB_TYPE}) must be specified in headers`,
+    );
   }
 
   let requiredFields = ["dbType"];
-  if (dbType !== "sqlite3") {
+  if (dbType !== DB_TYPES.SQLITE) {
     requiredFields = ["username", "password", "host", "port", "dbType"];
   } else {
     requiredFields.push("database");
@@ -192,12 +210,12 @@ const connect = async (req, res) => {
     return sendResponse(res, 400, null, `Missing required fields: ${missingFields.join(", ")}`);
   }
   if (dbType !== bodyDbType) {
-    return sendResponse(res, 400, null, "dbType in body must match x-db-type in headers");
+    return sendResponse(res, 400, null, `dbType in body must match ${HEADERS.DB_TYPE} in headers`);
   }
 
   chalk.italic.cyan(
     `> Attempting to connect to ${dbType} ${
-      dbType === "sqlite3"
+      dbType === DB_TYPES.SQLITE
         ? `database: ${database}`
         : `server @ ${host}:${port} with user ${username}`
     }`,
@@ -205,7 +223,7 @@ const connect = async (req, res) => {
 
   try {
     const config =
-      dbType === "sqlite3"
+      dbType === DB_TYPES.SQLITE
         ? { dbType, database, ...sqliteConfig }
         : { username, password, host, port, dbType, database, socketPath };
 
@@ -218,7 +236,7 @@ const connect = async (req, res) => {
 
     sendResponse(res, 200, {
       message: `Connected to ${dbType} ${
-        dbType === "sqlite3" ? `database: ${database}` : `server @ ${host}:${port}`
+        dbType === DB_TYPES.SQLITE ? `database: ${database}` : `server @ ${host}:${port}`
       }`,
       timestamp: new Date().toISOString(),
       database: database || "default",
@@ -230,9 +248,10 @@ const connect = async (req, res) => {
 };
 
 const switchDatabase = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const connectionId = getConnectionId(req);
   const { dbName } = req.body;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   if (!dbName) return sendResponse(res, 400, null, "Database name is required");
   try {
     const strategy = connectionManager.getConnection(connectionId);
@@ -250,9 +269,10 @@ const switchDatabase = async (req, res) => {
 };
 
 const executeBatch = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const connectionId = getConnectionId(req);
   const { queries, dbName } = req.body;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   if (!queries || !Array.isArray(queries) || queries.length === 0) {
     return sendResponse(res, 400, null, "Queries array is required and must not be empty");
   }
@@ -325,9 +345,10 @@ const analyzeQuery = async (req, res) => {
 };
 
 const getViews = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const connectionId = getConnectionId(req);
   const dbName = req.query.dbName || req.body?.dbName;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   try {
     const strategy = connectionManager.getConnection(connectionId);
     if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
@@ -348,9 +369,10 @@ const getViews = async (req, res) => {
 };
 
 const getProcedures = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+  const connectionId = getConnectionId(req);
   const dbName = req.query.dbName || req.body?.dbName;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
+  if (!connectionId)
+    return sendResponse(res, 400, null, `${HEADERS.CONNECTION_ID} header is required`);
   try {
     const strategy = connectionManager.getConnection(connectionId);
     if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);

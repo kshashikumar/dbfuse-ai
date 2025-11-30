@@ -28,7 +28,15 @@
             "main": "src/main.ts",
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
-            "assets": ["src/favicon.ico", "src/assets"],
+            "assets": [
+              "src/favicon.ico",
+              "src/assets",
+              {
+                "glob": "**/*",
+                "input": "./node_modules/monaco-editor/min/vs",
+                "output": "assets/monaco/vs"
+              }
+            ],
             "styles": ["src/theme/styles.css"],
             "scripts": [],
             "allowedCommonJsDependencies": []
@@ -83,7 +91,10 @@
               "browserTarget": "dbfuse-ai-client:build:development"
             }
           },
-          "defaultConfiguration": "development"
+          "defaultConfiguration": "development",
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          }
         },
         "extract-i18n": {
           "builder": "@angular-devkit/build-angular:extract-i18n",
@@ -96,7 +107,15 @@
           "options": {
             "polyfills": ["zone.js", "zone.js/testing"],
             "tsConfig": "tsconfig.spec.json",
-            "assets": ["src/favicon.ico", "src/assets"],
+            "assets": [
+              "src/favicon.ico",
+              "src/assets",
+              {
+                "glob": "**/*",
+                "input": "./node_modules/monaco-editor/min/vs",
+                "output": "assets/monaco/vs"
+              }
+            ],
             "styles": ["src/theme/styles.css"],
             "scripts": []
           }

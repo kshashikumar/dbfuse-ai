@@ -12,6 +12,7 @@ services:
       - PORT=5000
       - DBFUSE_USERNAME=admin
       - DBFUSE_PASSWORD=admin
+      - DBFUSE_CONNECTIONS_KEY=
       - AI_PROVIDER=gemini
       - AI_MODEL=gemini-2.5-flash
       - AI_API_KEY=

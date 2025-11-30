@@ -1,11 +1,18 @@
 const { getAIModel } = require("../models/model");
 const logger = require("../utils/logger");
-const connectionManager = require("../config/connection-manager-singleton");
+const { connectionManager } = require("../config");
+const { getHeaderValue } = require("../utils/http");
+const {
+  HEADERS,
+  HEADER_VARIANTS,
+  FALLBACK_AI_MODEL,
+  SCHEMA_PROMPT_BUDGET_CHARS,
+} = require("../core/constants");
 
 const argv = require("minimist")(process.argv.slice(2));
 
 const initializeLLM = () => {
-  const aiModel = (argv.model || process.env.AI_MODEL || "gpt-4").toLowerCase();
+  const aiModel = (argv.model || process.env.AI_MODEL || FALLBACK_AI_MODEL).toLowerCase();
   const apiKey = argv.apikey || process.env.AI_API_KEY || null;
   return getAIModel(aiModel, apiKey);
 };
@@ -16,7 +23,7 @@ const {
   buildSchemaDSL,
 } = require("../utils/schemaCompressor");
 
-const BUDGET_CHARS = 4000;
+const BUDGET_CHARS = SCHEMA_PROMPT_BUDGET_CHARS;
 
 async function selectRelevantTables(llm, dbType, catalog, userPrompt) {
   // Ask the LLM to select relevant tables using the global catalog; return strict JSON
@@ -187,8 +194,8 @@ Output only the SQL query.
 const executePrompt = async (req, res) => {
   try {
     const { databaseName: bodyDbName, prompt } = req.body;
-    const dbType = req.headers["x-db-type"] || req.headers["X-DB-Type"];
-    const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
+    const dbType = getHeaderValue(req.headers, HEADER_VARIANTS.DB_TYPE);
+    const connectionId = getHeaderValue(req.headers, HEADER_VARIANTS.CONNECTION_ID);
 
     if (!prompt) {
       return res.status(400).json({ error: "Prompt is required" });
@@ -196,10 +203,10 @@ const executePrompt = async (req, res) => {
     if (!dbType) {
       return res
         .status(400)
-        .json({ error: "Database type (x-db-type) must be specified in headers" });
+        .json({ error: `Database type (${HEADERS.DB_TYPE}) must be specified in headers` });
     }
     if (!connectionId) {
-      return res.status(400).json({ error: "x-connection-id header is required" });
+      return res.status(400).json({ error: `${HEADERS.CONNECTION_ID} header is required` });
     }
 
     const llm = initializeLLM();

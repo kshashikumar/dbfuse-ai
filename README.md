@@ -85,9 +85,11 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   - `-p, --port <number>`: Server port (default 5000)
   - `--dbuser <username>` and `--dbpass <password>`: Set Basic Auth credentials for the web UI
   - `--model <name>` and `--apikey <key>`: Enable AI with the selected model and API key
+  - `--connections-key <value>`: Provide the AES-256 key used to encrypt `dbConnections.json` (type `clear` to disable)
+  - `--connections-reset`: Delete `dbConnections.json` before starting (useful if you've lost the encryption key)
   - `-v, --verbose`: Show detailed prompts and info in the CLI
 
-  Supported AI providers include: Gemini, OpenAI, Anthropic, Mistral, Cohere, Hugging Face, and Perplexity. Without `--model` and `--apikey`, the CLI will ask whether to enable AI and guide you interactively.
+  Supported AI providers include: Gemini, OpenAI, Anthropic, Mistral, Cohere, Hugging Face, and Perplexity. Without `--model`, `--apikey`, or `--connections-key`, the CLI will walk you through the required prompts (you can press Enter to keep plaintext storage if you do not want encryption).
 
   Then open http://localhost:5000.
 
@@ -109,6 +111,8 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
         # Optional basic auth for UI (set both to enable)
         - DBFUSE_USERNAME=admin
         - DBFUSE_PASSWORD=admin
+        # Optional: encrypt saved db connections (recommended)
+        - DBFUSE_CONNECTIONS_KEY=
         # AI configuration (optional)
         - AI_PROVIDER=gemini
         - AI_MODEL=gemini-2.5-flash
@@ -174,19 +178,8 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   npm run start
   ```
 
-  The backend serves the built UI from `src/public` at http://localhost:5000.
+  - For Google Gemini: Follow Google's platform to obtain an API key (free tier provides 15 requests per minute).
 
-## AI Integration
-
-DBFuse AI integrates OpenAI and Google Gemini to generate intelligent SQL queries with the following features:
-
-### Setting Up AI Integration
-
-To enable AI-powered prompt querying, you need to set up the API keys for OpenAI or Google Gemini:
-
-1. **Obtain an API Key**
-   - For OpenAI: Visit OpenAI's platform and generate an API key.
-   - For Google Gemini: Follow Google's platform to obtain an API key (free tier provides 15 requests per minute).
 2. **Add the API Key to Your Environment Variables**
    In the root directory of your project, create a .env file (or set env vars in Docker):
 
@@ -316,6 +309,30 @@ To disable authentication, remove these variables from `.env` and restart the se
 - Pluggable driver/extension SDK to add new databases and tools
 - MCP servers implementation to connect to different databases
 
+### MCP Server
+
+- Launch from the repository root with `npm run mcp`. The server communicates over stdio and respects `DBFUSE_CONFIG_DIR` (connection store), `DBFUSE_USERNAME`, `DBFUSE_PASSWORD`, and `LOG_LEVEL` env variables.
+- Discover available tools locally with `LOG_LEVEL=error npx @modelcontextprotocol/inspector --cli node src/mcp/server.js --method tools/list`.
+- Claude Desktop (or any MCP client) can point at `node` with the argument `src/mcp/server.js`; use an absolute path or set the client's working directory to your project root. Example configuration:
+
+  ```json
+  {
+    "mcpServers": {
+      "dbfuse-ai": {
+        "command": "node",
+        "args": ["src/mcp/server.js"],
+        "transport": "stdio",
+        "workingDirectory": "d:/vs-code/dbfuse-ai",
+        "env": {
+          "LOG_LEVEL": "error"
+        }
+      }
+    }
+  }
+  ```
+
+- Stored database connections (from `dbConnections.json`) can be activated via the `connect_database` MCP tool using the numeric `id`, the signature `dbType:host:port:database`, or the runtime id returned by `list_connections`. Once connected, reuse the returned `mcp:stored:<id>` as the `connectionId` for `execute_query` and `get_tables`.
+
 ## Contributions
 
 DBFuse AI is open for **contributions**! If you have ideas for features, improvements, or bug fixes, feel free to submit a pull request or open an issue.
@@ -330,6 +347,8 @@ DBFuse AI is open for **contributions**! If you have ideas for features, improve
   - `.env` is hot-reloaded (most changes apply instantly). PORT change triggers an automatic restart.
   - You can override where `.env` lives by setting `DBFUSE_CONFIG_DIR`.
   - Prefer setting AI keys via your shell variables (do not commit real keys).
+    - Set `DBFUSE_CONNECTIONS_KEY` to encrypt `dbConnections.json` on disk (AES-256-GCM). Configure it from the Config UI, via the CLI flag `--connections-key`, or by exporting the env var directly. Without this key the file is stored in plaintext; once enabled the same key is required to read the store.
+    - Removing the encryption key from the Config UI automatically deletes the stored connections. You can also clear the file manually via the landing-page **Reset Saved Connections** button or by running `dbfuse-ai --connections-reset`.
 
 ### Adding a new AI model/provider
 
@@ -342,7 +361,7 @@ DBFuse AI is open for **contributions**! If you have ideas for features, improve
 
 1. Create a strategy in `src/config/db_strategies/` (follow patterns from existing drivers).
 2. Register it in the connection manager.
-3. Add a minimal connectivity test under `src/config/tests/`.
+3. Add a minimal connectivity test under `tests/integration/databases/`.
 
 ### Tests & formatting
 

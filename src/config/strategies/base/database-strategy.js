@@ -1,0 +1,185 @@
+// database-strategy.js
+const fs = require("fs");
+
+const { QUERY_TYPES, ERROR_MESSAGES } = require("../../../core/constants");
+
+class DatabaseStrategy {
+  constructor() {
+    this.connectionPool = null;
+    this.currentDatabase = null;
+  }
+
+  // Core connection methods
+  async connect(config) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("connect"));
+  }
+
+  async disconnect() {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("disconnect"));
+  }
+
+  async validateConnection() {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("validateConnection"));
+  }
+
+  // Database navigation methods
+  async switchDatabase(dbName) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("switchDatabase"));
+  }
+
+  async getDatabases() {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getDatabases"));
+  }
+
+  // Structure methods (Tables/Collections/Keys)
+  async getStructure() {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getStructure"));
+  }
+
+  // SQL specific (kept for backward compatibility and SQL implementations)
+  async getTables(dbName) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getTables"));
+  }
+
+  async getTableInfo(dbName, tableName) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getTableInfo"));
+  }
+
+  async getMultipleTablesInfo(dbName, tableNames) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getMultipleTablesInfo"));
+  }
+
+  async getViews(dbName) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getViews"));
+  }
+
+  async getProcedures(dbName) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getProcedures"));
+  }
+
+  async getFunctions(dbName) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getFunctions"));
+  }
+
+  // NoSQL specific stubs
+  async getCollections(dbName) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getCollections"));
+  }
+
+  async getCollectionInfo(dbName, collectionName) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getCollectionInfo"));
+  }
+
+  // Cache specific stubs
+  async getKeys(pattern) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getKeys"));
+  }
+
+  // Enhanced query execution
+  async executeQuery(query, options = {}) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeQuery"));
+  }
+
+  async executeBatch(queries, options = {}) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeBatch"));
+  }
+
+  async executeTransaction(queries, options = {}) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeTransaction"));
+  }
+
+  // Query analysis and validation
+  analyzeQuery(query) {
+    const trimmedQuery = query.trim().toUpperCase();
+
+    for (const [type, patterns] of Object.entries(QUERY_TYPES)) {
+      if (patterns.some((pattern) => pattern.test(trimmedQuery))) {
+        return {
+          type,
+          isReadOnly: this.isReadOnlyQuery(type),
+          requiresTransaction: this.requiresTransaction(type),
+          supportsPagination: this.supportsPagination(type),
+        };
+      }
+    }
+
+    return {
+      type: "UNKNOWN",
+      isReadOnly: false,
+      requiresTransaction: false,
+      supportsPagination: false,
+    };
+  }
+
+  isReadOnlyQuery(queryType) {
+    const readOnlyTypes = ["SELECT", "SHOW", "DESCRIBE", "EXPLAIN"];
+    return readOnlyTypes.includes(queryType);
+  }
+
+  requiresTransaction(queryType) {
+    const transactionTypes = ["INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"];
+    return transactionTypes.includes(queryType);
+  }
+
+  supportsPagination(queryType) {
+    return queryType === "SELECT";
+  }
+
+  // Utility methods for all database types
+  sanitizeIdentifier(identifier) {
+    return identifier.replace(/[^\w_]/g, "");
+  }
+
+  // Detect if running inside a container
+  isRunningInContainer() {
+    try {
+      if (process.env.DOCKER === "true") return true;
+      // /.dockerenv exists in most Docker images
+      if (fs.existsSync("/.dockerenv")) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  // Normalize host when running inside Docker so "localhost" points to the host machine
+  normalizeHost(host) {
+    if (!host) return host;
+    const h = String(host).toLowerCase();
+    const isLocal = h === "localhost" || h === "127.0.0.1" || h === "::1";
+    if (isLocal && this.isRunningInContainer()) {
+      return "host.docker.internal";
+    }
+    return host;
+  }
+
+  buildPaginationQuery(baseQuery, page, pageSize) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("buildPaginationQuery"));
+  }
+
+  buildCountQuery(baseQuery) {
+    return `SELECT COUNT(*) as count FROM (${baseQuery}) as subquery`;
+  }
+
+  // Connection health and monitoring
+  async getConnectionHealth() {
+    try {
+      await this.validateConnection();
+      return { status: "healthy", lastCheck: new Date().toISOString() };
+    } catch (error) {
+      return { status: "unhealthy", error: error.message, lastCheck: new Date().toISOString() };
+    }
+  }
+
+  // Performance monitoring
+  async getQueryStats() {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getQueryStats"));
+  }
+
+  // Security and permissions
+  async checkPermissions(operation, resource) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("checkPermissions"));
+  }
+}
+
+module.exports = DatabaseStrategy;

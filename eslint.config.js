@@ -31,7 +31,21 @@ export default [
     },
     languageOptions: {
       ecmaVersion: "latest",
-      sourceType: "module",
+      sourceType: "commonjs",
+      globals: {
+        process: "readonly",
+        require: "readonly",
+        module: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+        console: "readonly",
+        exports: "readonly",
+        Buffer: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+      },
     },
   },
   // Turn off rules that conflict with Prettier
