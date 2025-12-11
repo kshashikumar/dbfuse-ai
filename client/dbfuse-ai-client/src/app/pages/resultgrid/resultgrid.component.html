@@ -23,10 +23,7 @@
             </div>
 
             <!-- Pagination Controls -->
-            <div
-                *ngIf="totalPages > 0"
-                class="flex items-center space-x-1"
-            >
+            <div *ngIf="totalPages > 0" class="flex items-center space-x-1 pagination-controls">
             
                 <button
                     (click)="changePage(1)"
@@ -76,35 +73,38 @@
                     <span class="icon-[mdi--page-last] w-3 h-3"></span>
                 </button>
                 <!-- Clean page size selector (compact pill) -->
-                <div
-                    *ngIf="totalRows > 0"
-                    class="flex items-center"
-                >
-                    <label
-                        class="sr-only"
-                        for="rg-page-size"
-                        >Rows per page</label
-                    >
-                    <div class="inline-flex items-center gap-1 px-2 py-1 rounded dark:bg-gray-700 shadow-sm">
-                        <span class="text-[11px] text-gray-600 dark:text-gray-300">Rows</span>
-                        <div class="relative">
-                            <select
-                                id="rg-page-size"
-                                class="appearance-none bg-transparent text-[11px] font-medium w-12 px-1 py-0.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-0"
-                                [value]="pageSize"
-                                (change)="changePageSize($event)"
-                                title="Rows per page"
-                            >
-                                <option
-                                    *ngFor="let size of pageSizeOptions"
-                                    [value]="size"
+                    <div *ngIf="totalRows > 0" class="flex items-center rows-selector">
+                        <label
+                            class="sr-only"
+                            for="rg-page-size"
+                            >Rows per page</label
+                        >
+                        <div class="inline-flex items-center px-2 py-1 rounded dark:bg-gray-700 shadow-sm">
+                            <span class="text-[11px] text-gray-600 dark:text-gray-300 whitespace-nowrap">Rows</span>
+                            <div class="relative ml-1">
+                                <select id="rg-page-size"
+                                    class="appearance-none bg-transparent text-[11px] font-medium w-12 px-1 py-0.5 text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-0"
+                                    [value]="pageSize"
+                                    (change)="changePageSize($event)"
+                                    title="Rows per page"
                                 >
-                                    {{ size }}
-                                </option>
-                            </select>
+                                    <option
+                                        *ngFor="let size of pageSizeOptions"
+                                        [value]="size"
+                                    >
+                                        {{ size }}
+                                    </option>
+                                </select>
+                            </div>
                         </div>
                     </div>
-                </div>
+                    <button
+                        (click)="openExportModal()"
+                        title="Export results"
+                        class="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-blue-500 dark:hover:bg-blue-600"
+                    >
+                        <span class="icon-[mdi--download] w-3 h-3 inline-block mr-1"></span>Export
+                    </button>
             </div>
         </div>
     </div>
@@ -326,6 +326,41 @@
                     Write your SQL query and click Execute to see results here.
                 </p>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export Modal -->
+<div *ngIf="showExportModal" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div class="absolute inset-0 bg-black/40" (click)="closeExportModal()" aria-hidden="true"></div>
+
+    <div
+        role="dialog"
+        aria-modal="true"
+        class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg w-96 p-4 z-10"
+    >
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">Export Results</h3>
+        <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">Choose scope and format for export.</p>
+
+        <div class="mb-3">
+            <label class="flex items-center space-x-2">
+                <input type="radio" name="exportScope" value="current" [(ngModel)]="exportScope" /> 
+                <span class="text-sm text-gray-700 dark:text-gray-200">Current page</span>
+            </label>
+            <label class="flex items-center space-x-2 mt-2">
+                <input type="radio" name="exportScope" value="all" [(ngModel)]="exportScope" /> 
+                <span class="text-sm text-gray-700 dark:text-gray-200">Full results (if available)</span>
+            </label>
+        </div>
+
+        <div class="flex items-center justify-between space-x-2">
+            <button class="flex-1 px-3 py-2 text-xs rounded bg-blue-600 text-white" (click)="confirmExport('json')">Export JSON</button>
+            <button class="flex-1 px-3 py-2 text-xs rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600" (click)="confirmExport('csv')">Export CSV</button>
+            <button class="flex-1 px-3 py-2 text-xs rounded bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600" (click)="confirmExport('excel')">Export Excel</button>
+        </div>
+
+        <div class="mt-3 text-right">
+            <button class="text-xs text-gray-500 dark:text-gray-400" (click)="closeExportModal()">Cancel</button>
         </div>
     </div>
 </div>
