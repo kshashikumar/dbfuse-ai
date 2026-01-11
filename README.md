@@ -240,6 +240,9 @@ Notes:
 - PORT: Server port (default 5000)
 - DBFUSE_USERNAME / DBFUSE_PASSWORD: enable Basic Auth for the web UI (optional)
 - AI_PROVIDER, AI_MODEL, AI_API_KEY: AI settings (optional)
+- MCP_ONLY: Run only MCP server without HTTP (true/false, default false)
+  - By default, both HTTP (Web UI) and MCP (Claude Desktop) servers run simultaneously
+  - Set to true to run only MCP server (disables Web UI)
 - BODY_SIZE: request body size limit (default 50mb)
 - NODE_ENV: set to `production` in containers for best performance
   Note: Database connection details are entered via the UI; no DB URL environment variables are used by the server.
@@ -268,6 +271,37 @@ dbfuse-ai -p 5000 --model gemini-2.5-flash --apikey <YOUR_API_KEY>
 
 Then open http://localhost:5000.
 
+## Development
+
+### Quick Start for Developers
+
+**Development Mode (Frontend + Backend)**
+
+```bash
+# From root directory
+npm install
+npm run dev
+```
+
+- Backend runs on `http://localhost:5000`
+- Frontend dev server on `http://localhost:4200` (with hot reload)
+
+**Production Build**
+
+```bash
+# Build client and copy to backend
+cd client/dbfuse-ai-client
+npm run clean-build-compress
+
+# Start backend (serves built client)
+cd ../..
+npm start
+```
+
+- Full app on `http://localhost:5000`
+
+````
+
 ## Testing (optional)
 
 Basic connectivity test suites are available:
@@ -278,7 +312,7 @@ npm run test:mysql     # MySQL
 npm run test:postgres  # PostgreSQL
 npm run test:mssql     # SQL Server
 npm run test:oracle    # Oracle
-```
+````
 
 These tests expect databases reachable at the configured defaults; adjust environment variables as needed.
 
@@ -333,46 +367,66 @@ To disable authentication, remove these variables from `.env` and restart the se
 
 - Stored database connections (from `dbConnections.json`) can be activated via the `connect_database` MCP tool using the numeric `id`, the signature `dbType:host:port:database`, or the runtime id returned by `list_connections`. Once connected, reuse the returned `mcp:stored:<id>` as the `connectionId` for `execute_query` and `get_tables`.
 
-## Contributions
+## Contributing
 
-DBFuse AI is open for **contributions**! If you have ideas for features, improvements, or bug fixes, feel free to submit a pull request or open an issue.
+We welcome contributions! Whether it's bug fixes, new features, or documentation improvements, your help makes DBFuse AI better.
 
-### Contributors quickstart
+### Quick Start for Contributors
 
-- Fork and clone the repository.
-- Install deps at repo root: `npm install`.
-- Dev server + client: `npm run dev` (backend on 5000, Angular dev server on 4200).
-- Server only with built UI: build via `client/dbfuse-ai-client` → `npm run clean-build-compress`, then `npm run start`.
-- Configuration:
-  - `.env` is hot-reloaded (most changes apply instantly). PORT change triggers an automatic restart.
-  - You can override where `.env` lives by setting `DBFUSE_CONFIG_DIR`.
-  - Prefer setting AI keys via your shell variables (do not commit real keys).
-    - Set `DBFUSE_CONNECTIONS_KEY` to encrypt `dbConnections.json` on disk (AES-256-GCM). Configure it from the Config UI, via the CLI flag `--connections-key`, or by exporting the env var directly. Without this key the file is stored in plaintext; once enabled the same key is required to read the store.
-    - Removing the encryption key from the Config UI automatically deletes the stored connections. You can also clear the file manually via the landing-page **Reset Saved Connections** button or by running `dbfuse-ai --connections-reset`.
+1. **Fork and clone**:
 
-### Adding a new AI model/provider
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/dbfuse-ai.git
+   cd dbfuse-ai
+   npm install
+   ```
 
-1. Backend: Update `src/models/model.js` to include the new model ID and provider; wire the provider’s key name if needed.
-2. CLI: Add the model to `supportedModels` in `cli.js` so it appears in interactive selection.
-3. UI: Update the list in `client/dbfuse-ai-client/src/app/lib/components/config/config.component.ts`.
-4. Keep README’s Supported AI Models table in sync (or ask maintainers to update).
+2. **Start developing**:
 
-### Adding a new database strategy
+   ```bash
+   npm run dev    # Full stack with hot reload (backend + Angular)
+   ```
 
-1. Create a strategy in `src/config/db_strategies/` (follow patterns from existing drivers).
-2. Register it in the connection manager.
-3. Add a minimal connectivity test under `tests/integration/databases/`.
+   Backend runs on http://localhost:5000, Angular dev server on http://localhost:4200
 
-### Tests & formatting
+3. **Make your changes** and test thoroughly
 
-- Run all DB connectivity tests: `npm run test:all` (requires accessible databases).
-- Lint/format: `npm run check` (eslint + prettier) or `npm run lint:fix` / `npm run format:fix`.
+4. **Run tests and linting**:
 
-### Releases & publishing (maintainers)
+   ```bash
+   npm run check      # Run all checks
+   npm run test:all   # Run database tests (requires DBs running)
+   ```
 
-- Version bump in package.json, then create a git tag `vX.Y.Z` and push the tag.
-- CI builds the Angular client, publishes the npm package, builds/pushes Docker image, and syncs Docker Hub README.
-- Publishing is gated to tag builds; main runs build/verify only.
+5. **Submit a pull request** with a clear description of your changes
+
+### Ways to Contribute
+
+- **Report bugs**: Open an issue with details to reproduce
+- **Suggest features**: Share your ideas in an issue
+- **Fix issues**: Check open issues and submit a PR
+- **Improve docs**: Help make documentation clearer
+- **Add database support**: Implement new database strategies (MariaDB, MongoDB, etc.)
+- **Add AI models**: Extend AI provider support
+
+### Code Architecture
+
+DBFuse AI uses a clean layered architecture:
+
+- **Controllers** extend `BaseController` for standardized error handling
+- **Services** (singleton pattern) handle business logic
+- **Strategies** implement database-specific operations
+- **Middleware** provides reusable validators
+
+The codebase follows service layer pattern with clear separation of concerns, making it easy to extend and test.
+
+### Need Help?
+
+- Check existing issues or create a new one
+- Review the code structure in `src/` to understand the patterns
+- All controllers extend `BaseController` - follow existing examples when adding endpoints
+
+Thank you for contributing to DBFuse AI! 🚀
 
 ## Demo
 

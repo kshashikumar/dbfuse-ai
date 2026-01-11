@@ -232,40 +232,6 @@
                 </div>
             </div>
 
-            <!-- MCP Configuration -->
-            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">MCP Configuration</h2>
-                <div class="flex items-center justify-between">
-                    <div>
-                        <label
-                            for="mcp-enabled"
-                            class="block text-sm font-medium text-gray-700 dark:text-gray-300"
-                        >
-                            Enable MCP Mode
-                        </label>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">
-                            Start the application in Model Context Protocol mode.
-                        </p>
-                    </div>
-                    <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                        <input
-                            type="checkbox"
-                            name="mcp-enabled"
-                            id="mcp-enabled"
-                            [(ngModel)]="config.MCP_ENABLED"
-                            class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
-                            [class.right-0]="config.MCP_ENABLED"
-                            [class.border-blue-600]="config.MCP_ENABLED"
-                        />
-                        <label
-                            for="mcp-enabled"
-                            class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"
-                            [class.bg-blue-600]="config.MCP_ENABLED"
-                        ></label>
-                    </div>
-                </div>
-            </div>
-
             <!-- AI Configuration -->
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">AI Configuration</h2>

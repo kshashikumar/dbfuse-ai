@@ -6,8 +6,9 @@ class TestRunner {
     this.testSuites = [
       { name: "MySQL", file: "mysql-test-suite.js" },
       { name: "PostgreSQL", file: "postgres-test-suite.js" },
-      { name: "Oracle", file: "oracle-test-suite.js" },
       { name: "MSSQL", file: "mssql-test-suite.js" },
+      { name: "Oracle", file: "oracle-test-suite.js" },
+      { name: "SQLite", file: "sqlite-test-suite.js" },
     ];
     this.results = {};
   }

@@ -305,7 +305,6 @@ export interface ConfigData {
     PORT: number;
     DBFUSE_USERNAME: string;
     DBFUSE_PASSWORD: string;
-    MCP_ENABLED: boolean;
     DBFUSE_CONNECTIONS_KEY?: string;
 }
 
@@ -422,9 +421,7 @@ export interface ProcedureInfo {
     modified?: string;
 }
 
-// Export all types
-export {
-    // Re-export commonly used types for backward compatibility
+export type {
     Connection as ConnectionData,
     ConnectionConfig as NewConnection,
     TableInfo as TableData,

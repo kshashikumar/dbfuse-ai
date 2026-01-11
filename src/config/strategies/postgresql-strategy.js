@@ -1,9 +1,10 @@
-// postgresql-strategy.js (Fixed version)
+// postgresql-strategy.js
 const { Pool } = require("pg");
 const chalk = require("chalk");
 
 const logger = require("../../utils/logger");
-const { ENCODING } = require("../../core/constants");
+const { ERROR_MESSAGES } = require("../../core/constants/database.constants");
+const { ENCODING } = require("../../core/constants/http.constants");
 
 const SQLStrategy = require("./base/sql-strategy");
 
@@ -11,11 +12,11 @@ class PostgreSQLStrategy extends SQLStrategy {
   constructor() {
     super();
     this.pool = null;
-    this.currentSchema = "public"; // Track current schema
+    this.currentSchema = "public";
   }
 
-  async connect(config) {
-    let {
+  buildConnectionConfig(config) {
+    const {
       host,
       port,
       username,
@@ -32,48 +33,26 @@ class PostgreSQLStrategy extends SQLStrategy {
       schema,
     } = config;
 
-    // Normalize host for container environments
-    host = this.normalizeHost(host);
+    const normalizedHost = this.normalizeHost(host);
 
-    chalk.green(
-      `> Connecting to PostgreSQL server @ ${host || "localhost"}:${port || 5432} with user ${username}${
-        database ? ` and database ${database}` : ""
-      }${ssl ? " with SSL" : ""}`,
-    );
-
-    // Build connection configuration with all optional parameters
     const connectionConfig = {
-      host: host || "localhost",
+      host: normalizedHost || "localhost",
       port: parseInt(port) || 5432,
       user: username,
       password,
       database: database || "postgres",
-
-      // SSL Configuration
       ssl: ssl ? (typeof ssl === "object" ? ssl : { rejectUnauthorized: false }) : false,
-
-      // Pool Configuration
       max: parseInt(maxConnections) || parseInt(poolSize) || 10,
       min: 2,
       connectionTimeoutMillis: parseInt(connectionTimeout) || 60000,
       idleTimeoutMillis: parseInt(idleTimeout) || 30000,
-
-      // Query Configuration
       statement_timeout: parseInt(statement_timeout) || 0,
       query_timeout: parseInt(query_timeout) || 0,
-
-      // Application Configuration
-      application_name: application_name || "PostgreSQL-GUI-App", // Fixed name
-
-      // Additional PostgreSQL options
+      application_name: application_name || "dbfuse-ai",
       keepAlive: true,
       keepAliveInitialDelayMillis: 0,
       parseInputDatesAsUTC: false,
-
-      // Client encoding
       client_encoding: ENCODING.UTF8.toUpperCase(),
-
-      // Timezone
       timezone: "UTC",
     };
 
@@ -84,11 +63,22 @@ class PostgreSQLStrategy extends SQLStrategy {
       }
     });
 
+    return { connectionConfig, schema: schema || "public" };
+  }
+
+  async connect(config) {
+    const { connectionConfig, schema } = this.buildConnectionConfig(config);
+
+    chalk.green(
+      `> Connecting to PostgreSQL server @ ${connectionConfig.host}:${connectionConfig.port} with user ${connectionConfig.user}${
+        connectionConfig.database ? ` and database ${connectionConfig.database}` : ""
+      }${connectionConfig.ssl ? " with SSL" : ""}`,
+    );
+
     try {
       this.pool = new Pool(connectionConfig);
-      this.currentSchema = schema || "public";
+      this.currentSchema = schema;
 
-      // Test connection and set schema
       await this.pool.query("SELECT 1");
       if (this.currentSchema !== "public") {
         await this.pool.query(`SET search_path TO "${this.currentSchema}"`);
@@ -100,6 +90,18 @@ class PostgreSQLStrategy extends SQLStrategy {
       );
       throw err;
     }
+  }
+
+  getPoolMetrics() {
+    if (!this.pool) {
+      return { available: 0, total: 0, waiting: 0 };
+    }
+
+    return {
+      total: this.pool.totalCount || 0,
+      available: this.pool.idleCount || 0,
+      waiting: this.pool.waitingCount || 0,
+    };
   }
 
   async switchDatabase(dbName) {
@@ -150,8 +152,8 @@ class PostgreSQLStrategy extends SQLStrategy {
     logger.info(`> Switched to PostgreSQL database: ${dbName}`);
   }
 
-  async executeQuery(query, options = { page: 1, pageSize: 10 }) {
-    if (!this.pool) throw new Error("PostgreSQL connection not initialized");
+  async _executeQueryImpl(query, options = { page: 1, pageSize: 10 }) {
+    if (!this.pool) throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     const page = Number(options.page) || 1;
     const pageSize = Number(options.pageSize) || 10;
 

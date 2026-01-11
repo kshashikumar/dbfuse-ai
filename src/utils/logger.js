@@ -1,16 +1,16 @@
 const levels = ["error", "warn", "info", "debug"];
 
 const levelIndex = (process.env.LOG_LEVEL && levels.indexOf(process.env.LOG_LEVEL)) ?? 2; // default info
-const isMcpEnabled = process.env.MCP_ENABLED === "true";
+const isMcpOnly = process.env.MCP_ONLY === "true";
 
 function format(level, args) {
   const ts = new Date().toISOString();
   return [`[${ts}] [${level.toUpperCase()}]`, ...args];
 }
 
-// When MCP is enabled, we MUST NOT write to stdout, as it is used for JSON-RPC transport.
+// When MCP_ONLY mode, we MUST NOT write to stdout, as it is used for JSON-RPC transport.
 // We redirect everything to stderr.
-const logFn = isMcpEnabled ? console.error : console.log;
+const logFn = isMcpOnly ? console.error : console.log;
 const errorFn = console.error;
 
 module.exports = {

@@ -1,269 +1,187 @@
-// connectionsController.js
-const { getPolicy } = require("../utils/policyUtil");
-const connectionStore = require("../config/connection-store");
+/**
+ * @fileoverview Connection controller
+ * Handles HTTP endpoints for database connection management
+ */
+
+const BaseController = require("./base/BaseController");
+const connectionService = require("../services/ConnectionService");
 const logger = require("../utils/logger");
+const { HTTP_STATUS } = require("../core/constants");
 
-const readConnectionsFromFile = () => connectionStore.readConnections();
+class ConnectionController extends BaseController {
+  /**
+   * Get all connections
+   */
+  async getConnections(req, res) {
+    try {
+      this.logOperation("getConnections");
 
-const writeConnectionsToFile = (connections) => connectionStore.writeConnections(connections);
-
-/* ---------------------- Route handlers ---------------------- */
-const getConnections = async (req, res) => {
-  try {
-    const connections = await readConnectionsFromFile();
-
-    const withDisplay = connections.map((c) => {
-      const policy = getPolicy(c.dbType);
-      const { databaseDisplay, databaseShort, extras = {} } = policy.display(c);
-      return { ...c, databaseDisplay, databaseShort, ...extras };
-    });
-    return res.status(200).json({
-      connections: withDisplay,
-      count: withDisplay.length,
-      retrievedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    logger.error("Error fetching connections:", err.message);
-    const needsKey =
-      err?.code === "ENCRYPTED_STORE_KEY_REQUIRED" ||
-      err?.code === "ENCRYPTED_STORE_DECRYPT_FAILED";
-    const statusCode = needsKey ? 409 : 500;
-    return res.status(statusCode).json({
-      error:
-        err.message ||
-        (needsKey
-          ? "Encrypted connection store detected. Provide DBFUSE_CONNECTIONS_KEY or delete the store."
-          : "Error fetching connections"),
-      encrypted: !!needsKey,
-      requiresKey: needsKey,
-      resolutionOptions: needsKey ? ["provide_key", "reset_store"] : undefined,
-    });
-  }
-};
-
-const addConnection = async (req, res) => {
-  try {
-    const input = req.body;
-    const policy = getPolicy(input.dbType);
-
-    const error = policy.validateOnAdd(input);
-    if (error) return res.status(400).json({ error });
-
-    let connections = await readConnectionsFromFile();
-
-    const normalized = policy.normalizeOnAdd(input);
-    const candidate = { ...normalized, dbType: input.dbType };
-    const keyNew = policy.dedupeKey(candidate);
-
-    const exists = connections.some((conn) => {
-      const p = getPolicy(conn.dbType);
-      return p.dedupeKey(conn) === keyNew;
-    });
-    if (exists) {
-      return res.status(409).json({ error: "Connection with these details already exists." });
+      const result = await connectionService.getConnections();
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      // Handle encrypted store errors with specific status code
+      if (error.requiresKey) {
+        return this.sendResponse(
+          res,
+          HTTP_STATUS.CONFLICT,
+          null,
+          error.message ||
+            "Encrypted connection store detected. Provide DBFUSE_CONNECTIONS_KEY or delete the store.",
+        );
+      }
+      this.handleError(res, error, "fetching connections");
     }
-
-    const newId = connections.length > 0 ? Math.max(...connections.map((c) => c.id || 0)) + 1 : 1;
-
-    const connectionToAdd = {
-      id: newId,
-      ...normalized,
-      dbType: input.dbType,
-      createdAt: new Date().toISOString(),
-      lastUsed: null,
-    };
-
-    connections.push(connectionToAdd);
-    await writeConnectionsToFile(connections);
-
-    const { databaseDisplay, databaseShort, extras = {} } = policy.display(connectionToAdd);
-    logger.info("Connection added:", connectionToAdd);
-
-    return res.status(201).json({
-      message: "Connection added successfully",
-      connection: { ...connectionToAdd, databaseDisplay, databaseShort, ...extras },
-    });
-  } catch (err) {
-    logger.error("Error adding connection:", err);
-    return res.status(500).json({ error: "Error adding connection" });
   }
-};
 
-const editConnection = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updates = req.body;
+  /**
+   * Add new connection
+   */
+  async addConnection(req, res) {
+    try {
+      const input = req.body;
+      this.logOperation("addConnection", { dbType: input.dbType });
 
-    if (!id) return res.status(400).json({ error: "Connection ID is required for editing." });
-    if (!updates || Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: "No update data provided." });
+      const result = await connectionService.addConnection(input);
+      return this.sendSuccess(res, result, HTTP_STATUS.CREATED);
+    } catch (error) {
+      // Handle duplicate connection
+      if (error.message.includes("already exists")) {
+        return this.sendError(res, error.message, HTTP_STATUS.CONFLICT);
+      }
+      this.handleError(res, error, "adding connection");
     }
-
-    const idNum = parseInt(id, 10);
-    if (isNaN(idNum)) return res.status(400).json({ error: "Invalid Connection ID provided." });
-
-    let connections = await readConnectionsFromFile();
-    const idx = connections.findIndex((c) => c.id === idNum);
-    if (idx === -1) return res.status(404).json({ error: "Connection not found." });
-
-    const current = connections[idx];
-    const policy = getPolicy(current.dbType);
-    const normalizedUpdates = policy.normalizeOnEdit(current, updates);
-
-    const next = {
-      ...current,
-      ...normalizedUpdates,
-      id: current.id,
-      createdAt: current.createdAt,
-      lastUsed: current.lastUsed,
-    };
-
-    connections[idx] = next;
-    await writeConnectionsToFile(connections);
-
-    const { databaseDisplay, databaseShort, extras = {} } = policy.display(next);
-    logger.info("Connection updated:", next);
-
-    return res.status(200).json({
-      message: "Connection updated successfully",
-      connection: { ...next, databaseDisplay, databaseShort, ...extras },
-    });
-  } catch (err) {
-    logger.error("Error editing connection:", err);
-    return res.status(500).json({ error: "Error editing connection" });
   }
-};
 
-const deleteConnection = async (req, res) => {
-  try {
-    const { id } = req.params;
+  /**
+   * Edit existing connection
+   */
+  async editConnection(req, res) {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
 
-    if (!id) return res.status(400).json({ error: "Connection ID is required for deletion." });
+      this.logOperation("editConnection", { id });
 
-    const idNum = parseInt(id, 10);
-    if (isNaN(idNum)) return res.status(400).json({ error: "Invalid Connection ID provided." });
+      // Validate inputs
+      if (!updates || Object.keys(updates).length === 0) {
+        return this.sendError(res, "No update data provided", HTTP_STATUS.BAD_REQUEST);
+      }
 
-    let connections = await readConnectionsFromFile();
-    const initialLength = connections.length;
-
-    logger.debug("Initial connections length:", initialLength);
-    connections = connections.filter((c) => c.id !== idNum);
-    logger.debug("Connections after filter:", connections.length);
-
-    if (connections.length === initialLength) {
-      return res.status(404).json({ error: "Connection not found." });
+      const result = await connectionService.editConnection(id, updates);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      if (error.message === "Connection not found") {
+        return this.sendError(res, error.message, HTTP_STATUS.NOT_FOUND);
+      }
+      if (error.message === "Invalid Connection ID") {
+        return this.sendError(res, error.message, HTTP_STATUS.BAD_REQUEST);
+      }
+      this.handleError(res, error, "editing connection");
     }
-
-    await writeConnectionsToFile(connections);
-
-    logger.info("Connection deleted with ID:", id);
-    return res.status(200).json({
-      message: "Connection deleted successfully",
-      deletedId: idNum,
-      deletedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    logger.error("Error deleting connection:", err);
-    return res.status(500).json({ error: "Error deleting connection" });
   }
-};
 
-const saveConnections = async (req, res) => {
-  try {
-    const list = req.body.connections;
-    if (!list || !Array.isArray(list)) {
-      return res
-        .status(400)
-        .json({ error: "Invalid data provided. Expected an array of connections." });
+  /**
+   * Delete connection
+   */
+  async deleteConnection(req, res) {
+    try {
+      const { id } = req.params;
+      this.logOperation("deleteConnection", { id });
+
+      const result = await connectionService.deleteConnection(id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      if (error.message === "Connection not found") {
+        return this.sendError(res, error.message, HTTP_STATUS.NOT_FOUND);
+      }
+      if (error.message === "Invalid Connection ID") {
+        return this.sendError(res, error.message, HTTP_STATUS.BAD_REQUEST);
+      }
+      this.handleError(res, error, "deleting connection");
     }
-
-    const normalized = list
-      .map((conn) => {
-        const policy = getPolicy(conn.dbType);
-        const error = policy.validateOnAdd({ ...conn, databasePath: conn.databasePath });
-        if (error) throw new Error(error);
-        return policy.normalizeOnSave({ ...conn });
-      })
-      .map((conn, i) => ({
-        id: list[i].id || Date.now() + Math.random(),
-        createdAt: list[i].createdAt || new Date().toISOString(),
-        lastUsed: list[i].lastUsed ?? null,
-        status: list[i].status || "Available",
-        ...conn,
-      }));
-
-    await writeConnectionsToFile(normalized);
-
-    logger.info("Connections saved to file.");
-    return res.status(200).json({
-      message: "Connections saved successfully",
-      count: normalized.length,
-      savedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    logger.error("Error saving connections to file:", err);
-    return res.status(500).json({ error: "Error saving connections" });
   }
-};
 
-const testConnection = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const idNum = parseInt(id, 10);
-    if (isNaN(idNum)) return res.status(400).json({ error: "Invalid Connection ID provided." });
+  /**
+   * Batch save connections
+   */
+  async saveConnections(req, res) {
+    try {
+      const list = req.body.connections;
+      this.logOperation("saveConnections", { count: list?.length });
 
-    const connections = await readConnectionsFromFile();
-    const connection = connections.find((c) => c.id === idNum);
-    if (!connection) return res.status(404).json({ error: "Connection not found." });
+      if (!list || !Array.isArray(list)) {
+        return this.sendError(
+          res,
+          "Invalid data provided. Expected an array of connections.",
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
 
-    connection.lastUsed = new Date().toISOString();
-    await writeConnectionsToFile(connections);
-
-    const policy = getPolicy(connection.dbType);
-    const { databaseDisplay, databaseShort, extras = {} } = policy.display(connection);
-
-    return res.status(200).json({
-      message: "Connection test initiated",
-      connection: {
-        id: connection.id,
-        host: connection.host,
-        port: connection.port,
-        dbType: connection.dbType,
-        database: connection.database,
-        databaseDisplay,
-        databaseShort,
-        ...extras,
-      },
-      testedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    logger.error("Error testing connection:", err);
-    return res.status(500).json({ error: "Error testing connection" });
+      const result = await connectionService.saveConnections(list);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "saving connections");
+    }
   }
-};
 
-const resetConnectionStore = async (req, res) => {
-  try {
-    const deleted = await connectionStore.deleteConnectionStore();
-    return res.status(200).json({
-      message: deleted
-        ? "Deleted saved connections. You can start adding new ones."
-        : "Connection store was already empty.",
-      deleted,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    logger.error("Error resetting connection store:", err);
-    return res.status(500).json({ error: "Failed to delete saved connections" });
+  /**
+   * Test connection
+   */
+  async testConnection(req, res) {
+    try {
+      const { id } = req.params;
+      this.logOperation("testConnection", { id });
+
+      const result = await connectionService.testConnection(id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      if (error.message === "Connection not found") {
+        return this.sendError(res, error.message, HTTP_STATUS.NOT_FOUND);
+      }
+      if (error.message === "Invalid Connection ID") {
+        return this.sendError(res, error.message, HTTP_STATUS.BAD_REQUEST);
+      }
+      this.handleError(res, error, "testing connection");
+    }
   }
-};
+
+  /**
+   * Reset connection store
+   */
+  async resetConnectionStore(req, res) {
+    try {
+      this.logOperation("resetConnectionStore");
+
+      const result = await connectionService.resetConnectionStore();
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "resetting connection store");
+    }
+  }
+
+  /**
+   * Get connection service metrics (for monitoring/agent)
+   */
+  async getMetrics(req, res) {
+    try {
+      const metrics = connectionService.getMetrics();
+      return this.sendSuccess(res, { metrics });
+    } catch (error) {
+      this.handleError(res, error, "fetching metrics");
+    }
+  }
+}
+
+// Export controller instance with bound methods
+const controller = new ConnectionController();
 
 module.exports = {
-  getConnections,
-  addConnection,
-  editConnection,
-  deleteConnection,
-  saveConnections,
-  testConnection,
-  resetConnectionStore,
+  getConnections: controller.getConnections.bind(controller),
+  addConnection: controller.addConnection.bind(controller),
+  editConnection: controller.editConnection.bind(controller),
+  deleteConnection: controller.deleteConnection.bind(controller),
+  saveConnections: controller.saveConnections.bind(controller),
+  testConnection: controller.testConnection.bind(controller),
+  resetConnectionStore: controller.resetConnectionStore.bind(controller),
+  getMetrics: controller.getMetrics.bind(controller),
 };

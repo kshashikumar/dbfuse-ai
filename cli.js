@@ -23,11 +23,7 @@ const rl = readline.createInterface({
 require("dotenv").config();
 
 const defaultPort = 5000;
-const forcedMcpMode = argv.mcp === true;
-const envMcpEnabled = process.env.MCP_ENABLED === "true";
-const defaultMcpEnabled = forcedMcpMode || envMcpEnabled;
-const isNonInteractiveMcp = forcedMcpMode;
-const isVerbose = !!(argv.verbose || argv.v) && !isNonInteractiveMcp; // default quiet; enable details with --verbose/-v. Disable if MCP flag is set.
+const isVerbose = !!(argv.verbose || argv.v); // default quiet; enable details with --verbose/-v
 
 // Modern AI models with updated pricing and availability
 const supportedModels = {
@@ -266,15 +262,6 @@ async function ensureConnectionStoreCompatibility(config) {
     displayWarning("Encrypted connections exist but no key was provided.");
   }
 
-  if (isNonInteractiveMcp) {
-    console.error(
-      chalk.red(
-        "Cannot unlock encrypted connections in non-interactive MCP mode. Provide the correct key via --connections-key or delete the store with --connections-reset.",
-      ),
-    );
-    process.exit(1);
-  }
-
   try {
     const resolution = await promptForExistingKeyOrDeletion();
     if (resolution.action === "deleted") {
@@ -305,14 +292,6 @@ async function ensureConnectionStoreCompatibility(config) {
     console.error(chalk.red("Setup aborted:"), err.message || err);
     process.exit(1);
   }
-}
-
-async function askForMcpMode(defaultEnabled) {
-  displaySection("MCP Integration");
-  if (isVerbose)
-    displayInfo("The Model Context Protocol server exposes DBFuse tools to compatible AI clients.");
-  const answer = await askYesNo("Enable MCP server integration?", defaultEnabled);
-  return !!answer;
 }
 
 async function askForAIUsage() {
@@ -407,10 +386,6 @@ function syncEnvFile(config) {
       PORT: String(config.port || existing.PORT || 5000),
       DBFUSE_USERNAME: config.dbUsername || existing.DBFUSE_USERNAME || "root",
       DBFUSE_PASSWORD: config.dbPassword || existing.DBFUSE_PASSWORD || "root",
-      MCP_ENABLED:
-        config.mcpEnabled !== undefined
-          ? String(config.mcpEnabled)
-          : existing.MCP_ENABLED || "false",
       DBFUSE_CONNECTIONS_KEY:
         config.connectionsKey !== undefined
           ? config.connectionsKey
@@ -478,11 +453,6 @@ function displayConfiguration(config) {
 
   console.log(
     chalk.white(
-      `MCP Mode: ${config.mcpEnabled ? chalk.green("Enabled") : chalk.yellow("Disabled")}`,
-    ),
-  );
-  console.log(
-    chalk.white(
       `Connection Store Encryption: ${config.connectionsKey ? chalk.green("Enabled") : chalk.yellow("Disabled")}`,
     ),
   );
@@ -509,20 +479,12 @@ async function main() {
 
     config.port = argv.p
       ? parseInt(argv.p, 10) || defaultPortChoice
-      : isNonInteractiveMcp
-        ? defaultPortChoice
-        : await askForPort(defaultPortChoice);
-
-    config.mcpEnabled = forcedMcpMode ? true : await askForMcpMode(defaultMcpEnabled);
+      : await askForPort(defaultPortChoice);
 
     // Database credentials
     if (argv.dbuser && argv.dbpass) {
       config.dbUsername = argv.dbuser;
       config.dbPassword = argv.dbpass;
-    } else if (isNonInteractiveMcp) {
-      // Non-interactive MCP runs default to env vars or root/root if not provided via args
-      config.dbUsername = process.env.DBFUSE_USERNAME || "root";
-      config.dbPassword = process.env.DBFUSE_PASSWORD || "root";
     } else {
       const dbCreds = await askForDatabaseCredentials({
         username: process.env.DBFUSE_USERNAME || "root",
@@ -536,7 +498,7 @@ async function main() {
       argv["connections-key"] ?? argv.connectionsKey ?? argv.connectionskey ?? null;
     if (typeof argConnectionsKey === "string") {
       config.connectionsKey = argConnectionsKey.toLowerCase() === "clear" ? "" : argConnectionsKey;
-    } else if (!config.connectionsKey && !isNonInteractiveMcp) {
+    } else if (!config.connectionsKey) {
       const existingKey = process.env.DBFUSE_CONNECTIONS_KEY || "";
       config.connectionsKey = await askForConnectionsKey(existingKey);
     }
@@ -612,7 +574,6 @@ async function main() {
     process.env.AI_PROVIDER = config.aiProvider;
     process.env.AI_MODEL = config.aiModel;
     process.env.AI_API_KEY = config.apiKey;
-    process.env.MCP_ENABLED = String(config.mcpEnabled);
     process.env.DBFUSE_CONNECTIONS_KEY = config.connectionsKey || "";
 
     // Provider-specific API key export (for downstream model loader convenience)
@@ -641,10 +602,6 @@ async function main() {
     console.log();
 
     const scriptPath = path.resolve(__dirname, "src/index.js");
-
-    if (config.mcpEnabled) {
-      displayInfo("Starting in MCP Mode...");
-    }
 
     // Run nodemon with a controlled working directory and limited watch scope
     // to avoid picking up unrelated filesystem changes (e.g., VSCode workspace storage)

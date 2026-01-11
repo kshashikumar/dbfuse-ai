@@ -1,6 +1,7 @@
 const { connectionStore, connectionManager, createStrategy } = require("../../config");
 const { CONNECTION_STATES, MCP_CONSTANTS, MCP_MESSAGES } = require("../../core/constants");
 const logger = require("../../utils/logger");
+const { z } = require("zod");
 
 // Helper functions (moved from server.js)
 const storedConnectionRuntimeIds = new Map();
@@ -108,14 +109,22 @@ const activateStoredConnection = async (storedConnection) => {
     return preferredRuntimeId;
   }
 
-  const strategy = createStrategy(storedConnection.dbType);
-  const config = normalizeStrategyConfig(storedConnection);
+  // Retrieve the full connection with credentials (not hidden)
+  const allConnections = await connectionStore.readConnections({ hideSecrets: false });
+  const fullConnection = allConnections.find((c) => c.id === storedConnection.id);
+
+  if (!fullConnection) {
+    throw new Error(`Connection with id ${storedConnection.id} not found`);
+  }
+
+  const strategy = await createStrategy(fullConnection.dbType);
+  const config = normalizeStrategyConfig(fullConnection);
 
   try {
     await strategy.connect(config);
     connectionManager.registerExistingConnection(preferredRuntimeId, strategy, config);
     rememberRuntimeMapping(storedKeyString, preferredRuntimeId);
-    await updateStoredConnectionStatus(storedConnection, CONNECTION_STATES.CONNECTED);
+    await updateStoredConnectionStatus(fullConnection, CONNECTION_STATES.CONNECTED);
     return preferredRuntimeId;
   } catch (error) {
     if (strategy && typeof strategy.disconnect === "function") {
@@ -132,10 +141,7 @@ const activateStoredConnection = async (storedConnection) => {
 const listConnectionsTool = {
   name: "list_connections",
   description: "List all configured database connections",
-  inputSchema: {
-    type: "object",
-    properties: {},
-  },
+  inputSchema: z.object({}),
   handler: async () => {
     const storedConnections = await connectionStore.readConnections({ hideSecrets: true });
     const responsePayload = storedConnections.map((connection) => {
@@ -157,16 +163,11 @@ const listConnectionsTool = {
 const connectDatabaseTool = {
   name: "connect_database",
   description: "Connect to a specific database using a connection ID",
-  inputSchema: {
-    type: "object",
-    properties: {
-      connectionId: {
-        type: "string",
-        description: "The stored connection identifier (numeric id, dbType, or mcp:stored:<id>)",
-      },
-    },
-    required: ["connectionId"],
-  },
+  inputSchema: z.object({
+    connectionId: z
+      .string()
+      .describe("The stored connection identifier (numeric id, dbType, or mcp:stored:<id>)"),
+  }),
   handler: async (args) => {
     const { connectionId } = args;
     if (!connectionId) {

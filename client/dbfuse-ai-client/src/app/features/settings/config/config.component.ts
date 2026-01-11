@@ -20,7 +20,6 @@ export class ConfigComponent implements OnInit {
         PORT: 5000,
         DBFUSE_USERNAME: '',
         DBFUSE_PASSWORD: '',
-        MCP_ENABLED: false,
         DBFUSE_CONNECTIONS_KEY: '',
     };
 

@@ -1,7 +1,7 @@
 const chalk = require("chalk");
 const mysql = require("mysql2/promise");
 
-const { ERROR_MESSAGES, DB_DEFAULTS } = require("../../core/constants");
+const { ERROR_MESSAGES, DB_DEFAULTS } = require("../../core/constants/database.constants");
 const logger = require("../../utils/logger");
 
 const SQLStrategy = require("./base/sql-strategy");
@@ -12,8 +12,9 @@ class MySQLStrategy extends SQLStrategy {
     this.pool = null;
   }
 
-  async connect(config) {
-    let {
+  // Build normalized connection config
+  buildConnectionConfig(config) {
+    const {
       host,
       port,
       username,
@@ -29,76 +30,57 @@ class MySQLStrategy extends SQLStrategy {
       queueLimit,
     } = config;
 
-    // Normalize host for container environments
     const normalizedHost = this.normalizeHost(host || DB_DEFAULTS.HOST);
+    const isLocal = ["localhost", "127.0.0.1", "::1"].includes(normalizedHost);
 
-    chalk.green(
-      `> Connecting to MySQL server @ ${normalizedHost}:${port || DB_DEFAULTS.PORT.MYSQL} with user ${username}${
-        database ? ` and database ${database}` : ""
-      }${socketPath ? ` using socket ${socketPath}` : ""}${ssl ? " with SSL" : ""}`,
-    );
-
-    // Build connection configuration with all optional parameters
     const connectionConfig = {
       host: normalizedHost,
       port: parseInt(port) || DB_DEFAULTS.PORT.MYSQL,
       user: username,
       password,
       database: database || undefined,
-      // Use socket only for local connections
-      socketPath:
-        (host === "localhost" || host === "127.0.0.1" || host === "::1") && socketPath
-          ? socketPath
-          : undefined,
-
-      // SSL Configuration
+      socketPath: isLocal && socketPath ? socketPath : undefined,
       ssl: ssl
         ? typeof ssl === "object"
           ? ssl
           : { rejectUnauthorized: false }
-        : normalizedHost !== "localhost" &&
-            normalizedHost !== "127.0.0.1" &&
-            normalizedHost !== "::1"
+        : !isLocal
           ? { rejectUnauthorized: false }
           : undefined,
-
-      // Pool Configuration
       connectionLimit: parseInt(poolSize) || 10,
       waitForConnections: waitForConnections !== undefined ? waitForConnections : true,
       queueLimit: parseInt(queueLimit) || 0,
-
-      // Connection Options
       charset: charset || DB_DEFAULTS.CHARSET,
       timezone: timezone || DB_DEFAULTS.TIMEZONE,
-
-      // Timeouts
       connectTimeout: parseInt(connectionTimeout) || 60000,
-
-      // Additional MySQL specific options
       multipleStatements: true,
       dateStrings: false,
-      debug: false,
-      trace: true,
-      stringifyObjects: false,
       supportBigNumbers: true,
       bigNumberStrings: false,
-
-      // Performance options
       typeCast: true,
-      nestTables: false,
-      rowsAsArray: false,
     };
 
-    // Remove undefined values to avoid mysql2 warnings
+    // Remove undefined values
     Object.keys(connectionConfig).forEach((key) => {
       if (connectionConfig[key] === undefined) {
         delete connectionConfig[key];
       }
     });
 
+    return connectionConfig;
+  }
+
+  async connect(config) {
+    const connectionConfig = this.buildConnectionConfig(config);
+
+    chalk.green(
+      `> Connecting to MySQL server @ ${connectionConfig.host}:${connectionConfig.port} with user ${connectionConfig.user}${
+        connectionConfig.database ? ` and database ${connectionConfig.database}` : ""
+      }${connectionConfig.socketPath ? ` using socket ${connectionConfig.socketPath}` : ""}${connectionConfig.ssl ? " with SSL" : ""}`,
+    );
+
     try {
       this.pool = await mysql.createPool(connectionConfig);
-      // Test connection
       await this.pool.query("SELECT 1");
       logger.info("> Successfully connected to MySQL server");
     } catch (err) {
@@ -109,14 +91,30 @@ class MySQLStrategy extends SQLStrategy {
     }
   }
 
+  // Get pool metrics
+  getPoolMetrics() {
+    if (!this.pool || !this.pool.pool) {
+      return { available: 0, total: 0, waiting: 0 };
+    }
+
+    const pool = this.pool.pool;
+    return {
+      total: pool._allConnections?.length || 0,
+      available: pool._freeConnections?.length || 0,
+      waiting: pool._connectionQueue?.length || 0,
+    };
+  }
+
   async switchDatabase(dbName) {
-    if (!this.pool) throw new Error("MySQL connection not initialized");
+    if (!this.pool) throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     await this.pool.query(`USE \`${dbName}\``);
+    this.currentDatabase = dbName;
     logger.info(`> Switched to MySQL database: ${dbName}`);
   }
 
-  async executeQuery(query, options = { page: 1, pageSize: 10 }) {
-    if (!this.pool) throw new Error("MySQL connection not initialized");
+  // Override base class method
+  async _executeQueryImpl(query, options = { page: 1, pageSize: 10 }) {
+    if (!this.pool) throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     const { page, pageSize } = options;
 
     const queries = [];
@@ -129,6 +127,8 @@ class MySQLStrategy extends SQLStrategy {
       const isSelectQuery = /^SELECT\s/i.test(singleQuery);
       const isShowCommand = /^SHOW\s/i.test(singleQuery);
       const isDescribeCommand = /^DESCRIBE\s/i.test(singleQuery);
+      const isExplainCommand = /^EXPLAIN\s/i.test(singleQuery);
+      const isUseCommand = /^USE\s/i.test(singleQuery);
       const isInsertCommand = /^INSERT\s/i.test(singleQuery);
       const isUpdateCommand = /^UPDATE\s/i.test(singleQuery);
       const isDeleteCommand = /^DELETE\s/i.test(singleQuery);
@@ -143,9 +143,21 @@ class MySQLStrategy extends SQLStrategy {
         const hasLimitOrOffset =
           /LIMIT\s+\d+/i.test(singleQuery) || /OFFSET\s+\d+/i.test(singleQuery);
 
-        // Apply pagination only if user didn't specify LIMIT/OFFSET
+        // Detect if query contains aggregate functions or GROUP BY
+        const hasAggregates =
+          /\b(COUNT|SUM|AVG|MAX|MIN)\s*\(/i.test(singleQuery) ||
+          /\bGROUP\s+BY\b/i.test(singleQuery);
+
+        // Detect information_schema queries - these should not be paginated
+        const isInformationSchema = /\bINFORMATION_SCHEMA\./i.test(singleQuery);
+
+        // These should not be paginated as they don't query tables
+        const hasFromClause = /\bFROM\b/i.test(singleQuery);
+
         let paginatedQuery = singleQuery;
-        if (!hasLimitOrOffset) {
+        const shouldPaginate =
+          !hasLimitOrOffset && !hasAggregates && !isInformationSchema && hasFromClause;
+        if (shouldPaginate) {
           const offset = (page - 1) * pageSize;
           paginatedQuery = `${singleQuery} LIMIT ${pageSize} OFFSET ${offset}`;
         }
@@ -153,15 +165,21 @@ class MySQLStrategy extends SQLStrategy {
         const [rows] = await this.pool.query(paginatedQuery);
 
         let totalRows = rows.length;
-        if (!hasLimitOrOffset) {
-          const totalRowsQuery = `SELECT COUNT(*) as count FROM (${singleQuery}) as subquery`;
-          const [countRows] = await this.pool.query(totalRowsQuery);
-          totalRows = countRows[0]?.count ?? 0;
+
+        if (shouldPaginate) {
+          try {
+            const totalRowsQuery = `SELECT COUNT(*) as count FROM (${singleQuery}) as subquery`;
+            const [countRows] = await this.pool.query(totalRowsQuery);
+            totalRows = countRows?.[0]?.count ?? rows.length;
+          } catch (countError) {
+            // If count query fails, fall back to returned rows length
+            logger.warn(`Failed to count total rows: ${countError.message}`);
+            totalRows = rows.length;
+          }
         }
 
-        const totalPages = hasLimitOrOffset
-          ? Math.ceil(totalRows / pageSize) || 1
-          : Math.ceil(totalRows / pageSize) || 1;
+        const totalPages = shouldPaginate ? Math.ceil(totalRows / pageSize) || 1 : 1;
+        const skipPagination = hasAggregates || isInformationSchema || !hasFromClause;
 
         queries.push({
           type: "SELECT",
@@ -170,16 +188,17 @@ class MySQLStrategy extends SQLStrategy {
           totalRows,
           messages: [],
           pagination: {
-            page,
-            pageSize,
+            page: skipPagination ? 1 : page,
+            pageSize: skipPagination ? rows.length : pageSize,
             totalPages,
-            hasMore: page * pageSize < totalRows,
+            hasMore: shouldPaginate && page * pageSize < totalRows,
           },
         });
-      } else if (isShowCommand || isDescribeCommand) {
+      } else if (isShowCommand || isDescribeCommand || isExplainCommand) {
         const [rows] = await this.pool.query(singleQuery);
+        const commandType = isShowCommand ? "SHOW" : isDescribeCommand ? "DESCRIBE" : "EXPLAIN";
         queries.push({
-          type: isShowCommand ? "SHOW" : "DESCRIBE",
+          type: commandType,
           query: singleQuery,
           rows,
           totalRows: rows.length,
@@ -187,7 +206,7 @@ class MySQLStrategy extends SQLStrategy {
             {
               query: singleQuery,
               message: "Database command executed successfully",
-              type: isShowCommand ? "SHOW" : "DESCRIBE",
+              type: commandType,
             },
           ],
           pagination: { page: 1, pageSize: rows.length || 1, totalPages: 1, hasMore: false },
@@ -243,6 +262,31 @@ class MySQLStrategy extends SQLStrategy {
           ],
           pagination: { page: 1, pageSize: 0, totalPages: 1, hasMore: false },
         });
+      } else if (isUseCommand) {
+        // Extract database name from USE statement
+        const dbMatch = singleQuery.match(/^USE\s+`?([^`\s;]+)`?/i);
+        const dbName = dbMatch ? dbMatch[1] : null;
+
+        if (dbName) {
+          await this.switchDatabase(dbName);
+          queries.push({
+            type: "USE",
+            query: singleQuery,
+            rows: [],
+            totalRows: 0,
+            messages: [
+              {
+                query: singleQuery,
+                message: `Database changed to ${dbName}`,
+                type: "USE",
+                database: dbName,
+              },
+            ],
+            pagination: { page: 1, pageSize: 0, totalPages: 1, hasMore: false },
+          });
+        } else {
+          throw new Error("Invalid USE statement: database name not found");
+        }
       } else {
         queries.push({
           type: "UNKNOWN",
@@ -273,6 +317,7 @@ class MySQLStrategy extends SQLStrategy {
       await this.pool.end();
       logger.info("> Disconnected from MySQL database");
       this.pool = null;
+      this.currentDatabase = null;
     }
   }
 
@@ -284,31 +329,6 @@ class MySQLStrategy extends SQLStrategy {
     } catch (err) {
       logger.error("MySQL connection validation failed:", err);
       return false;
-    }
-  }
-
-  // Get connection pool statistics
-  async getConnectionStats() {
-    if (!this.pool) return null;
-
-    try {
-      const [stats] = await this.pool.query(`
-        SHOW STATUS WHERE Variable_name IN (
-          'Connections',
-          'Max_used_connections',
-          'Threads_connected',
-          'Threads_running',
-          'Uptime'
-        )
-      `);
-
-      return stats.reduce((acc, stat) => {
-        acc[stat.Variable_name] = stat.Value;
-        return acc;
-      }, {});
-    } catch (err) {
-      logger.error("Error getting connection stats:", err);
-      return null;
     }
   }
 
@@ -359,12 +379,26 @@ class MySQLStrategy extends SQLStrategy {
 
   async getTables(dbName) {
     if (!this.pool) throw new Error("MySQL connection not initialized");
-    await this.switchDatabase(dbName);
+
+    // Use provided dbName or fall back to current database
+    const targetDb = dbName || this.currentDatabase;
+
+    if (!targetDb) {
+      throw new Error(
+        "No database selected. Please specify a database name or switch to a database first.",
+      );
+    }
+
+    // Only switch if different from current
+    if (targetDb !== this.currentDatabase) {
+      await this.switchDatabase(targetDb);
+    }
+
     const [tables] = await this.pool.query(
       `SELECT TABLE_NAME AS table_name 
        FROM INFORMATION_SCHEMA.TABLES 
        WHERE TABLE_SCHEMA = ?`,
-      [dbName],
+      [targetDb],
     );
     return tables.map((table) => table.table_name);
   }

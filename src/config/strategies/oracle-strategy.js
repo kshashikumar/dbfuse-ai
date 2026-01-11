@@ -1,8 +1,9 @@
-// oracle-strategy.js (Fixed version)
+// oracle-strategy.js
 const oracledb = require("oracledb");
 const chalk = require("chalk");
 
 const logger = require("../../utils/logger");
+const { ERROR_MESSAGES } = require("../../core/constants/database.constants");
 
 const SQLStrategy = require("./base/sql-strategy");
 
@@ -10,11 +11,11 @@ class OracleStrategy extends SQLStrategy {
   constructor() {
     super();
     this.pool = null;
-    this.currentSchema = null; // Track current schema
+    this.currentSchema = null;
   }
 
-  async connect(config) {
-    let {
+  buildConnectionConfig(config) {
+    const {
       host,
       port,
       username,
@@ -33,69 +34,57 @@ class OracleStrategy extends SQLStrategy {
       externalAuth,
     } = config;
 
-    // Normalize host for container environments
-    host = this.normalizeHost(host);
+    const normalizedHost = this.normalizeHost(host);
 
-    chalk.green(
-      `> Connecting to Oracle server @ ${host || "localhost"}:${port || 1521}/${serviceName || database || "XE"} with user ${username}${
-        edition ? ` edition ${edition}` : ""
-      }${privilege ? ` with ${privilege} privilege` : ""}`,
-    );
-
-    // Build connection string
     let connectString;
     if (serviceName) {
-      connectString = `${host || "localhost"}:${port || 1521}/${serviceName}`;
+      connectString = `${normalizedHost || "localhost"}:${port || 1521}/${serviceName}`;
     } else if (sid) {
-      connectString = `(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=${host || "localhost"})(PORT=${port || 1521}))(CONNECT_DATA=(SID=${sid})))`;
+      connectString = `(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=${normalizedHost || "localhost"})(PORT=${port || 1521}))(CONNECT_DATA=(SID=${sid})))`;
     } else {
-      connectString = `${host || "localhost"}:${port || 1521}/${database || "XE"}`;
+      connectString = `${normalizedHost || "localhost"}:${port || 1521}/${database || "XE"}`;
     }
 
-    // Build pool configuration with optional parameters
     const poolConfig = {
       user: username,
       password,
       connectString,
-
-      // Pool configuration
       poolMax: parseInt(poolSize) || 10,
       poolMin: parseInt(poolMin) || 2,
       poolTimeout: parseInt(poolTimeout) || 30,
       poolIncrement: 1,
-
-      // Connection configuration
       connectionTimeout: parseInt(connectionTimeout) || 60000,
-
-      // Security options
       privilege: privilege ? oracledb[privilege.toUpperCase()] : undefined,
       edition: edition || undefined,
       externalAuth: externalAuth || false,
-
-      // Wallet configuration (for cloud connections)
       walletLocation: walletLocation || undefined,
       walletPassword: walletPassword || undefined,
-
-      // Additional options
       stmtCacheSize: 30,
       enableStatistics: false,
       queueMax: 500,
       queueTimeout: 60000,
-
-      // Session configuration
       sessionCallback: undefined,
       sodaMetaDataCache: false,
-
-      // Event configuration
       events: false,
     };
 
-    // Remove undefined values
     Object.keys(poolConfig).forEach((key) => {
       if (poolConfig[key] === undefined) {
         delete poolConfig[key];
       }
     });
+
+    return poolConfig;
+  }
+
+  async connect(config) {
+    const poolConfig = this.buildConnectionConfig(config);
+
+    chalk.green(
+      `> Connecting to Oracle server @ ${poolConfig.connectString} with user ${poolConfig.user}${
+        config.edition ? ` edition ${config.edition}` : ""
+      }${config.privilege ? ` with ${config.privilege} privilege` : ""}`,
+    );
 
     try {
       this.pool = await oracledb.createPool(poolConfig);
@@ -114,15 +103,27 @@ class OracleStrategy extends SQLStrategy {
     }
   }
 
+  getPoolMetrics() {
+    if (!this.pool || !this.pool._allConnections) {
+      return { available: 0, total: 0, waiting: 0 };
+    }
+
+    return {
+      total: this.pool.poolMax || 0,
+      available: this.pool._freeConnections?.length || 0,
+      waiting: this.pool._pendingQueue?.length || 0,
+    };
+  }
+
   async switchDatabase(dbName) {
-    if (!this.pool) throw new Error("Oracle connection not initialized");
-    // In Oracle, we switch schemas, not databases - just track the schema name
+    if (!this.pool) throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     this.currentSchema = dbName;
+    this.currentDatabase = dbName;
     logger.info(`> Switched to Oracle schema: ${dbName}`);
   }
 
-  async executeQuery(query, options = { page: 1, pageSize: 10 }) {
-    if (!this.pool) throw new Error("Oracle connection not initialized");
+  async _executeQueryImpl(query, options = { page: 1, pageSize: 10 }) {
+    if (!this.pool) throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     const page = Number(options.page) || 1;
     const pageSize = Number(options.pageSize) || 10;
 

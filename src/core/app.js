@@ -3,7 +3,7 @@ const path = require("path");
 const { HEADERS, HEADER_VARIANTS } = require("./constants");
 const { SERVER_DEFAULT_PORT, PORT_RANGE, ENV_KEYS, ENV_SYNC_EXIT_DELAY_MS } = require("./env");
 
-const STATIC_ASSET_DIRECTORY = path.resolve(__dirname, "..", "public", "dbfuse-ai-client");
+const STATIC_ASSET_DIRECTORY = path.resolve(__dirname, "..", "public");
 const STATIC_INDEX_GZIP_PATH = path.join(STATIC_ASSET_DIRECTORY, "index.html.gz");
 
 const DEFAULT_BODY_LIMIT = "50mb";

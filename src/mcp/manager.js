@@ -6,6 +6,15 @@ const logger = require("../utils/logger");
 const loginTool = require("./tools/login");
 const { listConnectionsTool, connectDatabaseTool } = require("./tools/connection");
 const { executeQueryTool, getTablesTool } = require("./tools/query");
+const {
+  getDatabasesTool,
+  getTableInfoTool,
+  switchDatabaseTool,
+  analyzeQueryTool,
+  getViewsTool,
+  getProceduresTool,
+} = require("./tools/database");
+const { generateSqlTool } = require("./tools/ai");
 
 class McpManager {
   constructor() {
@@ -52,11 +61,23 @@ class McpManager {
       connectDatabaseTool,
       executeQueryTool,
       getTablesTool,
+      getDatabasesTool,
+      getTableInfoTool,
+      switchDatabaseTool,
+      analyzeQueryTool,
+      getViewsTool,
+      getProceduresTool,
+      generateSqlTool,
     ];
 
     tools.forEach((tool) => {
-      this.server.tool(tool.name, tool.description, tool.inputSchema, async (args) => {
-        try {
+      this.server.registerTool(
+        tool.name,
+        {
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        },
+        async (args) => {
           // Auth check
           if (this.authEnabled && !this.isAuthenticated && tool.name !== "login") {
             throw new Error("Authentication required. Please use the 'login' tool first.");
@@ -69,18 +90,8 @@ class McpManager {
           };
 
           return await tool.handler(args, context);
-        } catch (error) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Error: ${error.message}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-      });
+        },
+      );
     });
 
     this.toolsRegistered = true;

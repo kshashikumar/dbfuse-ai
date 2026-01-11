@@ -1,4 +1,4 @@
-const authController = require("../controllers/authController");
+const { decodeCredentials } = require("../utils/authUtil");
 require("dotenv").config();
 const logger = require("../utils/logger");
 const { ROUTES_WITH_AUTH_BYPASS } = require("../core/app");
@@ -25,7 +25,7 @@ function authentication(req, res, next) {
     return res.status(401).send(AUTH_MESSAGES.AUTH_REQUIRED);
   }
 
-  const [username, password] = authController._decodeCredentials(authHeader);
+  const [username, password] = decodeCredentials(authHeader);
   if (username === process.env.DBFUSE_USERNAME && password === process.env.DBFUSE_PASSWORD) {
     return next();
   } else {

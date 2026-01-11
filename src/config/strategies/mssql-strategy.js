@@ -1,8 +1,9 @@
-// mssql-strategy.js (Enhanced with optional parameters)
+// mssql-strategy.js
 const mssql = require("mssql");
 const chalk = require("chalk");
 
 const logger = require("../../utils/logger");
+const { ERROR_MESSAGES } = require("../../core/constants/database.constants");
 
 const SQLStrategy = require("./base/sql-strategy");
 
@@ -12,8 +13,8 @@ class MSSQLStrategy extends SQLStrategy {
     this.pool = null;
   }
 
-  async connect(config) {
-    let {
+  buildConnectionConfig(config) {
+    const {
       host,
       port,
       username,
@@ -32,31 +33,19 @@ class MSSQLStrategy extends SQLStrategy {
       appName,
     } = config;
 
-    // Normalize host for container environments
-    host = this.normalizeHost(host);
+    const normalizedHost = this.normalizeHost(host);
 
-    chalk.green(
-      `> Connecting to MSSQL server @ ${host || "localhost"}:${port || 1433} with user ${username}${
-        database ? ` and database ${database}` : ""
-      }${instanceName ? ` instance ${instanceName}` : ""}${encrypt || ssl ? " with encryption" : ""}`,
-    );
-
-    // Build connection configuration with optional parameters
     const connectionConfig = {
-      server: host || "localhost",
+      server: normalizedHost || "localhost",
       port: parseInt(port) || 1433,
       user: username,
       password,
       database: database || "master",
-
-      // Pool configuration
       pool: {
         max: parseInt(poolSize) || 10,
         min: 2,
         idleTimeoutMillis: 30000,
       },
-
-      // Security options
       options: {
         encrypt: encrypt !== undefined ? encrypt : ssl || true,
         trustServerCertificate:
@@ -64,26 +53,17 @@ class MSSQLStrategy extends SQLStrategy {
         enableArithAbort: true,
         instanceName: instanceName || undefined,
         packetSize: parseInt(packetSize) || undefined,
-        appName: appName || "dbfuse-ai-App",
+        appName: appName || "dbfuse-ai",
       },
-
-      // Timeout configuration
       connectionTimeout: parseInt(connectionTimeout) || 60000,
       requestTimeout: parseInt(requestTimeout) || 30000,
       cancelTimeout: parseInt(cancelTimeout) || 5000,
-
-      // Domain authentication
       domain: domain || undefined,
-
-      // Connection retry
       parseJSON: true,
-
-      // Additional options
       arrayRowMode: false,
       useUTC: true,
     };
 
-    // Remove undefined values
     Object.keys(connectionConfig.options).forEach((key) => {
       if (connectionConfig.options[key] === undefined) {
         delete connectionConfig.options[key];
@@ -91,6 +71,18 @@ class MSSQLStrategy extends SQLStrategy {
     });
 
     if (!connectionConfig.domain) delete connectionConfig.domain;
+
+    return connectionConfig;
+  }
+
+  async connect(config) {
+    const connectionConfig = this.buildConnectionConfig(config);
+
+    chalk.green(
+      `> Connecting to MSSQL server @ ${connectionConfig.server}:${connectionConfig.port} with user ${connectionConfig.user}${
+        connectionConfig.database ? ` and database ${connectionConfig.database}` : ""
+      }${connectionConfig.options.instanceName ? ` instance ${connectionConfig.options.instanceName}` : ""}${connectionConfig.options.encrypt ? " with encryption" : ""}`,
+    );
 
     this.pool = new mssql.ConnectionPool(connectionConfig);
 
@@ -106,14 +98,27 @@ class MSSQLStrategy extends SQLStrategy {
     }
   }
 
+  getPoolMetrics() {
+    if (!this.pool || !this.pool.pool) {
+      return { available: 0, total: 0, waiting: 0 };
+    }
+
+    return {
+      total: this.pool.size || 0,
+      available: this.pool.available || 0,
+      waiting: this.pool.pending || 0,
+    };
+  }
+
   async switchDatabase(dbName) {
-    if (!this.pool) throw new Error("MSSQL connection not initialized");
+    if (!this.pool) throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     await this.pool.request().query(`USE [${dbName}]`);
+    this.currentDatabase = dbName;
     logger.info(`> Switched to MSSQL database: ${dbName}`);
   }
 
-  async executeQuery(query, options = { page: 1, pageSize: 10, dbName: undefined }) {
-    if (!this.pool) throw new Error("MSSQL connection not initialized");
+  async _executeQueryImpl(query, options = { page: 1, pageSize: 10 }) {
+    if (!this.pool) throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     const page = Number(options.page) || 1;
     const pageSize = Number(options.pageSize) || 10;
     const dbName = options.dbName;

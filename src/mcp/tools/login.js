@@ -1,16 +1,13 @@
 const { MCP_ENV_VARS } = require("../../core/constants");
+const { z } = require("zod");
 
 const tool = {
   name: "login",
   description: "Authenticate with the server",
-  inputSchema: {
-    type: "object",
-    properties: {
-      username: { type: "string" },
-      password: { type: "string" },
-    },
-    required: ["username", "password"],
-  },
+  inputSchema: z.object({
+    username: z.string().describe("Username for authentication"),
+    password: z.string().describe("Password for authentication"),
+  }),
   handler: async (args, { setAuthenticated }) => {
     const { username, password } = args;
     if (

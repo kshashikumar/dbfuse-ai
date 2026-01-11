@@ -1,62 +1,23 @@
 const fs = require("fs");
 const fsp = fs.promises;
 const path = require("path");
-const crypto = require("crypto");
 
 const { ENV_KEYS } = require("../core/env");
-const { MCP_CONSTANTS, DEFAULT_CONFIG, ENCODING } = require("../core/constants");
+const { MCP_CONSTANTS, DEFAULT_CONFIG } = require("../core/constants");
+const { encrypt, decrypt, deriveKey, isEncrypted } = require("../utils/encryptionUtil");
 const logger = require("../utils/logger");
 
 const CONNECTIONS_FILENAME = "dbConnections.json";
 const DEFAULT_STATUS = "Available";
-const ENCRYPTION_CONFIG = Object.freeze({
-  ALGORITHM: "aes-256-gcm",
-  IV_LENGTH: 12,
-  TAG_LENGTH: 16,
-});
+const ENCODING = "utf8";
 
-const isEncryptedDocument = (value) =>
-  value &&
-  typeof value === "object" &&
-  value.__encrypted === true &&
-  typeof value.payload === "string";
-
-const deriveEncryptionKey = () => {
-  const secret = process.env[ENV_KEYS.CONNECTIONS_KEY];
-  if (!secret || !secret.trim()) {
-    return null;
-  }
-  return crypto.createHash("sha256").update(secret.trim(), ENCODING.UTF8).digest();
-};
-
-const encryptPayload = (plaintext, key) => {
-  const iv = crypto.randomBytes(ENCRYPTION_CONFIG.IV_LENGTH);
-  const cipher = crypto.createCipheriv(ENCRYPTION_CONFIG.ALGORITHM, key, iv);
-  const encrypted = Buffer.concat([cipher.update(plaintext, ENCODING.UTF8), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-
-  return {
-    __encrypted: true,
-    version: 1,
-    iv: iv.toString(ENCODING.BASE64),
-    authTag: authTag.toString(ENCODING.BASE64),
-    payload: encrypted.toString(ENCODING.BASE64),
-    createdAt: new Date().toISOString(),
-  };
-};
-
-const decryptPayload = (document, key) => {
-  const decipher = crypto.createDecipheriv(
-    ENCRYPTION_CONFIG.ALGORITHM,
-    key,
-    Buffer.from(document.iv, ENCODING.BASE64),
-  );
-  decipher.setAuthTag(Buffer.from(document.authTag, ENCODING.BASE64));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(document.payload, ENCODING.BASE64)),
-    decipher.final(),
-  ]);
-  return decrypted.toString(ENCODING.UTF8);
+// Metrics tracking
+const metrics = {
+  reads: 0,
+  writes: 0,
+  encryptions: 0,
+  decryptions: 0,
+  errors: 0,
 };
 
 const resolveConfigDirectory = () => {
@@ -69,6 +30,49 @@ const resolveConfigDirectory = () => {
 
 const resolveConnectionsPath = () => path.join(resolveConfigDirectory(), CONNECTIONS_FILENAME);
 
+const getEncryptionKey = () => {
+  const secret = process.env[ENV_KEYS.CONNECTIONS_KEY];
+  if (!secret || !secret.trim()) {
+    return null;
+  }
+  return deriveKey(secret);
+};
+
+/**
+ * Validate connection record structure
+ * @param {Object} record - Connection record to validate
+ * @returns {Object} Validation result { valid, errors }
+ */
+const validateConnectionRecord = (record) => {
+  const errors = [];
+
+  if (!record || typeof record !== "object") {
+    return { valid: false, errors: ["Record must be an object"] };
+  }
+
+  // Required fields validation
+  if (!record.dbType || typeof record.dbType !== "string") {
+    errors.push("dbType is required and must be a string");
+  }
+
+  if (!record.host || typeof record.host !== "string") {
+    errors.push("host is required and must be a string");
+  }
+
+  if (record.port !== undefined && typeof record.port !== "number" && isNaN(Number(record.port))) {
+    errors.push("port must be a valid number");
+  }
+
+  if (!record.username || typeof record.username !== "string") {
+    errors.push("username is required and must be a string");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+};
+
 const inspectConnectionStore = () => {
   const filePath = resolveConnectionsPath();
   if (!fs.existsSync(filePath)) {
@@ -76,15 +80,16 @@ const inspectConnectionStore = () => {
   }
 
   try {
-    const raw = fs.readFileSync(filePath, ENCODING.UTF8);
+    const raw = fs.readFileSync(filePath, ENCODING);
     const parsed = JSON.parse(raw);
     return {
       exists: true,
-      encrypted: isEncryptedDocument(parsed),
+      encrypted: isEncrypted(parsed),
       filePath,
     };
   } catch (error) {
-    return { exists: true, encrypted: false, filePath, error };
+    metrics.errors++;
+    return { exists: true, encrypted: false, filePath, error: error.message };
   }
 };
 
@@ -121,41 +126,49 @@ const stripSecrets = (record) => ({
 async function readConnections(options = {}) {
   const { hideSecrets = false } = options;
   const filePath = resolveConnectionsPath();
+  metrics.reads++;
 
   try {
-    const data = await fsp.readFile(filePath, ENCODING.UTF8);
+    const data = await fsp.readFile(filePath, ENCODING);
     let parsed;
     try {
       parsed = JSON.parse(data);
     } catch (parseError) {
+      metrics.errors++;
       logger.error("Connection store is corrupted: %o", parseError);
-      throw parseError;
+      const error = new Error("Connection store file is corrupted");
+      error.code = "CONNECTION_STORE_CORRUPTED";
+      error.filePath = filePath;
+      throw error;
     }
 
     let records;
-    if (isEncryptedDocument(parsed)) {
-      const key = deriveEncryptionKey();
+    if (isEncrypted(parsed)) {
+      metrics.decryptions++;
+      const key = getEncryptionKey();
       if (!key) {
-        const missingKeyError = new Error(
+        metrics.errors++;
+        const error = new Error(
           "Encrypted connection store detected but DBFUSE_CONNECTIONS_KEY is not configured.",
         );
-        missingKeyError.code = "ENCRYPTED_STORE_KEY_REQUIRED";
-        missingKeyError.filePath = filePath;
-        throw missingKeyError;
+        error.code = "ENCRYPTED_STORE_KEY_REQUIRED";
+        error.filePath = filePath;
+        throw error;
       }
 
       try {
-        const decryptedJson = decryptPayload(parsed, key);
+        const decryptedJson = decrypt(parsed, key);
         records = JSON.parse(decryptedJson);
       } catch (decryptError) {
+        metrics.errors++;
         logger.error("Failed to decrypt connection store: %o", decryptError);
-        const wrapped = new Error(
+        const error = new Error(
           "Failed to decrypt connection store with the provided DBFUSE_CONNECTIONS_KEY.",
         );
-        wrapped.code = "ENCRYPTED_STORE_DECRYPT_FAILED";
-        wrapped.filePath = filePath;
-        wrapped.cause = decryptError;
-        throw wrapped;
+        error.code = "ENCRYPTED_STORE_DECRYPT_FAILED";
+        error.filePath = filePath;
+        error.cause = decryptError;
+        throw error;
       }
     } else if (Array.isArray(parsed)) {
       records = parsed;
@@ -173,6 +186,14 @@ async function readConnections(options = {}) {
       logger.info("Connection store not found at %s. Returning empty array.", filePath);
       return [];
     }
+    if (
+      (error.code && error.code.startsWith("CONNECTION_STORE")) ||
+      error.code === "ENCRYPTED_STORE_KEY_REQUIRED" ||
+      error.code === "ENCRYPTED_STORE_DECRYPT_FAILED"
+    ) {
+      throw error;
+    }
+    metrics.errors++;
     logger.error("Failed to read connection store: %o", error);
     throw error;
   }
@@ -181,10 +202,19 @@ async function readConnections(options = {}) {
 async function writeConnections(connections = []) {
   const filePath = resolveConnectionsPath();
   const directory = path.dirname(filePath);
+  metrics.writes++;
 
   await fsp.mkdir(directory, { recursive: true });
 
+  // Validate and normalize all connections
   const normalized = connections.map((record, index) => {
+    const validation = validateConnectionRecord(record);
+    if (!validation.valid) {
+      logger.warn(
+        `Connection record at index ${index} validation failed: ${validation.errors.join(", ")}`,
+      );
+    }
+
     const normalizedRecord = normalizeConnectionRecord(record);
     if (normalizedRecord.id === null || normalizedRecord.id === undefined) {
       normalizedRecord.id = record.id ?? index + 1;
@@ -192,17 +222,25 @@ async function writeConnections(connections = []) {
     return normalizedRecord;
   });
 
-  const key = deriveEncryptionKey();
+  const key = getEncryptionKey();
   const serialized = JSON.stringify(normalized, null, 2);
+
   if (key) {
-    const encryptedDocument = encryptPayload(serialized, key);
-    await fsp.writeFile(filePath, JSON.stringify(encryptedDocument, null, 2), {
-      encoding: ENCODING.UTF8,
-    });
+    metrics.encryptions++;
+    try {
+      const encryptedDocument = encrypt(serialized, key);
+      await fsp.writeFile(filePath, JSON.stringify(encryptedDocument, null, 2), {
+        encoding: ENCODING,
+      });
+    } catch (error) {
+      metrics.errors++;
+      logger.error("Encryption failed while writing connections: %o", error);
+      throw new Error(`Failed to encrypt connection store: ${error.message}`);
+    }
     return normalized;
   }
 
-  await fsp.writeFile(filePath, serialized, { encoding: ENCODING.UTF8 });
+  await fsp.writeFile(filePath, serialized, { encoding: ENCODING });
   return normalized;
 }
 
@@ -279,6 +317,25 @@ function findConnection(connections, identifier) {
   return null;
 }
 
+/**
+ * Get connection store metrics
+ * @returns {Object} Metrics about operations
+ */
+function getMetrics() {
+  return { ...metrics };
+}
+
+/**
+ * Reset connection store metrics
+ */
+function resetMetrics() {
+  metrics.reads = 0;
+  metrics.writes = 0;
+  metrics.encryptions = 0;
+  metrics.decryptions = 0;
+  metrics.errors = 0;
+}
+
 module.exports = {
   readConnections,
   writeConnections,
@@ -289,4 +346,7 @@ module.exports = {
   normalizeConnectionRecord,
   deleteConnectionStore,
   inspectConnectionStore,
+  validateConnectionRecord,
+  getMetrics,
+  resetMetrics,
 };

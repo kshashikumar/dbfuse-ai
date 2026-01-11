@@ -1,8 +1,9 @@
-// sqlite-strategy.js (Enhanced with optional parameters)
+// sqlite-strategy.js
 const sqlite3 = require("sqlite3").verbose();
 const chalk = require("chalk");
 
 const logger = require("../../utils/logger");
+const { ERROR_MESSAGES } = require("../../core/constants/database.constants");
 
 const SQLStrategy = require("./base/sql-strategy");
 
@@ -11,6 +12,14 @@ class SQLiteStrategy extends SQLStrategy {
     super();
     this.db = null;
     this.databaseName = null;
+  }
+
+  getPoolMetrics() {
+    return {
+      total: this.db ? 1 : 0,
+      available: this.db ? 1 : 0,
+      waiting: 0,
+    };
   }
 
   async connect(config) {
@@ -150,12 +159,13 @@ class SQLiteStrategy extends SQLStrategy {
   }
 
   async switchDatabase(dbName) {
+    this.currentDatabase = dbName;
     logger.warn("SQLite does not support switching databases");
     return;
   }
 
-  async executeQuery(query, options = { page: 1, pageSize: 10 }) {
-    if (!this.db) throw new Error("SQLite connection not initialized");
+  async _executeQueryImpl(query, options = { page: 1, pageSize: 10 }) {
+    if (!this.db) throw new Error(ERROR_MESSAGES.NO_ACTIVE_CONNECTION);
     const page = Number(options.page) || 1;
     const pageSize = Number(options.pageSize) || 10;
 

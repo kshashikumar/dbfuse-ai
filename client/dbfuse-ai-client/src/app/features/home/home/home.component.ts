@@ -19,6 +19,7 @@ import { BackendService } from '@core/services/backend/backend.service';
 import { DragDropTabDirective } from '@shared/directives/drag-drop.directive';
 import { MonacoEditorComponent } from '@app/editor/components/monaco-editor/monaco-editor.component';
 import { MonacoThemeService } from '@app/editor/services/monaco-theme.service';
+import { getSafeSessionStorage } from '@core/utils/browser-adapter';
 
 @Component({
     selector: 'app-home',
@@ -550,6 +551,20 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     handleOpenAIPrompt() {
+        // Check if there's an active database connection
+        const connectionId = getSafeSessionStorage().getItem('connectionId');
+        if (!connectionId) {
+            alert('Please connect to a database first before using AI features.');
+            return;
+        }
+
+        // Verify dbType is set in sessionStorage
+        const dbType = getSafeSessionStorage().getItem('dbType');
+        if (!dbType) {
+            alert('Database type is not set. Please reconnect to your database.');
+            return;
+        }
+
         // Ensure we use the most recent DB selected in Sidebar and matching current engine
         try {
             const persisted = sessionStorage.getItem('selectedDB');
@@ -559,6 +574,12 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
                 this.selectedDB = persisted;
             }
         } catch {}
+
+        if (!this.selectedDB) {
+            alert('Please select a database before using AI features.');
+            return;
+        }
+
         this.dbService
             .executeOpenAIPrompt(this.InitDBInfo, this.selectedDB, this.tabContent[this.selectedTab])
             .subscribe({
@@ -570,6 +591,7 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
                 },
                 error: (error) => {
                     console.error('AI prompt error:', error);
+                    alert('Failed to generate SQL query. Please ensure you are connected to a database.');
                 },
             });
     }

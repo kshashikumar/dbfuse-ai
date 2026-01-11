@@ -11,7 +11,7 @@ class DatabaseContext {
     this.isConnected = false;
   }
 
-  setStrategy(dbType) {
+  async setStrategy(dbType) {
     if (!dbType) {
       throw new Error("Database type is required");
     }
@@ -34,13 +34,13 @@ class DatabaseContext {
       }
     }
 
-    this.strategy = createStrategy(dbType);
+    this.strategy = await createStrategy(dbType);
     this.currentDbType = dbType;
     this.isConnected = false;
   }
 
   async connect(config) {
-    this.setStrategy(config.dbType);
+    await this.setStrategy(config.dbType);
 
     if (!this.isConnected) {
       await this.strategy.connect(config);

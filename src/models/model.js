@@ -7,16 +7,15 @@ const { HuggingFaceInference } = require("@langchain/community/llms/hf");
 
 const {
   AI_MODELS,
-  PROVIDER_API_KEYS,
   DEFAULT_MODEL_TEMPERATURE,
   PERPLEXITY_API_BASE_URL,
 } = require("../core/constants");
-const { inferProviderFromModel } = require("../core/env");
+const { inferProviderFromModel, PROVIDER_API_ENV_KEYS } = require("../core/env");
 
 const getAIModel = (aiModel, explicitApiKey) => {
   const provider = inferProviderFromModel(aiModel);
 
-  const envVarName = PROVIDER_API_KEYS[provider];
+  const envVarName = PROVIDER_API_ENV_KEYS[provider];
   const apiKey = explicitApiKey || (envVarName ? process.env[envVarName] : undefined);
   if (!apiKey) {
     throw new Error(

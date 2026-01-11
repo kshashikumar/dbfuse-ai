@@ -21,11 +21,11 @@
       "prefix": "app",
       "architect": {
         "build": {
-          "builder": "@angular-devkit/build-angular:browser-esbuild",
+          "builder": "@angular-devkit/build-angular:application",
           "options": {
             "outputPath": "dist/dbfuse-ai-client",
             "index": "src/index.html",
-            "main": "src/main.ts",
+            "browser": "src/main.ts",
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
             "assets": [
@@ -38,8 +38,7 @@
               }
             ],
             "styles": ["src/theme/styles.css"],
-            "scripts": [],
-            "allowedCommonJsDependencies": []
+            "scripts": []
           },
           "configurations": {
             "production": {
@@ -58,11 +57,6 @@
               "outputHashing": "all",
               "optimization": true,
               "sourceMap": false,
-              "namedChunks": false,
-              "aot": true,
-              "extractLicenses": true,
-              "vendorChunk": false,
-              "buildOptimizer": true,
               "fileReplacements": [
                 {
                   "replace": "src/environments/environment.ts",
@@ -71,12 +65,9 @@
               ]
             },
             "development": {
-              "buildOptimizer": false,
               "optimization": false,
-              "vendorChunk": true,
               "extractLicenses": false,
-              "sourceMap": true,
-              "namedChunks": true
+              "sourceMap": true
             }
           },
           "defaultConfiguration": "production"
@@ -85,10 +76,10 @@
           "builder": "@angular-devkit/build-angular:dev-server",
           "configurations": {
             "production": {
-              "browserTarget": "dbfuse-ai-client:build:production"
+              "buildTarget": "dbfuse-ai-client:build:production"
             },
             "development": {
-              "browserTarget": "dbfuse-ai-client:build:development"
+              "buildTarget": "dbfuse-ai-client:build:development"
             }
           },
           "defaultConfiguration": "development",
@@ -99,7 +90,7 @@
         "extract-i18n": {
           "builder": "@angular-devkit/build-angular:extract-i18n",
           "options": {
-            "browserTarget": "dbfuse-ai-client:build"
+            "buildTarget": "dbfuse-ai-client:build"
           }
         },
         "test": {

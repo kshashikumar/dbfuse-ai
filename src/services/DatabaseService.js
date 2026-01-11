@@ -1,0 +1,535 @@
+/**
+ * @fileoverview Database service
+ * Handles query execution, caching, and transaction management
+ * Provides hooks for rate limiting and agent orchestration
+ */
+
+const { connectionManager } = require("../config");
+const logger = require("../utils/logger");
+const { DEFAULT_CONFIG } = require("../core/constants");
+
+/**
+ * Simple in-memory cache for query results
+ */
+class QueryCache {
+  constructor(maxSize = 100, ttlMs = 300000) {
+    // 5 minutes default TTL
+    this.cache = new Map();
+    this.maxSize = maxSize;
+    this.ttlMs = ttlMs;
+  }
+
+  _generateKey(connectionId, query, params) {
+    return `${connectionId}:${query}:${JSON.stringify(params)}`;
+  }
+
+  get(connectionId, query, params = {}) {
+    const key = this._generateKey(connectionId, query, params);
+    const entry = this.cache.get(key);
+
+    if (!entry) return null;
+
+    // Check if expired
+    if (Date.now() - entry.timestamp > this.ttlMs) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    logger.debug("Cache hit for query");
+    return entry.data;
+  }
+
+  set(connectionId, query, params = {}, data) {
+    const key = this._generateKey(connectionId, query, params);
+
+    // Evict oldest if at capacity
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+    });
+  }
+
+  clear() {
+    this.cache.clear();
+    logger.debug("Query cache cleared");
+  }
+
+  getStats() {
+    return {
+      size: this.cache.size,
+      maxSize: this.maxSize,
+      ttlMs: this.ttlMs,
+    };
+  }
+}
+
+/**
+ * @typedef {Object} QueryMetrics
+ * @property {number} totalQueries - Total queries executed
+ * @property {number} successfulQueries - Successful queries count
+ * @property {number} failedQueries - Failed queries count
+ * @property {number} cachedQueries - Queries served from cache
+ * @property {number} averageExecutionTime - Average query execution time (ms)
+ */
+
+class DatabaseService {
+  constructor() {
+    this.queryCache = new QueryCache();
+    this.metrics = {
+      totalQueries: 0,
+      successfulQueries: 0,
+      failedQueries: 0,
+      cachedQueries: 0,
+      totalExecutionTime: 0,
+    };
+    this.rateLimitHooks = [];
+    this.transactionHooks = [];
+  }
+
+  /**
+   * Update metrics after query execution
+   * @private
+   * @param {boolean} success - Query success status
+   * @param {number} executionTime - Execution time in ms
+   * @param {boolean} cached - Whether result was from cache
+   */
+  _updateMetrics(success, executionTime = 0, cached = false) {
+    this.metrics.totalQueries++;
+    if (success) {
+      this.metrics.successfulQueries++;
+    } else {
+      this.metrics.failedQueries++;
+    }
+    if (cached) {
+      this.metrics.cachedQueries++;
+    }
+    this.metrics.totalExecutionTime += executionTime;
+  }
+
+  /**
+   * Register rate limiting hook (for agent orchestration)
+   * @param {Function} hook - Async function(connectionId, query) => boolean (allow/deny)
+   */
+  registerRateLimitHook(hook) {
+    if (typeof hook === "function") {
+      this.rateLimitHooks.push(hook);
+      logger.debug("Rate limit hook registered");
+    }
+  }
+
+  /**
+   * Register transaction hook (for monitoring/rollback)
+   * @param {Function} hook - Async function(event, context)
+   */
+  registerTransactionHook(hook) {
+    if (typeof hook === "function") {
+      this.transactionHooks.push(hook);
+      logger.debug("Transaction hook registered");
+    }
+  }
+
+  /**
+   * Check rate limits before query execution
+   * @private
+   * @param {string} connectionId - Connection ID
+   * @param {string} query - SQL query
+   * @returns {Promise<boolean>} True if allowed
+   */
+  async _checkRateLimits(connectionId, query) {
+    for (const hook of this.rateLimitHooks) {
+      try {
+        const allowed = await hook(connectionId, query);
+        if (!allowed) {
+          logger.warn("Query blocked by rate limit hook");
+          return false;
+        }
+      } catch (error) {
+        logger.error("Rate limit hook error:", error);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Notify transaction hooks
+   * @private
+   * @param {string} event - Event name (start, commit, rollback, error)
+   * @param {Object} context - Event context
+   */
+  async _notifyTransactionHooks(event, context) {
+    for (const hook of this.transactionHooks) {
+      try {
+        await hook(event, context);
+      } catch (error) {
+        logger.error("Transaction hook error:", error);
+      }
+    }
+  }
+
+  /**
+   * Get databases for connection
+   * @param {string} connectionId - Connection ID
+   * @returns {Promise<Object>} Database list with stats
+   */
+  async getDatabases(connectionId) {
+    const startTime = Date.now();
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+      const databases = await strategy.getDatabases();
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      return {
+        databases,
+        retrievedAt: new Date().toISOString(),
+        executionTime,
+      };
+    } catch (error) {
+      this._updateMetrics(false, Date.now() - startTime);
+      throw error;
+    }
+  }
+
+  /**
+   * Get tables for connection/database
+   * @param {string} connectionId - Connection ID
+   * @param {string} dbName - Database name (optional)
+   * @returns {Promise<Object>} Tables list
+   */
+  async getTables(connectionId, dbName = null) {
+    const startTime = Date.now();
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const tables = await strategy.getTables(currentDb);
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      return {
+        tables,
+        count: Array.isArray(tables) ? tables.length : 0,
+        database: currentDb,
+        retrievedAt: new Date().toISOString(),
+        executionTime,
+      };
+    } catch (error) {
+      this._updateMetrics(false, Date.now() - startTime);
+      throw error;
+    }
+  }
+
+  /**
+   * Get table information
+   * @param {string} connectionId - Connection ID
+   * @param {string} table - Table name
+   * @param {string} dbName - Database name (optional)
+   * @returns {Promise<Object>} Table information
+   */
+  async getTableInfo(connectionId, table, dbName = null) {
+    const startTime = Date.now();
+    try {
+      // Check cache first
+      const cacheKey = { table, dbName };
+      const cached = this.queryCache.get(connectionId, "getTableInfo", cacheKey);
+      if (cached) {
+        this._updateMetrics(true, 0, true);
+        return cached;
+      }
+
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const tableInfo = await strategy.getTableInfo(currentDb, table);
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      const result = {
+        ...tableInfo,
+        retrievedAt: new Date().toISOString(),
+        executionTime,
+      };
+
+      // Cache result
+      this.queryCache.set(connectionId, "getTableInfo", cacheKey, result);
+
+      return result;
+    } catch (error) {
+      this._updateMetrics(false, Date.now() - startTime);
+      throw error;
+    }
+  }
+
+  /**
+   * Get multiple tables information
+   * @param {string} connectionId - Connection ID
+   * @param {Array<string>} tables - Table names
+   * @param {string} dbName - Database name (optional)
+   * @returns {Promise<Object>} Multiple tables information
+   */
+  async getMultipleTablesInfo(connectionId, tables, dbName = null) {
+    const startTime = Date.now();
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const tableDetails = await strategy.getMultipleTablesInfo(currentDb, tables);
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      return {
+        tables: tableDetails,
+        count: tableDetails.length,
+        database: currentDb,
+        retrievedAt: new Date().toISOString(),
+        executionTime,
+      };
+    } catch (error) {
+      this._updateMetrics(false, Date.now() - startTime);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute SQL query with caching and rate limiting
+   * @param {string} connectionId - Connection ID
+   * @param {string} query - SQL query
+   * @param {Object} options - Query options (page, pageSize, dbName, useCache)
+   * @returns {Promise<Object>} Query results
+   */
+  async executeQuery(connectionId, query, options = {}) {
+    const {
+      page = 1,
+      pageSize = DEFAULT_CONFIG.PAGE_SIZE,
+      dbName = null,
+      useCache = true,
+    } = options;
+
+    const startTime = Date.now();
+
+    try {
+      // Check rate limits
+      const allowed = await this._checkRateLimits(connectionId, query);
+      if (!allowed) {
+        throw new Error("Query rate limit exceeded");
+      }
+
+      // Check cache for SELECT queries
+      const isSelect = query.trim().toUpperCase().startsWith("SELECT");
+      if (useCache && isSelect) {
+        const cacheKey = { query, page, pageSize, dbName };
+        const cached = this.queryCache.get(connectionId, "query", cacheKey);
+        if (cached) {
+          this._updateMetrics(true, 0, true);
+          return cached;
+        }
+      }
+
+      // Notify transaction hooks
+      await this._notifyTransactionHooks("query_start", { connectionId, query });
+
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      const result = await strategy.executeQuery(query, { page, pageSize, dbName });
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      // Notify success
+      await this._notifyTransactionHooks("query_success", {
+        connectionId,
+        query,
+        executionTime,
+      });
+
+      // Cache SELECT results
+      if (useCache && isSelect && result.rows) {
+        const cacheKey = { query, page, pageSize, dbName };
+        this.queryCache.set(connectionId, "query", cacheKey, result);
+      }
+
+      return result;
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(false, executionTime);
+
+      // Notify error
+      await this._notifyTransactionHooks("query_error", {
+        connectionId,
+        query,
+        error: error.message,
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Execute batch queries
+   * @param {string} connectionId - Connection ID
+   * @param {Array<string>} queries - Array of SQL queries
+   * @param {string} dbName - Database name (optional)
+   * @returns {Promise<Object>} Batch execution results
+   */
+  async executeBatch(connectionId, queries, dbName = null) {
+    const startTime = Date.now();
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      await this._notifyTransactionHooks("batch_start", { connectionId, count: queries.length });
+
+      const results = [];
+      for (const query of queries) {
+        const result = await strategy.executeQuery(query, { dbName });
+        results.push(result);
+      }
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      await this._notifyTransactionHooks("batch_success", { connectionId, count: queries.length });
+
+      return {
+        results,
+        totalQueries: queries.length,
+        executedAt: new Date().toISOString(),
+        executionTime,
+        mode: "batch",
+      };
+    } catch (error) {
+      this._updateMetrics(false, Date.now() - startTime);
+      await this._notifyTransactionHooks("batch_error", { connectionId, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Switch database for connection
+   * @param {string} connectionId - Connection ID
+   * @param {string} dbName - Database name
+   * @returns {Promise<Object>} Switch result
+   */
+  async switchDatabase(connectionId, dbName) {
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+      await strategy.switchDatabase(dbName);
+
+      const info = connectionManager.getConnectionInfo(connectionId);
+      if (info) {
+        info.currentDatabase = dbName;
+      }
+
+      // Clear cache for this connection
+      this.queryCache.clear();
+
+      return {
+        message: `Switched to database ${dbName}`,
+        database: dbName,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Get database service metrics
+   * @returns {QueryMetrics} Current metrics
+   */
+  getMetrics() {
+    const avgExecutionTime =
+      this.metrics.totalQueries > 0
+        ? this.metrics.totalExecutionTime / this.metrics.totalQueries
+        : 0;
+
+    return {
+      ...this.metrics,
+      averageExecutionTime: Math.round(avgExecutionTime),
+      cacheStats: this.queryCache.getStats(),
+    };
+  }
+
+  /**
+   * Reset metrics
+   */
+  resetMetrics() {
+    this.metrics = {
+      totalQueries: 0,
+      successfulQueries: 0,
+      failedQueries: 0,
+      cachedQueries: 0,
+      totalExecutionTime: 0,
+    };
+    logger.debug("Database service metrics reset");
+  }
+
+  /**
+   * Clear query cache
+   */
+  clearCache() {
+    this.queryCache.clear();
+  }
+
+  /**
+   * Health check for database service
+   * @returns {Object} Health status
+   */
+  isHealthy() {
+    try {
+      const metrics = this.getMetrics();
+      const hasActiveConnections = connectionManager.getAllConnectionIds().length > 0;
+
+      return {
+        healthy: true,
+        cacheEnabled: true,
+        cacheSize: this.queryCache.cache.size,
+        maxCacheSize: this.queryCache.maxSize,
+        cacheTTL: this.queryCache.ttlMs,
+        activeConnections: connectionManager.getAllConnectionIds().length,
+        hasRateLimitHooks: this.rateLimitHooks.length > 0,
+        hasTransactionHooks: this.transactionHooks.length > 0,
+        metrics,
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        error: error.message,
+      };
+    }
+  }
+}
+
+// Export singleton instance
+module.exports = new DatabaseService();
