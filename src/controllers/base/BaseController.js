@@ -191,6 +191,7 @@ class BaseController {
 
   /**
    * Sanitize string input to prevent injection attacks
+   * Uses sanitize-html library plus additional pattern removal for plain text context
    * @param {string} input - Input string to sanitize
    * @returns {string} Sanitized string
    */
@@ -199,30 +200,34 @@ class BaseController {
       return input;
     }
 
-    let sanitized = input.trim();
-    let previous;
+    // Stage 1: Use sanitize-html to remove HTML tags, attributes, and dangerous content in HTML context
+    let sanitized = sanitizeHtml(input.trim(), {
+      allowedTags: [],
+      allowedAttributes: {},
+      allowedSchemes: ["http", "https", "mailto"],
+      allowedSchemesByTag: {},
+      enforceHtmlBoundary: true,
+    });
 
-    // Apply all sanitization steps in a loop to handle nested/multi-layer attacks
+    // Stage 2: Remove dangerous protocols and patterns that may exist in plain text
+    // This handles cases where dangerous content isn't in HTML context
+    const dangerousPatterns = [
+      /javascript\s*:/gi,
+      /data\s*:/gi,
+      /vbscript\s*:/gi,
+      /\s+on\w+\s*=/gi,
+    ];
+
+    // Loop until no more changes are detected to handle recursive patterns
+    let changed;
     do {
-      previous = sanitized;
-
-      // Remove angle brackets to strip basic HTML tags
-      sanitized = sanitized.replace(/[<>]/g, "");
-
-      // Remove scriptable URL protocols (multiple patterns to catch obfuscation)
-      sanitized = sanitized
-        .replace(/\b(?:javascript|data|vbscript):/gi, "")
-        .replace(/(?:javascript|data|vbscript):/gi, ""); // Without word boundary for split patterns
-
-      // Remove event handler attributes
-      sanitized = sanitized
-        // double-quoted event handler attributes
-        .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
-        // single-quoted event handler attributes
-        .replace(/\son\w+\s*=\s*'[^']*'/gi, "")
-        // unquoted event handler attributes
-        .replace(/\son\w+\s*=\s*[^>\s]*/gi, "");
-    } while (sanitized !== previous);
+      changed = false;
+      dangerousPatterns.forEach((pattern) => {
+        const before = sanitized;
+        sanitized = sanitized.replace(pattern, "");
+        if (before !== sanitized) changed = true;
+      });
+    } while (changed);
 
     return sanitized;
   }
