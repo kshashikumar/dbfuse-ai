@@ -94,6 +94,68 @@ function displaySection(title) {
   console.log(chalk.gray("─".repeat(50)));
 }
 
+function redactSensitiveData(message) {
+  if (message === null || message === undefined) {
+    return message;
+  }
+
+  // Handle objects by recursively redacting sensitive keys
+  if (typeof message === "object" && !Array.isArray(message)) {
+    const sensitiveKeys = [
+      "password",
+      "pass",
+      "token",
+      "secret",
+      "key",
+      "apiKey",
+      "apikey",
+      "username",
+      "user",
+      "credential",
+      "dbPassword",
+      "dbpassword",
+      "dbUser",
+      "dbuser",
+      "connectionsKey",
+      "connectionkey",
+    ];
+
+    const redacted = {};
+    for (const [key, value] of Object.entries(message)) {
+      if (sensitiveKeys.some((k) => key.toLowerCase().includes(k))) {
+        redacted[key] = "****";
+      } else if (typeof value === "object") {
+        redacted[key] = redactSensitiveData(value);
+      } else {
+        redacted[key] = value;
+      }
+    }
+    return redacted;
+  }
+
+  // Handle arrays
+  if (Array.isArray(message)) {
+    return message.map((item) => redactSensitiveData(item));
+  }
+
+  // Handle strings by masking common credential patterns
+  let str = String(message);
+
+  // Redact key=value or key:value patterns for sensitive keys
+  str = str.replace(
+    /\b(password|pass|token|secret|key|apikey|credential|username|user)[=:]\s*\S+/gi,
+    "$1=****",
+  );
+
+  // Redact long alphanumeric tokens that look like API keys (20+ chars)
+  str = str.replace(/\b[A-Za-z0-9_-]{20,}\b/g, "****");
+
+  // Redact anything that looks like a connection string with credentials
+  str = str.replace(/\b(\w+):\/\/([^:]+):([^@]+)@/g, "$1://$2:****@");
+
+  return str;
+}
+
 function displaySuccess(message) {
   if (!isVerbose) return;
   console.log(chalk.green.bold(`${message}`));
@@ -101,16 +163,10 @@ function displaySuccess(message) {
 
 function displayInfo(message) {
   if (!isVerbose) return;
-  // Check if message contains sensitive patterns from environment variables
-  const hasSensitiveData = /password|key|token|secret|credential|env|username/i.test(
-    String(message),
+  const safeMessage = redactSensitiveData(message);
+  console.log(
+    chalk.blue(typeof safeMessage === "object" ? JSON.stringify(safeMessage) : `${safeMessage}`),
   );
-  if (hasSensitiveData) {
-    // Don't log messages that may contain sensitive environment data
-    console.log(chalk.blue("[Configuration message redacted for security]"));
-  } else {
-    console.log(chalk.blue(`${message}`));
-  }
 }
 
 function displayWarning(message) {
