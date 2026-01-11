@@ -13,7 +13,7 @@
 [![Contributors](https://img.shields.io/github/contributors/kshashikumar/dbfuse-ai)](https://github.com/kshashikumar/dbfuse-ai/graphs/contributors)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/kshashikumar/dbfuse-ai/badge)](https://securityscorecards.dev/viewer/?uri=github.com/kshashikumar/dbfuse-ai)
 
-**DBFuse AI** is a simple web UI to connect to your databases, run SQL, and generate SQL with AI. It works with MySQL, PostgreSQL, SQL Server, Oracle, and SQLite.
+**DBFuse AI** is a simple web UI to connect to your databases, run SQL, and generate SQL with AI. It works with MySQL, PostgreSQL, SQL Server, Oracle, and SQLite. Now with Claude Desktop integration via Model Context Protocol (MCP) - 12 tools available for natural database interactions.
 
 Quick links:
 
@@ -47,11 +47,17 @@ Quick links:
 - **Basic Authentication**  
   Optional authentication for added security when running on remote servers.
 
+- **Connection Encryption**  
+  Secure database credentials with AES-256 encryption.
+
+- **Claude Desktop Integration (MCP)**  
+  12 powerful tools for Claude Desktop to interact with your databases naturally.
+
 - **Clipboard Copy**  
   Quickly copy cell data with a single click.
 
 - **AI Integration**  
-  Leverage OpenAI and Google Gemini for generating intelligent SQL queries. Talk to your selected Database
+  Leverage multiple AI providers (Gemini, OpenAI, Anthropic, Mistral, Cohere, HuggingFace, Perplexity) for generating intelligent SQL queries. Talk to your selected Database
 
 ## Prerequisites
 
@@ -87,6 +93,7 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   - `--model <name>` and `--apikey <key>`: Enable AI with the selected model and API key
   - `--connections-key <value>`: Provide the AES-256 key used to encrypt `dbConnections.json` (type `clear` to disable)
   - `--connections-reset`: Delete `dbConnections.json` before starting (useful if you've lost the encryption key)
+  - `--mcp`: Start only MCP server without HTTP server (for Claude Desktop integration)
   - `-v, --verbose`: Show detailed prompts and info in the CLI
 
   Supported AI providers include: Gemini, OpenAI, Anthropic, Mistral, Cohere, Hugging Face, and Perplexity. Without `--model`, `--apikey`, or `--connections-key`, the CLI will walk you through the required prompts (you can press Enter to keep plaintext storage if you do not want encryption).
@@ -112,7 +119,7 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
         - DBFUSE_USERNAME=admin
         - DBFUSE_PASSWORD=admin
         # Optional: encrypt saved db connections (recommended)
-        - DBFUSE_CONNECTIONS_KEY=
+        - CONNECTIONS_ENCRYPTION_KEY=your_32_character_encryption_key
         # AI configuration (optional)
         - AI_PROVIDER=gemini
         - AI_MODEL=gemini-2.5-flash
@@ -178,8 +185,19 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   npm run start
   ```
 
-  - For Google Gemini: Follow Google's platform to obtain an API key (free tier provides 15 requests per minute).
+  The backend serves the built UI from `src/public` at http://localhost:5000.
 
+## AI Integration
+
+DBFuse AI integrates OpenAI and Google Gemini to generate intelligent SQL queries with the following features:
+
+### Setting Up AI Integration
+
+To enable AI-powered prompt querying, you need to set up the API keys for OpenAI or Google Gemini:
+
+1. **Obtain an API Key**
+   - For OpenAI: Visit OpenAI's platform and generate an API key.
+   - For Google Gemini: Follow Google's platform to obtain an API key (free tier provides 15 requests per minute).
 2. **Add the API Key to Your Environment Variables**
    In the root directory of your project, create a .env file (or set env vars in Docker):
 
@@ -240,9 +258,8 @@ Notes:
 - PORT: Server port (default 5000)
 - DBFUSE_USERNAME / DBFUSE_PASSWORD: enable Basic Auth for the web UI (optional)
 - AI_PROVIDER, AI_MODEL, AI_API_KEY: AI settings (optional)
+- CONNECTIONS_ENCRYPTION_KEY: AES-256 key to encrypt database connections (optional, 32 characters recommended)
 - MCP_ONLY: Run only MCP server without HTTP (true/false, default false)
-  - By default, both HTTP (Web UI) and MCP (Claude Desktop) servers run simultaneously
-  - Set to true to run only MCP server (disables Web UI)
 - BODY_SIZE: request body size limit (default 50mb)
 - NODE_ENV: set to `production` in containers for best performance
   Note: Database connection details are entered via the UI; no DB URL environment variables are used by the server.
@@ -261,6 +278,121 @@ Tips:
 - Oracle Database
 - SQLite
 
+## MCP Server Integration (Claude Desktop)
+
+DBFuse AI includes a Model Context Protocol (MCP) server that enables Claude Desktop to directly access your databases.
+
+### Available MCP Tools (12 total)
+
+**Authentication:**
+
+- `login` - Authenticate with DBFuse AI server
+
+**Connection Management:**
+
+- `list_connections` - List all saved database connections
+- `connect_database` - Connect to a specific database
+
+**Query Operations:**
+
+- `execute_query` - Execute SQL queries with pagination
+- `get_tables` - List all tables in the current database
+
+**Schema Exploration:**
+
+- `get_databases` - List all databases on the server
+- `get_table_info` - Get detailed table information (columns, types, constraints)
+- `switch_database` - Switch to a different database
+- `get_views` - List all views in the database
+- `get_procedures` - List all stored procedures
+
+**Analysis & AI:**
+
+- `analyze_query` - Get query performance analysis (EXPLAIN)
+- `generate_sql` - Generate SQL from natural language using AI
+
+### Setup for Claude Desktop
+
+**Option 1: NPX (Quick Start)**
+
+Edit your Claude Desktop config file:
+
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Add this configuration:
+
+```json
+{
+  "mcpServers": {
+    "dbfuse-ai": {
+      "command": "npx",
+      "args": ["-y", "dbfuse-ai", "--mcp"],
+      "env": {
+        "DBFUSE_USERNAME": "your username",
+        "DBFUSE_PASSWORD": "your password"
+      }
+    }
+  }
+}
+```
+
+**Option 2: Global Install**
+
+```bash
+# Install globally
+npm install -g dbfuse-ai
+
+# Find the installation path
+npm root -g
+```
+
+Then configure Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "dbfuse-ai": {
+      "command": "node",
+      "args": ["<path-from-npm-root-g>/dbfuse-ai/scripts/mcp/index.js"],
+      "env": {
+        "SERVER_URL": "http://localhost:5000",
+        "USERNAME": "admin",
+        "PASSWORD": "admin"
+      }
+    }
+  }
+}
+```
+
+**Option 3: MCP Server Only Mode**
+
+Run DBFuse AI as MCP server only (no web UI):
+
+```bash
+# Using CLI
+dbfuse-ai --mcp --dbuser admin --dbpass admin
+
+# Using environment variable
+MCP_ONLY=true DBFUSE_USERNAME=admin DBFUSE_PASSWORD=admin npm start
+```
+
+**Note:** By default, both HTTP (Web UI) and MCP servers run simultaneously. Use `--mcp` flag or `MCP_ONLY=true` to run only the MCP server.
+
+### Example Usage with Claude
+
+Once configured, you can ask Claude:
+
+> "Connect to my database and show me all tables"
+
+> "What's the structure of the users table?"
+
+> "Generate SQL to find all orders from last month"
+
+> "Execute: SELECT \* FROM products WHERE stock < 10"
+
+Claude will use the appropriate MCP tools to interact with your databases.
+
 ## CLI (optional)
 
 If you installed globally with npm, you can start with:
@@ -270,37 +402,6 @@ dbfuse-ai -p 5000 --model gemini-2.5-flash --apikey <YOUR_API_KEY>
 ```
 
 Then open http://localhost:5000.
-
-## Development
-
-### Quick Start for Developers
-
-**Development Mode (Frontend + Backend)**
-
-```bash
-# From root directory
-npm install
-npm run dev
-```
-
-- Backend runs on `http://localhost:5000`
-- Frontend dev server on `http://localhost:4200` (with hot reload)
-
-**Production Build**
-
-```bash
-# Build client and copy to backend
-cd client/dbfuse-ai-client
-npm run clean-build-compress
-
-# Start backend (serves built client)
-cd ../..
-npm start
-```
-
-- Full app on `http://localhost:5000`
-
-````
 
 ## Testing (optional)
 
@@ -312,7 +413,7 @@ npm run test:mysql     # MySQL
 npm run test:postgres  # PostgreSQL
 npm run test:mssql     # SQL Server
 npm run test:oracle    # Oracle
-````
+```
 
 These tests expect databases reachable at the configured defaults; adjust environment variables as needed.
 
@@ -341,92 +442,45 @@ To disable authentication, remove these variables from `.env` and restart the se
 - AI: Explain/optimize queries and suggest indexes in addition to SQL generation
 - Charts and visual analysis for query results (line/bar/pie), with quick pivots
 - Pluggable driver/extension SDK to add new databases and tools
-- MCP servers implementation to connect to different databases
 
-### MCP Server
+## Contributions
 
-- Launch from the repository root with `npm run mcp`. The server communicates over stdio and respects `DBFUSE_CONFIG_DIR` (connection store), `DBFUSE_USERNAME`, `DBFUSE_PASSWORD`, and `LOG_LEVEL` env variables.
-- Discover available tools locally with `LOG_LEVEL=error npx @modelcontextprotocol/inspector --cli node src/mcp/server.js --method tools/list`.
-- Claude Desktop (or any MCP client) can point at `node` with the argument `src/mcp/server.js`; use an absolute path or set the client's working directory to your project root. Example configuration:
+DBFuse AI is open for **contributions**! If you have ideas for features, improvements, or bug fixes, feel free to submit a pull request or open an issue.
 
-  ```json
-  {
-    "mcpServers": {
-      "dbfuse-ai": {
-        "command": "node",
-        "args": ["src/mcp/server.js"],
-        "transport": "stdio",
-        "workingDirectory": "d:/vs-code/dbfuse-ai",
-        "env": {
-          "LOG_LEVEL": "error"
-        }
-      }
-    }
-  }
-  ```
+### Contributors quickstart
 
-- Stored database connections (from `dbConnections.json`) can be activated via the `connect_database` MCP tool using the numeric `id`, the signature `dbType:host:port:database`, or the runtime id returned by `list_connections`. Once connected, reuse the returned `mcp:stored:<id>` as the `connectionId` for `execute_query` and `get_tables`.
+- Fork and clone the repository.
+- Install deps at repo root: `npm install`.
+- Dev server + client: `npm run dev` (backend on 5000, Angular dev server on 4200).
+- Server only with built UI: build via `client/dbfuse-ai-client` → `npm run clean-build-compress`, then `npm run start`.
+- Configuration:
+  - `.env` is hot-reloaded (most changes apply instantly). PORT change triggers an automatic restart.
+  - You can override where `.env` lives by setting `DBFUSE_CONFIG_DIR`.
+  - Prefer setting AI keys via your shell variables (do not commit real keys).
 
-## Contributing
+### Adding a new AI model/provider
 
-We welcome contributions! Whether it's bug fixes, new features, or documentation improvements, your help makes DBFuse AI better.
+1. Backend: Update `src/models/model.js` to include the new model ID and provider; wire the provider’s key name if needed.
+2. CLI: Add the model to `supportedModels` in `cli.js` so it appears in interactive selection.
+3. UI: Update the list in `client/dbfuse-ai-client/src/app/lib/components/config/config.component.ts`.
+4. Keep README’s Supported AI Models table in sync (or ask maintainers to update).
 
-### Quick Start for Contributors
+### Adding a new database strategy
 
-1. **Fork and clone**:
+1. Create a strategy in `src/config/db_strategies/` (follow patterns from existing drivers).
+2. Register it in the connection manager.
+3. Add a minimal connectivity test under `src/config/tests/`.
 
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/dbfuse-ai.git
-   cd dbfuse-ai
-   npm install
-   ```
+### Tests & formatting
 
-2. **Start developing**:
+- Run all DB connectivity tests: `npm run test:all` (requires accessible databases).
+- Lint/format: `npm run check` (eslint + prettier) or `npm run lint:fix` / `npm run format:fix`.
 
-   ```bash
-   npm run dev    # Full stack with hot reload (backend + Angular)
-   ```
+### Releases & publishing (maintainers)
 
-   Backend runs on http://localhost:5000, Angular dev server on http://localhost:4200
-
-3. **Make your changes** and test thoroughly
-
-4. **Run tests and linting**:
-
-   ```bash
-   npm run check      # Run all checks
-   npm run test:all   # Run database tests (requires DBs running)
-   ```
-
-5. **Submit a pull request** with a clear description of your changes
-
-### Ways to Contribute
-
-- **Report bugs**: Open an issue with details to reproduce
-- **Suggest features**: Share your ideas in an issue
-- **Fix issues**: Check open issues and submit a PR
-- **Improve docs**: Help make documentation clearer
-- **Add database support**: Implement new database strategies (MariaDB, MongoDB, etc.)
-- **Add AI models**: Extend AI provider support
-
-### Code Architecture
-
-DBFuse AI uses a clean layered architecture:
-
-- **Controllers** extend `BaseController` for standardized error handling
-- **Services** (singleton pattern) handle business logic
-- **Strategies** implement database-specific operations
-- **Middleware** provides reusable validators
-
-The codebase follows service layer pattern with clear separation of concerns, making it easy to extend and test.
-
-### Need Help?
-
-- Check existing issues or create a new one
-- Review the code structure in `src/` to understand the patterns
-- All controllers extend `BaseController` - follow existing examples when adding endpoints
-
-Thank you for contributing to DBFuse AI! 🚀
+- Version bump in package.json, then create a git tag `vX.Y.Z` and push the tag.
+- CI builds the Angular client, publishes the npm package, builds/pushes Docker image, and syncs Docker Hub README.
+- Publishing is gated to tag builds; main runs build/verify only.
 
 ## Demo
 
