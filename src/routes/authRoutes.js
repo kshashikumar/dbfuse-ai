@@ -1,9 +1,19 @@
 const express = require("express");
+const rateLimit = require("express-rate-limit");
 
 const authController = require("../controllers/authController");
 const authRouter = express.Router();
 
-authRouter.post("/login", authController.login);
+// Rate limiter for authentication routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: "Too many authentication attempts, please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+authRouter.post("/login", authLimiter, authController.login);
 authRouter.post("/logout", authController.logout);
 authRouter.get("/isAuthenticated", authController.isAuthenticated);
 

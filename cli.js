@@ -147,10 +147,7 @@ async function askForDatabaseCredentials(defaults = { username: "root", password
   const useCustomCreds = await askYesNo("Configure custom database credentials?", false);
 
   if (!useCustomCreds) {
-    if (isVerbose)
-      displayInfo(
-        `Using default credentials (${defaults.username || "root"}/${defaults.password || "root"})`,
-      );
+    if (isVerbose) displayInfo(`Using default credentials (${defaults.username || "root"}/****)`);
     return {
       username: defaults.username || "root",
       password: defaults.password || "root",
@@ -437,7 +434,7 @@ function displayConfiguration(config) {
   displaySection("Configuration Summary");
   console.log(chalk.white(`Server Port: ${chalk.green(config.port)}`));
   console.log(chalk.white(`Database User: ${chalk.green(config.dbUsername)}`));
-  console.log(chalk.white(`Database Pass: ${chalk.green("*".repeat(config.dbPassword.length))}`));
+  console.log(chalk.white(`Database Pass: ${chalk.green("****")}`));
 
   if (config.aiEnabled) {
     console.log(chalk.white(`AI Provider: ${chalk.green(config.aiProvider)}`));
