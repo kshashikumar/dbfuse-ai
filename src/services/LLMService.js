@@ -2,6 +2,7 @@ const { getAIModel } = require("../models/model");
 const logger = require("../utils/logger");
 const { FALLBACK_AI_MODEL, SCHEMA_PROMPT_BUDGET_CHARS } = require("../core/constants");
 const { buildTableCatalog, buildSchemaDSL } = require("../utils/schemaCompressor");
+const { inferProviderFromModel, PROVIDER_API_ENV_KEYS } = require("../core/env");
 
 const argv = require("minimist")(process.argv.slice(2));
 
@@ -46,14 +47,26 @@ class LLMService {
       process.env.AI_MODEL ||
       FALLBACK_AI_MODEL
     ).toLowerCase();
-    const key = apiKey || argv.apikey || process.env.AI_API_KEY || null;
+
+    let key = apiKey || argv.apikey || null;
+    if (!key) {
+      const provider = inferProviderFromModel(aiModel);
+      const providerEnvKey = PROVIDER_API_ENV_KEYS[provider];
+      key = providerEnvKey ? process.env[providerEnvKey] : null;
+      // Fallback to generic AI_API_KEY if provider-specific key not found
+      if (!key) {
+        key = process.env.AI_API_KEY || null;
+      }
+    }
 
     // Only reinitialize if config changed
     if (this.config.model !== aiModel || this.config.apiKey !== key) {
       this.config.model = aiModel;
       this.config.apiKey = key;
       this.llm = getAIModel(aiModel, key);
-      logger.info(`LLM initialized with model: ${aiModel}`);
+      logger.info(
+        `LLM initialized with model: ${aiModel}, provider: ${inferProviderFromModel(aiModel)}`,
+      );
     }
 
     return this.llm;

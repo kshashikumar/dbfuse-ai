@@ -3,6 +3,7 @@ const llmService = require("../services/LLMService");
 const { connectionManager } = require("../config");
 const { HEADERS, HTTP_STATUS, HEADER_VARIANTS } = require("../core/constants");
 const { getHeaderValue } = require("../utils/http");
+const logger = require("../utils/logger");
 
 /**
  * LangChainController - Handles AI-powered SQL query generation
@@ -149,6 +150,12 @@ class LangChainController extends BaseController {
 
       return this.sendSuccess(res, { query });
     } catch (error) {
+      logger.error("Error in executePrompt:", {
+        message: error.message,
+        stack: error.stack,
+        model: req.body.model,
+        hasApiKey: !!req.body.apiKey,
+      });
       this.handleError(res, error, "executing prompt");
     }
   }
