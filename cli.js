@@ -622,7 +622,7 @@ async function main() {
       if (!config.mcpEnabled) {
         console.log(
           chalk.green.bold(
-            `> Login Credentials: ${process.env.DBFUSE_USERNAME} / ${process.env.DBFUSE_PASSWORD}`,
+            "> Login credentials are configured via DBFUSE_USERNAME / DBFUSE_PASSWORD",
           ),
         );
         console.log(chalk.green.bold(`DBFuse AI is running on http://localhost:${config.port}`));
