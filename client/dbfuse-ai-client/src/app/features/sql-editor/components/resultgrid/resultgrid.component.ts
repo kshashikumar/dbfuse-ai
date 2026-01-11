@@ -14,6 +14,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import { BackendService } from '@core/services/backend/backend.service';
 import { TruncatePipe } from '@shared/pipes/truncate.pipe';
+import { firstValueFrom } from 'rxjs';
 
 @Component({
     selector: 'app-resultgrid',
