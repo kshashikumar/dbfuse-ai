@@ -101,12 +101,16 @@ function displaySuccess(message) {
 
 function displayInfo(message) {
   if (!isVerbose) return;
-  const sanitized = String(message)
-    .replace(/password[=:]\s*\S+/gi, "password=****")
-    .replace(/key[=:]\s*\S+/gi, "key=****")
-    .replace(/token[=:]\s*\S+/gi, "token=****")
-    .replace(/secret[=:]\s*\S+/gi, "secret=****");
-  console.log(chalk.blue(`${sanitized}`));
+  // Check if message contains sensitive patterns from environment variables
+  const hasSensitiveData = /password|key|token|secret|credential|env|username/i.test(
+    String(message),
+  );
+  if (hasSensitiveData) {
+    // Don't log messages that may contain sensitive environment data
+    console.log(chalk.blue("[Configuration message redacted for security]"));
+  } else {
+    console.log(chalk.blue(`${message}`));
+  }
 }
 
 function displayWarning(message) {
@@ -438,10 +442,9 @@ function validateEnvironment() {
 function displayConfiguration(config) {
   displaySection("Configuration Summary");
   console.log(chalk.white(`Server Port: ${chalk.green(config.port)}`));
-  const maskedUser =
-    config.dbUsername.length > 2 ? config.dbUsername.substring(0, 2) + "***" : "***";
-  console.log(chalk.white(`Database User: ${chalk.green(maskedUser)}`));
-  console.log(chalk.white(`Database Pass: ${chalk.green("****")}`));
+  // Avoid logging username to prevent exposing environment variable data
+  console.log(chalk.white(`Database User: ${chalk.green("Configured")}`));
+  console.log(chalk.white(`Database Pass: ${chalk.green("Configured")}`));
 
   if (config.aiEnabled) {
     console.log(chalk.white(`AI Provider: ${chalk.green(config.aiProvider)}`));
