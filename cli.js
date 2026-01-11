@@ -101,7 +101,12 @@ function displaySuccess(message) {
 
 function displayInfo(message) {
   if (!isVerbose) return;
-  console.log(chalk.blue(`${message}`));
+  const sanitized = String(message)
+    .replace(/password[=:]\s*\S+/gi, "password=****")
+    .replace(/key[=:]\s*\S+/gi, "key=****")
+    .replace(/token[=:]\s*\S+/gi, "token=****")
+    .replace(/secret[=:]\s*\S+/gi, "secret=****");
+  console.log(chalk.blue(`${sanitized}`));
 }
 
 function displayWarning(message) {
@@ -433,7 +438,9 @@ function validateEnvironment() {
 function displayConfiguration(config) {
   displaySection("Configuration Summary");
   console.log(chalk.white(`Server Port: ${chalk.green(config.port)}`));
-  console.log(chalk.white(`Database User: ${chalk.green(config.dbUsername)}`));
+  const maskedUser =
+    config.dbUsername.length > 2 ? config.dbUsername.substring(0, 2) + "***" : "***";
+  console.log(chalk.white(`Database User: ${chalk.green(maskedUser)}`));
   console.log(chalk.white(`Database Pass: ${chalk.green("****")}`));
 
   if (config.aiEnabled) {
