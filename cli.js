@@ -209,7 +209,10 @@ async function askForPort(defaultValue = defaultPort) {
 async function askForDatabaseCredentials(defaults = { username: "root", password: "root" }) {
   displaySection("Database Configuration");
 
-  const useCustomCreds = await askYesNo("Configure custom database credentials?", false);
+  const useCustomCreds = await askYesNo(
+    "Configure custom database credentials Defaults (root/root)?",
+    false,
+  );
 
   if (!useCustomCreds) {
     if (isVerbose) displayInfo(`Using default credentials (${defaults.username || "root"}/****)`);
@@ -450,6 +453,8 @@ function syncEnvFile(config) {
         config.connectionsKey !== undefined
           ? config.connectionsKey
           : existing.DBFUSE_CONNECTIONS_KEY || "",
+      MCP_ENABLED: process.env.MCP_ENABLED || existing.MCP_ENABLED || "true",
+      MCP_ONLY: process.env.MCP_ONLY || existing.MCP_ONLY || "false",
     };
     const content = Object.entries(merged)
       .map(([k, v]) => {
@@ -498,9 +503,19 @@ function validateEnvironment() {
 function displayConfiguration(config) {
   displaySection("Configuration Summary");
   console.log(chalk.white(`Server Port: ${chalk.green(config.port)}`));
-  // Avoid logging username to prevent exposing environment variable data
   console.log(chalk.white(`Database User: ${chalk.green("Configured")}`));
   console.log(chalk.white(`Database Pass: ${chalk.green("Configured")}`));
+
+  // Display MCP mode
+  const mcpOnly = process.env.MCP_ONLY === "true";
+  const mcpEnabled = process.env.MCP_ENABLED === "true";
+  if (mcpOnly) {
+    console.log(chalk.white(`Server Mode: ${chalk.cyan("MCP Only (no web server)")}`));
+  } else if (mcpEnabled) {
+    console.log(chalk.white(`Server Mode: ${chalk.green("Web + MCP (both running)")}`));
+  } else {
+    console.log(chalk.white(`Server Mode: ${chalk.green("Web Only")}`));
+  }
 
   if (config.aiEnabled) {
     console.log(chalk.white(`AI Provider: ${chalk.green(config.aiProvider)}`));
@@ -528,6 +543,10 @@ async function main() {
       ? null
       : parseInt(process.env.PORT, 10);
     const defaultPortChoice = envPort || defaultPort;
+
+    // Check if running in MCP-only mode (non-interactive)
+    // --mcp flag means run ONLY MCP server, not web server
+    const isNonInteractiveMcp = !!(argv.mcp || process.env.MCP_ONLY === "true");
 
     // Handle command line arguments
     const config = {
@@ -637,6 +656,16 @@ async function main() {
     process.env.AI_API_KEY = config.apiKey;
     process.env.DBFUSE_CONNECTIONS_KEY = config.connectionsKey || "";
 
+    // Set MCP mode: --mcp flag means MCP_ONLY (no web server)
+    // Otherwise, MCP runs alongside web server (MCP_ENABLED=true by default)
+    if (isNonInteractiveMcp) {
+      process.env.MCP_ONLY = "true";
+      process.env.MCP_ENABLED = "true";
+    } else {
+      process.env.MCP_ENABLED = process.env.MCP_ENABLED || "true";
+      process.env.MCP_ONLY = process.env.MCP_ONLY || "false";
+    }
+
     // Provider-specific API key export (for downstream model loader convenience)
     if (config.apiKey) {
       const providerMap = {
@@ -666,15 +695,6 @@ async function main() {
     nodemon({
       script: scriptPath,
       stdout: false, // MCP needs stdout for communication, so we might need to be careful here.
-      // Actually, if stdout is false, nodemon pipes it. We want it to go to the parent process stdout?
-      // If we use stdio transport, we need the output to go to stdout.
-      // nodemon by default pipes.
-      // If we want to see the output, we should probably set stdout: true or let it default.
-      // But wait, if we use StdioServerTransport, we can't have nodemon logging "starting..." to stdout.
-      // We need to suppress nodemon logs or use a different launcher for MCP.
-      // For now, let's assume the user knows what they are doing with --mcp.
-      // But `displayInfo` logs to stdout. That will break MCP JSON-RPC.
-      // I need to disable all console.logs if --mcp is active, OR write them to stderr.
       cwd: path.resolve(__dirname),
       watch: [path.resolve(__dirname, "src")],
       ignore: ["**/node_modules/**", "**/.vscode/**", "**/workspaceStorage/**"],
