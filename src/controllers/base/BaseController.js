@@ -5,6 +5,7 @@
 
 const logger = require("../../utils/logger");
 const { HTTP_STATUS, GENERAL_ERRORS } = require("../../core/constants");
+const sanitizeHtml = require("sanitize-html");
 
 /**
  * Base controller class with common methods for all controllers
@@ -198,11 +199,28 @@ class BaseController {
       return input;
     }
 
-    return input
-      .trim()
-      .replace(/[<>]/g, "") // Remove angle brackets
-      .replace(/javascript:/gi, "") // Remove javascript: protocol
-      .replace(/on\w+\s*=/gi, ""); // Remove event handlers
+    let sanitized = input.trim();
+
+    // Remove angle brackets to strip basic HTML tags
+    sanitized = sanitized.replace(/[<>]/g, "");
+
+    // Repeatedly remove scriptable URL protocols to avoid multi-character re-emergence
+    let previous;
+    do {
+      previous = sanitized;
+      sanitized = sanitized.replace(/\b(?:javascript|data|vbscript):/gi, "");
+    } while (sanitized !== previous);
+
+    // Remove event handler attributes entirely (e.g., onclick="...", onload='...', onerror=foo)
+    sanitized = sanitized
+      // double-quoted event handler attributes
+      .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
+      // single-quoted event handler attributes
+      .replace(/\son\w+\s*=\s*'[^']*'/gi, "")
+      // unquoted event handler attributes
+      .replace(/\son\w+\s*=\s*[^>\s]*/gi, "");
+
+    return sanitized;
   }
 
   /**

@@ -7,6 +7,7 @@ const logger = require("../utils/logger");
 const { HTTP_STATUS, HEADERS, HEADER_VARIANTS } = require("../core/constants");
 const { PORT_RANGE } = require("../core/env");
 const { getHeaderValue } = require("../utils/http");
+const sanitizeHtml = require("sanitize-html");
 
 /**
  * Validate that connection ID header is present
@@ -210,12 +211,13 @@ const validateArray = (fieldName, minLength = 1) => {
 const sanitizeInputs = (fieldNames) => {
   return (req, res, next) => {
     fieldNames.forEach((fieldName) => {
-      if (req.body[fieldName] && typeof req.body[fieldName] === "string") {
-        req.body[fieldName] = req.body[fieldName]
-          .trim()
-          .replace(/[<>]/g, "")
-          .replace(/javascript:/gi, "")
-          .replace(/on\w+\s*=/gi, "");
+      const rawValue = req.body[fieldName];
+      if (rawValue && typeof rawValue === "string") {
+        const trimmedValue = rawValue.trim();
+        req.body[fieldName] = sanitizeHtml(trimmedValue, {
+          allowedTags: [],
+          allowedAttributes: {},
+        });
       }
     });
     next();
