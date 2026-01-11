@@ -21,6 +21,36 @@ import { firstValueFrom } from 'rxjs';
     standalone: true,
     imports: [CommonModule, RouterModule, FormsModule, TruncatePipe],
     templateUrl: './resultgrid.component.html',
+    styles: [`
+ /* NUCLEAR OPTION - Force everything on same line no matter what */
+.rows-selector .inline-flex {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+}
+
+.rows-selector span.text-\[11px\] {
+  display: inline !important;
+  float: left !important;
+  margin-right: 4px !important;
+  line-height: normal !important;
+}
+
+.rows-selector .relative {
+  display: inline !important;
+  float: left !important;
+}
+
+.rows-selector select {
+  display: inline !important;
+  float: left !important;
+  line-height: normal !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+`],
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ResultGridComponent implements OnInit {
