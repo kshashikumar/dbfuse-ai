@@ -48,6 +48,9 @@ export class ResultGridComponent implements OnInit {
 
     queryResults: any[] = []; // data.queries[]
     activeQueryIndex: number = 0;
+    showExportModal: boolean = false;
+    exportScope: 'current' | 'all' = 'current';
+    exportFormat: 'csv' | 'json' = 'csv';
 
     // Convenience getter for template access
     get activeResult(): any | null {
@@ -361,5 +364,211 @@ export class ResultGridComponent implements OnInit {
             return 'date';
         }
         return 'string';
+    }
+
+    openExportModal(): void {
+        this.exportScope = 'current';
+        this.showExportModal = true;
+        this._cdr.markForCheck();
+    }
+
+    closeExportModal(): void {
+        this.showExportModal = false;
+        this._cdr.markForCheck();
+    }
+
+    async confirmExport(format: 'json' | 'csv' | 'excel'): Promise<void> {
+        let data: any[] = [];
+
+        if (this.exportScope === 'all') {
+            // prefer already-available full payload
+            const active = this.activeResult;
+            if (active?.allRows && Array.isArray(active.allRows) && active.allRows.length) {
+                data = active.allRows;
+            } else {
+                // try to fetch all pages from backend
+                data = await this.fetchAllRows();
+            }
+        } else {
+            data = this.rows || [];
+        }
+
+        if (!data || data.length === 0) {
+            window.alert('No rows available to export.');
+            this.closeExportModal();
+            return;
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const scope = this.exportScope === 'all' ? 'all' : 'current';
+        const baseName = `result-${scope}-${timestamp}`;
+
+        if (format === 'json') {
+            const blob = new Blob([this.convertToJSON(data)], { type: 'application/json;charset=utf-8' });
+            this.downloadFile(`${baseName}.json`, blob);
+        } else if (format === 'csv') {
+            const csv = this.convertToCSV(data);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            this.downloadFile(`${baseName}.csv`, blob);
+        } else if (format === 'excel') {
+            const html = this.convertToExcel(data);
+            const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+            this.downloadFile(`${baseName}.xls`, blob);
+        }
+
+        this.closeExportModal();
+    }
+
+    private getDataForExport(): any[] {
+        // export current grid rows for "page"
+        if (this.exportScope === 'current') {
+            return this.rows || [];
+        }
+
+        // export "full" - try to use any available full result payload
+        const active = this.queryResults[this.activeQueryIndex];
+        // If server provided full data field (custom), respect it
+        if (active?.allRows && Array.isArray(active.allRows) && active.allRows.length > 0) {
+            return active.allRows;
+        }
+
+        // If pagination indicates more results on server, inform user and fallback to current page
+        if (active?.pagination?.hasMore) {
+            // keep short / impersonal
+            window.alert('Full result set is not fully loaded; exporting current page only.');
+            return this.rows || [];
+        }
+
+        // fallback to whatever rows are present
+        return active?.rows || this.rows || [];
+    }
+
+    private convertToJSON(data: any[]): string {
+        return JSON.stringify(data, null, 2);
+    }
+
+    private convertToCSV(data: any[]): string {
+        if (!data || data.length === 0) return '';
+
+        const cols = this.headers && this.headers.length > 0 ? this.headers : Object.keys(data[0] || {});
+        const escape = (v: any) => {
+            if (v === null || v === undefined) return '';
+            const s = String(v);
+            // escape double quotes
+            if (s.includes('"') || s.includes(',') || s.includes('\n') || s.includes('\r')) {
+                return `"${s.replace(/"/g, '""')}"`;
+            }
+            return s;
+        };
+
+        const lines = [];
+        lines.push(cols.join(','));
+        for (const row of data) {
+            const vals = cols.map((c) => escape(row[c]));
+            lines.push(vals.join(','));
+        }
+        return lines.join('\r\n');
+    }
+
+    private convertToExcel(data: any[]): string {
+        // Build a minimal HTML table which Excel can open
+        const cols = this.headers && this.headers.length > 0 ? this.headers : Object.keys(data[0] || {});
+        const headerRow = cols
+            .map((c) => `<th style="border:1px solid #ccc;padding:4px;background:#f0f0f0;">${this.escapeHtml(c)}</th>`)
+            .join('');
+        const bodyRows = data
+            .map((row) => {
+                const cells = cols
+                    .map((c) => `<td style="border:1px solid #ccc;padding:4px;">${this.escapeHtml(row[c])}</td>`)
+                    .join('');
+                return `<tr>${cells}</tr>`;
+            })
+            .join('');
+        return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><table border="0" cellpadding="0" cellspacing="0">${'<thead><tr>' + headerRow + '</tr></thead>'}<tbody>${bodyRows}</tbody></table></body></html>`;
+    }
+
+    private escapeHtml(value: any): string {
+        if (value === null || value === undefined) return '';
+        return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    private downloadFile(filename: string, blob: Blob): void {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    private async fetchAllRows(): Promise<any[]> {
+        const active = this.activeResult;
+        // choose base SQL: prefer the active statement, else fall back to original triggerQuery
+        const query = active?.query || this.triggerQuery;
+        const pageSize = active?.pagination?.pageSize || this.pageSize;
+        const totalPagesFromMeta = active?.pagination?.totalPages;
+        const totalRowsFromMeta = active?.totalRows || this.totalRows;
+
+        // compute pages to fetch
+        let totalPages = 1;
+        if (typeof totalPagesFromMeta === 'number' && totalPagesFromMeta > 0) {
+            totalPages = totalPagesFromMeta;
+        } else if (totalRowsFromMeta && pageSize) {
+            totalPages = Math.ceil(totalRowsFromMeta / pageSize);
+        }
+
+        // safety cap
+        const MAX_PAGES = 1000;
+        totalPages = Math.min(totalPages || 1, MAX_PAGES);
+
+        const allRows: any[] = [];
+
+        for (let p = 1; p <= totalPages; p++) {
+            try {
+                const resp: any = await firstValueFrom(
+                    this._dbService.executeQuery(query, this.dbName, { page: p, pageSize }),
+                );
+
+                let pageRows: any[] = [];
+
+                if (!resp) {
+                    break;
+                }
+
+                // handle multi-query response vs single-query
+                if (Array.isArray(resp.queries)) {
+                    // try to find matching statement by text, fallback to first
+                    const found = resp.queries.find((q: any) => q.query === query) || resp.queries[0];
+                    pageRows = Array.isArray(found?.rows) ? found.rows : [];
+                } else {
+                    pageRows = Array.isArray(resp.rows) ? resp.rows : [];
+                }
+
+                if (pageRows.length > 0) {
+                    allRows.push(...pageRows);
+                }
+
+                // if server indicates no more pages, break early
+                const pageMeta = Array.isArray(resp.queries)
+                    ? (resp.queries.find((q: any) => q.query === query) || resp.queries[0])?.pagination
+                    : resp?.pagination;
+                if (pageMeta && pageMeta.hasMore === false) {
+                    break;
+                }
+
+                // If server returned fewer rows than pageSize, assume last page
+                if (pageRows.length < pageSize) {
+                    break;
+                }
+            } catch (err) {
+                // stop on error and return what we have
+                console.error('Error fetching page', p, err);
+                break;
+            }
+        }
+
+        return allRows;
     }
 }

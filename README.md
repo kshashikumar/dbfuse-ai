@@ -354,11 +354,15 @@ Then configure Claude Desktop:
   "mcpServers": {
     "dbfuse-ai": {
       "command": "node",
-      "args": ["<path-from-npm-root-g>/dbfuse-ai/scripts/mcp/index.js"],
+      "args": ["d:/vs-code/dbfuse-ai/src/mcp/server.js"],
+      "transport": "stdio",
+      "workingDirectory": "d:/vs-code/dbfuse-ai",
       "env": {
-        "SERVER_URL": "http://localhost:5000",
-        "USERNAME": "admin",
-        "PASSWORD": "admin"
+        "MCP_ENABLED": "true",
+        "MCP_ONLY": "true",
+        "LOG_LEVEL": "error",
+        "DBFUSE_USERNAME": "root",
+        "DBFUSE_PASSWORD": "root"
       }
     }
   }

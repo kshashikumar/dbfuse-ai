@@ -3,7 +3,6 @@ const path = require("path");
 const fs = require("fs");
 const readline = require("readline");
 const { execSync } = require("child_process");
-
 const nodemon = require("nodemon");
 const argv = require("minimist")(process.argv.slice(2));
 const chalk = require("chalk");
@@ -23,9 +22,8 @@ const rl = readline.createInterface({
 require("dotenv").config();
 
 const defaultPort = 5000;
-const isVerbose = !!(argv.verbose || argv.v); // default quiet; enable details with --verbose/-v
+const isVerbose = !!(argv.verbose || argv.v);
 
-// Modern AI models with updated pricing and availability
 const supportedModels = {
   gemini: {
     models: ["gemini-2.5-flash", "gemini-2.5-pro"],
@@ -363,7 +361,7 @@ function syncEnvFile(config) {
     const baseDir =
       process.env.DBFUSE_CONFIG_DIR && process.env.DBFUSE_CONFIG_DIR.trim()
         ? process.env.DBFUSE_CONFIG_DIR.trim()
-        : path.resolve(__dirname);
+        : process.cwd();
     const envPath = path.join(baseDir, ".env");
     let existing = {};
     if (fs.existsSync(envPath)) {
@@ -602,9 +600,6 @@ async function main() {
     console.log();
 
     const scriptPath = path.resolve(__dirname, "src/index.js");
-
-    // Run nodemon with a controlled working directory and limited watch scope
-    // to avoid picking up unrelated filesystem changes (e.g., VSCode workspace storage)
     nodemon({
       script: scriptPath,
       stdout: false, // MCP needs stdout for communication, so we might need to be careful here.
