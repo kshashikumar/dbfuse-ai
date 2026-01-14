@@ -1,0 +1,118 @@
+<div class="group relative rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-surface-dark">
+    <div
+        class="cursor-pointer space-y-4"
+        (click)="onSelectConnection()"
+    >
+        <div class="flex items-start gap-3">
+            <div class="flex flex-1 items-start gap-3">
+                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-xl text-brand dark:bg-slate-900/60">
+                    <span *ngIf="connection.dbType === 'mysql2'" class="icon-[logos--mysql]"></span>
+                    <span *ngIf="connection.dbType === 'pg'" class="icon-[logos--postgresql]"></span>
+                    <span *ngIf="connection.dbType === 'sqlite3'" class="icon-[vscode-icons--file-type-sqlite]"></span>
+                    <span *ngIf="connection.dbType === 'mssql'" class="icon-[devicon--microsoftsqlserver]"></span>
+                    <span *ngIf="connection.dbType === 'oracledb'" class="icon-[logos--oracle]"></span>
+                    <span *ngIf="!['mysql2', 'pg', 'sqlite3', 'mssql', 'oracledb'].includes(connection.dbType)" class="icon-[mdi--database]"></span>
+                </div>
+
+                <div class="min-w-0 space-y-1">
+                    <p class="text-[11px] uppercase tracking-[0.3em] text-slate-400">
+                        {{ getDbTypeLabel(connection.dbType) }}
+                    </p>
+                    <h3 class="text-base font-semibold text-slate-900 dark:text-white truncate">
+                        {{ getConnectionTitle() }}
+                    </h3>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 truncate">
+                        {{ connection.username || 'Unknown user' }} · {{ connection.host }}:{{ connection.port }}
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2 text-xs">
+            <span class="badge">
+                <span class="icon-[mdi--database] h-3.5 w-3.5"></span>
+                {{ connection.database || 'No database' }}
+            </span>
+            <span class="badge" [ngClass]="connection.ssl ? 'badge-success' : 'badge-muted'">
+                <span class="icon-[mdi--shield-lock-outline] h-3.5 w-3.5"></span>
+                {{ connection.ssl ? 'SSL enabled' : 'SSL off' }}
+            </span>
+            <span class="badge badge-muted">
+                <span class="icon-[mdi--account] h-3.5 w-3.5"></span>
+                {{ connection.username || 'Unknown user' }}
+            </span>
+        </div>
+
+        <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm text-slate-600 dark:text-slate-300">
+            <div class="space-y-1">
+                <dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Status</dt>
+                <dd class="flex items-center gap-2 text-slate-900 dark:text-white">
+                    <span class="h-2.5 w-2.5 rounded-full" [ngClass]="getStatusColor(connection.status)"></span>
+                    {{ getStatusText(connection.status) }}
+                </dd>
+            </div>
+            <div class="space-y-1">
+                <dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Database</dt>
+                <dd class="text-slate-900 dark:text-white truncate">
+                    {{ connection.database || '—' }}
+                </dd>
+            </div>
+            <div class="space-y-1">
+                <dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Pool Size</dt>
+                <dd class="text-slate-900 dark:text-white">
+                    {{ connection.poolSize || '—' }}
+                </dd>
+            </div>
+            <div class="space-y-1">
+                <dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Activity</dt>
+                <dd class="text-slate-900 dark:text-white">
+                    {{ connection.lastUsed ? formatLastUsed(connection.lastUsed) : 'Not used yet' }}
+                </dd>
+            </div>
+        </dl>
+    </div>
+
+    <div class="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+        <div class="flex flex-wrap items-center gap-2">
+            <button
+                type="button"
+                class="btn btn-secondary btn-sm gap-1"
+                (click)="onTestConnection(); $event.stopPropagation()"
+                [disabled]="testing"
+            >
+                <span *ngIf="!testing" class="icon-[mdi--connection] h-3.5 w-3.5"></span>
+                <span *ngIf="testing" class="icon-[mdi--loading] h-3.5 w-3.5 animate-spin"></span>
+                {{ testing ? 'Testing' : 'Test' }}
+            </button>
+
+            <button
+                type="button"
+                class="btn btn-secondary btn-sm gap-1"
+                (click)="onEditConnection(); $event.stopPropagation()"
+            >
+                <span class="icon-[mdi--pencil] h-3.5 w-3.5"></span>
+                Edit
+            </button>
+
+            <button
+                type="button"
+                class="btn btn-ghost btn-sm gap-1 text-red-600 hover:text-red-700 dark:text-red-400"
+                (click)="onDeleteConnection(); $event.stopPropagation()"
+            >
+                <span class="icon-[mdi--delete] h-3.5 w-3.5"></span>
+                Delete
+            </button>
+        </div>
+
+        <button
+            type="button"
+            class="btn btn-primary btn-sm gap-1"
+            (click)="onSelectConnection()"
+            [disabled]="connecting"
+        >
+            <span *ngIf="!connecting" class="icon-[mdi--lightning-bolt] h-4 w-4"></span>
+            <span *ngIf="connecting" class="icon-[mdi--loading] h-4 w-4 animate-spin"></span>
+            {{ connecting ? 'Connecting' : 'Connect' }}
+        </button>
+    </div>
+</div>

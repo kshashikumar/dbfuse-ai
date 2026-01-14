@@ -13,7 +13,7 @@
 [![Contributors](https://img.shields.io/github/contributors/kshashikumar/dbfuse-ai)](https://github.com/kshashikumar/dbfuse-ai/graphs/contributors)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/kshashikumar/dbfuse-ai/badge)](https://securityscorecards.dev/viewer/?uri=github.com/kshashikumar/dbfuse-ai)
 
-**DBFuse AI** is a simple web UI to connect to your databases, run SQL, and generate SQL with AI. It works with MySQL, PostgreSQL, SQL Server, Oracle, and SQLite.
+**DBFuse AI** is a simple web UI to connect to your databases, run SQL, and generate SQL with AI. It works with MySQL, PostgreSQL, SQL Server, Oracle, and SQLite. Now with Claude Desktop integration via Model Context Protocol (MCP) - 12 tools available for natural database interactions.
 
 Quick links:
 
@@ -47,11 +47,17 @@ Quick links:
 - **Basic Authentication**  
   Optional authentication for added security when running on remote servers.
 
+- **Connection Encryption**  
+  Secure database credentials with AES-256 encryption.
+
+- **Claude Desktop Integration (MCP)**  
+  12 powerful tools for Claude Desktop to interact with your databases naturally.
+
 - **Clipboard Copy**  
   Quickly copy cell data with a single click.
 
 - **AI Integration**  
-  Leverage OpenAI and Google Gemini for generating intelligent SQL queries. Talk to your selected Database
+  Leverage multiple AI providers (Gemini, OpenAI, Anthropic, Mistral, Cohere, HuggingFace, Perplexity) for generating intelligent SQL queries. Talk to your selected Database
 
 ## Prerequisites
 
@@ -85,9 +91,12 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
   - `-p, --port <number>`: Server port (default 5000)
   - `--dbuser <username>` and `--dbpass <password>`: Set Basic Auth credentials for the web UI
   - `--model <name>` and `--apikey <key>`: Enable AI with the selected model and API key
+  - `--connections-key <value>`: Provide the AES-256 key used to encrypt `dbConnections.json` (type `clear` to disable)
+  - `--connections-reset`: Delete `dbConnections.json` before starting (useful if you've lost the encryption key)
+  - `--mcp`: Start only MCP server without HTTP server (for Claude Desktop integration)
   - `-v, --verbose`: Show detailed prompts and info in the CLI
 
-  Supported AI providers include: Gemini, OpenAI, Anthropic, Mistral, Cohere, Hugging Face, and Perplexity. Without `--model` and `--apikey`, the CLI will ask whether to enable AI and guide you interactively.
+  Supported AI providers include: Gemini, OpenAI, Anthropic, Mistral, Cohere, Hugging Face, and Perplexity. Without `--model`, `--apikey`, or `--connections-key`, the CLI will walk you through the required prompts (you can press Enter to keep plaintext storage if you do not want encryption).
 
   Then open http://localhost:5000.
 
@@ -109,6 +118,8 @@ Pick the option that fits your setup. All commands below assume a Bash-compatibl
         # Optional basic auth for UI (set both to enable)
         - DBFUSE_USERNAME=admin
         - DBFUSE_PASSWORD=admin
+        # Optional: encrypt saved db connections (recommended)
+        - CONNECTIONS_ENCRYPTION_KEY=your_32_character_encryption_key
         # AI configuration (optional)
         - AI_PROVIDER=gemini
         - AI_MODEL=gemini-2.5-flash
@@ -247,6 +258,8 @@ Notes:
 - PORT: Server port (default 5000)
 - DBFUSE_USERNAME / DBFUSE_PASSWORD: enable Basic Auth for the web UI (optional)
 - AI_PROVIDER, AI_MODEL, AI_API_KEY: AI settings (optional)
+- CONNECTIONS_ENCRYPTION_KEY: AES-256 key to encrypt database connections (optional, 32 characters recommended)
+- MCP_ONLY: Run only MCP server without HTTP (true/false, default false)
 - BODY_SIZE: request body size limit (default 50mb)
 - NODE_ENV: set to `production` in containers for best performance
   Note: Database connection details are entered via the UI; no DB URL environment variables are used by the server.
@@ -264,6 +277,125 @@ Tips:
 - Microsoft SQL Server
 - Oracle Database
 - SQLite
+
+## MCP Server Integration (Claude Desktop)
+
+DBFuse AI includes a Model Context Protocol (MCP) server that enables Claude Desktop to directly access your databases.
+
+### Available MCP Tools (12 total)
+
+**Authentication:**
+
+- `login` - Authenticate with DBFuse AI server
+
+**Connection Management:**
+
+- `list_connections` - List all saved database connections
+- `connect_database` - Connect to a specific database
+
+**Query Operations:**
+
+- `execute_query` - Execute SQL queries with pagination
+- `get_tables` - List all tables in the current database
+
+**Schema Exploration:**
+
+- `get_databases` - List all databases on the server
+- `get_table_info` - Get detailed table information (columns, types, constraints)
+- `switch_database` - Switch to a different database
+- `get_views` - List all views in the database
+- `get_procedures` - List all stored procedures
+
+**Analysis & AI:**
+
+- `analyze_query` - Get query performance analysis (EXPLAIN)
+- `generate_sql` - Generate SQL from natural language using AI
+
+### Setup for Claude Desktop
+
+**Option 1: NPX (Quick Start)**
+
+Edit your Claude Desktop config file:
+
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Add this configuration:
+
+```json
+{
+  "mcpServers": {
+    "dbfuse-ai": {
+      "command": "npx",
+      "args": ["-y", "dbfuse-ai", "--mcp"],
+      "env": {
+        "DBFUSE_USERNAME": "your username",
+        "DBFUSE_PASSWORD": "your password"
+      }
+    }
+  }
+}
+```
+
+**Option 2: Global Install**
+
+```bash
+# Install globally
+npm install -g dbfuse-ai
+
+# Find the installation path
+npm root -g
+```
+
+Then configure Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "dbfuse-ai": {
+      "command": "node",
+      "args": ["d:/vs-code/dbfuse-ai/src/mcp/server.js"],
+      "transport": "stdio",
+      "workingDirectory": "d:/vs-code/dbfuse-ai",
+      "env": {
+        "MCP_ENABLED": "true",
+        "MCP_ONLY": "true",
+        "LOG_LEVEL": "error",
+        "DBFUSE_USERNAME": "root",
+        "DBFUSE_PASSWORD": "root"
+      }
+    }
+  }
+}
+```
+
+**Option 3: MCP Server Only Mode**
+
+Run DBFuse AI as MCP server only (no web UI):
+
+```bash
+# Using CLI
+dbfuse-ai --mcp --dbuser admin --dbpass admin
+
+# Using environment variable
+MCP_ONLY=true DBFUSE_USERNAME=admin DBFUSE_PASSWORD=admin npm start
+```
+
+**Note:** By default, both HTTP (Web UI) and MCP servers run simultaneously. Use `--mcp` flag or `MCP_ONLY=true` to run only the MCP server.
+
+### Example Usage with Claude
+
+Once configured, you can ask Claude:
+
+> "Connect to my database and show me all tables"
+
+> "What's the structure of the users table?"
+
+> "Generate SQL to find all orders from last month"
+
+> "Execute: SELECT \* FROM products WHERE stock < 10"
+
+Claude will use the appropriate MCP tools to interact with your databases.
 
 ## CLI (optional)
 
@@ -314,7 +446,6 @@ To disable authentication, remove these variables from `.env` and restart the se
 - AI: Explain/optimize queries and suggest indexes in addition to SQL generation
 - Charts and visual analysis for query results (line/bar/pie), with quick pivots
 - Pluggable driver/extension SDK to add new databases and tools
-- MCP servers implementation to connect to different databases
 
 ## Contributions
 

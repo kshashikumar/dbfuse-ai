@@ -1,16 +1,8 @@
-import { ApplicationConfig, importProvidersFrom } from '@angular/core';
-import { provideRouter, RouterModule, withComponentInputBinding } from '@angular/router';
-import { routes } from './app.routes';
 import { provideHttpClient, withFetch } from '@angular/common/http';
+import { ApplicationConfig } from '@angular/core';
+import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
-    providers: [
-        importProvidersFrom(
-            RouterModule.forRoot(
-                routes,
-                // , { enableTracing: true }
-            ),
-        ),
-        provideHttpClient(withFetch()),
-    ],
+    providers: [provideRouter(routes, withComponentInputBinding()), provideHttpClient(withFetch())],
 };

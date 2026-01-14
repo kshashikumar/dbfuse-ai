@@ -1,13 +1,34 @@
 const fs = require("fs");
 const path = require("path");
+
+const {
+  ENV_KEYS,
+  ENV_OVERLAY_KEYS,
+  PROVIDER_API_ENV_KEYS,
+  ENV_WATCH_DEBOUNCE_MS,
+  normalizeProvider,
+} = require("../core/env");
+const { ENCODING } = require("../core/constants");
+
 const logger = require("./logger");
 
-function getEnvPath() {
-  const dir =
-    process.env.DBFUSE_CONFIG_DIR && process.env.DBFUSE_CONFIG_DIR.trim()
-      ? process.env.DBFUSE_CONFIG_DIR.trim()
-      : path.resolve(__dirname, "../"); // project root relative to src
-  return path.join(dir, ".env");
+const ENV_FILENAME = ".env";
+
+function resolveConfigDir() {
+  const configuredDir = (process.env[ENV_KEYS.CONFIG_DIR] || "").trim();
+  if (configuredDir) return configuredDir;
+  return path.resolve(__dirname, "../"); // project root relative to src
+}
+
+function resolveEnvPath() {
+  return path.join(resolveConfigDir(), ENV_FILENAME);
+}
+
+function readEnvFile(envPath) {
+  if (!fs.existsSync(envPath)) {
+    return null;
+  }
+  return fs.readFileSync(envPath, ENCODING.UTF8);
 }
 
 function parseDotenv(content) {
@@ -24,42 +45,20 @@ function parseDotenv(content) {
   return out;
 }
 
-function normalizeProvider(value) {
-  if (!value || typeof value !== "string") return "";
-  const v = value.trim();
-  const lower = v.toLowerCase();
-  if (lower === "openai") return "OpenAI";
-  if (lower === "gemini" || lower === "google" || lower === "google-genai") return "Gemini";
-  if (lower === "anthropic" || lower === "claude") return "Anthropic";
-  if (lower === "mistral" || lower === "codestral") return "Mistral";
-  if (lower === "cohere") return "Cohere";
-  if (lower === "huggingface" || lower === "hugging-face" || lower === "hf") return "HuggingFace";
-  if (lower === "perplexity" || lower === "pplx") return "Perplexity";
-  return v.charAt(0).toUpperCase() + v.slice(1);
-}
-
 let lastApplied = {};
 let debounceTimer = null;
 
 function applyEnv(overrides, opts) {
   const { onPortChange } = opts || {};
-  const overlayKeys = [
-    "AI_MODEL",
-    "AI_API_KEY",
-    "AI_PROVIDER",
-    "PORT",
-    "DBFUSE_USERNAME",
-    "DBFUSE_PASSWORD",
-  ];
   let portChanged = false;
 
-  overlayKeys.forEach((k) => {
+  ENV_OVERLAY_KEYS.forEach((k) => {
     if (overrides[k] !== undefined) {
-      if (k === "PORT") {
+      if (k === ENV_KEYS.PORT) {
         const newPort = Number(overrides[k]);
         if (!Number.isNaN(newPort)) {
-          if (String(process.env.PORT || "") !== String(newPort)) portChanged = true;
-          process.env.PORT = String(newPort);
+          if (String(process.env[ENV_KEYS.PORT] || "") !== String(newPort)) portChanged = true;
+          process.env[ENV_KEYS.PORT] = String(newPort);
         }
       } else {
         process.env[k] = overrides[k];
@@ -73,33 +72,23 @@ function applyEnv(overrides, opts) {
   }
 
   // Provider-specific key mirror (optional convenience)
-  const map = {
-    OpenAI: "OPENAI_API_KEY",
-    Gemini: "GOOGLE_API_KEY",
-    Anthropic: "ANTHROPIC_API_KEY",
-    Mistral: "MISTRAL_API_KEY",
-    Cohere: "COHERE_API_KEY",
-    HuggingFace: "HUGGINGFACE_API_KEY",
-    Perplexity: "PPLX_API_KEY",
-  };
-  const varName = map[process.env.AI_PROVIDER];
+  const varName = PROVIDER_API_ENV_KEYS[process.env.AI_PROVIDER];
   if (varName && process.env.AI_API_KEY) {
     process.env[varName] = process.env.AI_API_KEY;
   }
 
   // Track snapshot
-  lastApplied = overlayKeys.reduce((acc, k) => ({ ...acc, [k]: process.env[k] }), {});
+  lastApplied = ENV_OVERLAY_KEYS.reduce((acc, k) => ({ ...acc, [k]: process.env[k] }), {});
 
   if (portChanged && typeof onPortChange === "function") {
     onPortChange();
   }
 }
 
-function loadAndApply(opts) {
+function loadAndApply(envPath, opts) {
   try {
-    const envPath = getEnvPath();
-    if (!fs.existsSync(envPath)) return;
-    const content = fs.readFileSync(envPath, "utf8");
+    const content = readEnvFile(envPath);
+    if (!content) return;
     const parsed = parseDotenv(content);
     applyEnv(parsed, opts);
     logger.info("Applied .env changes from:", envPath);
@@ -108,23 +97,31 @@ function loadAndApply(opts) {
   }
 }
 
-function startEnvSync(opts) {
-  const envPath = getEnvPath();
-  // Initial sync (if file exists)
-  if (fs.existsSync(envPath)) {
-    loadAndApply(opts);
-  }
-  // Watch for changes
+function scheduleReload(envPath, opts) {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => loadAndApply(envPath, opts), ENV_WATCH_DEBOUNCE_MS);
+}
+
+function startEnvWatcher(envPath, opts) {
   try {
     fs.watch(path.dirname(envPath), (event, filename) => {
-      if (!filename || filename !== ".env") return;
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => loadAndApply(opts), 150);
+      if (!filename || filename !== ENV_FILENAME) return;
+      scheduleReload(envPath, opts);
     });
     logger.info("Watching .env for changes at:", envPath);
   } catch (e) {
     logger.warn("envWatcher: fs.watch not active:", e?.message || e);
   }
+}
+
+function startEnvSync(opts) {
+  const envPath = resolveEnvPath();
+  if (!fs.existsSync(envPath)) {
+    logger.info("No .env file found at %s. Watcher will stay idle until it exists.", envPath);
+  } else {
+    loadAndApply(envPath, opts);
+  }
+  startEnvWatcher(envPath, opts);
 }
 
 module.exports = { startEnvSync };

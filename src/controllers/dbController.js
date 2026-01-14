@@ -1,386 +1,550 @@
-// dbController.js (Updated to support connectionId-based routing while keeping legacy handlers)
-const dbContext = require("../config/database-context"); // Legacy singleton instance (kept for backwards compatibility)
-// Use shared ConnectionManager singleton so all controllers share connections
-const connectionManager = require("../config/connection-manager-singleton");
+/**
+ * @fileoverview Database controller
+ * Handles HTTP endpoints for database operations (queries, schema, connections)
+ */
+
+const BaseController = require("./base/BaseController");
 const chalk = require("chalk");
+const dbContext = require("../config/database-context");
+const { connectionManager } = require("../config");
+const databaseService = require("../services/DatabaseService");
 const logger = require("../utils/logger");
+const {
+  HEADERS,
+  HEADER_VARIANTS,
+  DEFAULT_CONFIG,
+  DB_TYPES,
+  HTTP_STATUS,
+} = require("../core/constants");
+const { getHeaderValue } = require("../utils/http");
 
-// Enhanced response helper
-const sendResponse = (res, status, data, error = null) => {
-  if (!res.headersSent) {
-    res.status(status).json(error ? { error } : data);
-  }
-};
-
-// Enhanced error handler
-const handleError = (res, error, operation) => {
-  logger.error(`Error in ${operation}:`, error);
-
-  if (
-    error.message.includes("syntax error") ||
-    error.code === "ER_PARSE_ERROR" ||
-    error.sqlState === "42000" ||
-    error.code === "42601" ||
-    error.code === "ORA-00900" ||
-    error.message.includes("SQLITE_ERROR")
-  ) {
-    return sendResponse(res, 400, null, "SQL syntax error. Please check your query.");
+class DatabaseController extends BaseController {
+  /**
+   * Get database type from headers
+   * @private
+   */
+  _getDbType(req) {
+    return getHeaderValue(req.headers, HEADER_VARIANTS.DB_TYPE);
   }
 
-  if (error.code || error.sqlState || error.number) {
-    return sendResponse(res, 400, null, `Database error: ${error.message}`);
+  /**
+   * Get connection ID from headers
+   * @private
+   */
+  _getConnectionId(req) {
+    return getHeaderValue(req.headers, HEADER_VARIANTS.CONNECTION_ID);
   }
 
-  sendResponse(res, 500, null, `Error ${operation}`);
-};
+  /**
+   * Get databases for connection
+   */
+  async getDatabases(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
 
-// Get database type from headers
-const getDbType = (req) => {
-  return req.headers["x-db-type"] || req.headers["X-DB-Type"] || req.headers["X-Db-Type"];
-};
-
-const getDatabases = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    const databaseStats = await strategy.getDatabases();
-    sendResponse(res, 200, { databases: databaseStats, retrievedAt: new Date().toISOString() });
-  } catch (err) {
-    handleError(res, err, "fetching database stats");
-  }
-};
-
-const getTables = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  const dbName = req.query.dbName || req.body?.dbName;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
-    const info = connectionManager.getConnectionInfo(connectionId);
-    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
-    const tables = await strategy.getTables(currentDb);
-    sendResponse(res, 200, {
-      tables,
-      count: Array.isArray(tables) ? tables.length : 0,
-      database: currentDb,
-      retrievedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    handleError(res, err, "fetching tables");
-  }
-};
-
-const getTableInfo = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  const dbName = req.query.dbName || req.body?.dbName;
-  const table = req.query.table || req.body?.table;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  if (!table) return sendResponse(res, 400, null, "table is required");
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
-    const info = connectionManager.getConnectionInfo(connectionId);
-    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
-    const tableInfo = await strategy.getTableInfo(currentDb, table);
-    sendResponse(res, 200, { ...tableInfo, retrievedAt: new Date().toISOString() });
-  } catch (err) {
-    handleError(res, err, "fetching table stats");
-  }
-};
-
-const getMultipleTablesInfo = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  const { tables, dbName } = req.body;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  if (!tables || !Array.isArray(tables) || tables.length === 0) {
-    return sendResponse(res, 400, null, "Tables array is required.");
-  }
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
-    const info = connectionManager.getConnectionInfo(connectionId);
-    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
-    const tableDetails = await strategy.getMultipleTablesInfo(currentDb, tables);
-    sendResponse(res, 200, {
-      tables: tableDetails,
-      count: tableDetails.length,
-      database: currentDb,
-      retrievedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    handleError(res, err, "fetching multiple table information");
-  }
-};
-
-const executeQuery = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  let { query, page = 1, pageSize = 10, dbName } = req.body;
-
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  if (!query || typeof query !== "string") {
-    return sendResponse(res, 400, null, "Query is required and must be a string");
-  }
-
-  page = Math.max(1, parseInt(page) || 1);
-  pageSize = Math.min(Math.max(1, parseInt(pageSize) || 10), 1000);
-
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
-    const result = await strategy.executeQuery(query, {
-      page,
-      pageSize,
-      dbName,
-    });
-
-    if (result && Array.isArray(result.queries)) {
-      return sendResponse(res, 200, {
-        queries: result.queries,
-        totalQueries: result.totalQueries,
-        executedAt: result.executedAt,
-      });
+      this.logOperation("getDatabases", { connectionId });
+      const result = await databaseService.getDatabases(connectionId);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "fetching databases");
     }
+  }
 
-    const response = {
-      rows: result.rows || [],
-      totalRows: result.totalRows || 0,
-      messages: result.messages || [],
-      pagination: {
+  /**
+   * Get tables for connection/database
+   */
+  async getTables(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const dbName = req.query.dbName || req.body?.dbName;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      this.logOperation("getTables", { connectionId, dbName });
+      const result = await databaseService.getTables(connectionId, dbName);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "fetching tables");
+    }
+  }
+
+  /**
+   * Get table information
+   */
+  async getTableInfo(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const dbName = req.query.dbName || req.body?.dbName;
+      const table = req.query.table || req.body?.table;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      if (!table) {
+        return this.sendError(res, "table parameter is required", HTTP_STATUS.BAD_REQUEST);
+      }
+
+      this.logOperation("getTableInfo", { connectionId, table, dbName });
+      const result = await databaseService.getTableInfo(connectionId, table, dbName);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "fetching table information");
+    }
+  }
+
+  /**
+   * Get multiple tables information
+   */
+  async getMultipleTablesInfo(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const { tables, dbName } = req.body;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      if (!tables || !Array.isArray(tables) || tables.length === 0) {
+        return this.sendError(
+          res,
+          "tables array is required and must not be empty",
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      this.logOperation("getMultipleTablesInfo", { connectionId, count: tables.length });
+      const result = await databaseService.getMultipleTablesInfo(connectionId, tables, dbName);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "fetching multiple tables information");
+    }
+  }
+
+  /**
+   * Execute SQL query
+   */
+  async executeQuery(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      let {
+        query,
+        page = 1,
+        pageSize = DEFAULT_CONFIG.PAGE_SIZE,
+        dbName,
+        useCache = true,
+      } = req.body;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      if (!query || typeof query !== "string") {
+        return this.sendError(
+          res,
+          "query is required and must be a string",
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      // Parse and validate pagination
+      page = Math.max(1, parseInt(page) || 1);
+      pageSize = Math.min(
+        Math.max(1, parseInt(pageSize) || DEFAULT_CONFIG.PAGE_SIZE),
+        DEFAULT_CONFIG.MAX_PAGE_SIZE,
+      );
+
+      this.logOperation("executeQuery", { connectionId, queryLength: query.length });
+
+      const result = await databaseService.executeQuery(connectionId, query, {
         page,
         pageSize,
-        totalPages: result.totalRows ? Math.ceil(result.totalRows / pageSize) : null,
-        hasMore: result.totalRows ? page * pageSize < result.totalRows : false,
-      },
-      executedAt: new Date().toISOString(),
-    };
-    sendResponse(res, 200, response);
-  } catch (err) {
-    handleError(res, err, "executing query");
-  }
-};
+        dbName,
+        useCache,
+      });
 
-const connect = async (req, res) => {
-  const dbType = getDbType(req);
-  const {
-    username,
-    password,
-    host,
-    port,
-    dbType: bodyDbType,
-    database,
-    socketPath,
-    ...sqliteConfig
-  } = req.body;
+      // Handle batch query response
+      if (result && Array.isArray(result.queries)) {
+        return this.sendSuccess(res, {
+          queries: result.queries,
+          totalQueries: result.totalQueries,
+          executedAt: result.executedAt,
+        });
+      }
 
-  if (!dbType) {
-    return sendResponse(res, 400, null, "Database type (x-db-type) must be specified in headers");
-  }
+      // Handle single query response with pagination
+      const response = {
+        rows: result.rows || [],
+        totalRows: result.totalRows || 0,
+        messages: result.messages || [],
+        pagination: {
+          page,
+          pageSize,
+          totalPages: result.totalRows ? Math.ceil(result.totalRows / pageSize) : null,
+          hasMore: result.totalRows ? page * pageSize < result.totalRows : false,
+        },
+        executedAt: new Date().toISOString(),
+        cached: result.cached || false,
+      };
 
-  let requiredFields = ["dbType"];
-  if (dbType !== "sqlite3") {
-    requiredFields = ["username", "password", "host", "port", "dbType"];
-  } else {
-    requiredFields.push("database");
-  }
-
-  const missingFields = requiredFields.filter(
-    (field) => !req.body[field] && req.body[field] !== "",
-  );
-  if (missingFields.length > 0) {
-    return sendResponse(res, 400, null, `Missing required fields: ${missingFields.join(", ")}`);
-  }
-  if (dbType !== bodyDbType) {
-    return sendResponse(res, 400, null, "dbType in body must match x-db-type in headers");
-  }
-
-  chalk.italic.cyan(
-    `> Attempting to connect to ${dbType} ${
-      dbType === "sqlite3"
-        ? `database: ${database}`
-        : `server @ ${host}:${port} with user ${username}`
-    }`,
-  );
-
-  try {
-    const config =
-      dbType === "sqlite3"
-        ? { dbType, database, ...sqliteConfig }
-        : { username, password, host, port, dbType, database, socketPath };
-
-    // Establish connection via dbContext to leverage existing setup
-    await dbContext.connect(config);
-    const strategy = dbContext.getStrategy();
-    const connectionId = connectionManager.generateConnectionId(config);
-    // Register the live connection without reconnecting
-    connectionManager.registerExistingConnection(connectionId, strategy, config);
-
-    sendResponse(res, 200, {
-      message: `Connected to ${dbType} ${
-        dbType === "sqlite3" ? `database: ${database}` : `server @ ${host}:${port}`
-      }`,
-      timestamp: new Date().toISOString(),
-      database: database || "default",
-      connectionId,
-    });
-  } catch (err) {
-    handleError(res, err, "connecting to database");
-  }
-};
-
-const switchDatabase = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  const { dbName } = req.body;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  if (!dbName) return sendResponse(res, 400, null, "Database name is required");
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    await strategy.switchDatabase(dbName);
-    const info = connectionManager.getConnectionInfo(connectionId);
-    if (info) info.currentDatabase = dbName;
-    sendResponse(res, 200, {
-      message: `Switched to database ${dbName}`,
-      database: dbName,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    handleError(res, err, "switching database");
-  }
-};
-
-const executeBatch = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  const { queries, dbName } = req.body;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  if (!queries || !Array.isArray(queries) || queries.length === 0) {
-    return sendResponse(res, 400, null, "Queries array is required and must not be empty");
-  }
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
-    const results = [];
-    for (const q of queries) {
-      const result = await strategy.executeQuery(q, { dbName });
-      results.push(result);
+      return this.sendSuccess(res, response);
+    } catch (error) {
+      this.handleError(res, error, "executing query");
     }
-    sendResponse(res, 200, {
-      results,
-      totalQueries: queries.length,
-      executedAt: new Date().toISOString(),
-      mode: "batch",
-    });
-  } catch (err) {
-    handleError(res, err, "executing batch");
-  }
-};
-
-const getConnectionHealth = async (req, res) => {
-  try {
-    const isHealthy = await dbContext.validateConnection();
-    sendResponse(res, 200, {
-      status: isHealthy ? "healthy" : "unhealthy",
-      connected: dbContext.isConnectionActive(),
-      dbType: dbContext.getCurrentDbType(),
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    sendResponse(res, 200, {
-      status: "unhealthy",
-      connected: false,
-      error: err.message,
-      timestamp: new Date().toISOString(),
-    });
-  }
-};
-
-const analyzeQuery = async (req, res) => {
-  const { query } = req.body;
-
-  if (!query) {
-    return sendResponse(res, 400, null, "Query is required");
   }
 
-  try {
-    const trimmedQuery = query.trim().toUpperCase();
-    const isSelect = trimmedQuery.startsWith("SELECT");
-    const isReadOnly = /^(SELECT|SHOW|DESCRIBE|EXPLAIN)\s/i.test(trimmedQuery);
+  /**
+   * Connect to database (legacy method for backward compatibility)
+   */
+  async connect(req, res) {
+    try {
+      const dbType = this._getDbType(req);
+      const {
+        username,
+        password,
+        host,
+        port,
+        dbType: bodyDbType,
+        database,
+        socketPath,
+        ...sqliteConfig
+      } = req.body;
 
-    const analysis = {
-      type: isSelect ? "SELECT" : "OTHER",
-      isReadOnly,
-      requiresTransaction: !isReadOnly,
-      supportsPagination: isSelect,
-      queryLength: query.length,
-    };
+      if (!dbType) {
+        return this.sendError(
+          res,
+          `Database type (${HEADERS.DB_TYPE}) must be specified in headers`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
 
-    sendResponse(res, 200, {
-      query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
-      analysis,
-      analyzedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    handleError(res, err, "analyzing query");
+      // Validate required fields based on database type
+      let requiredFields = ["dbType"];
+      if (dbType !== DB_TYPES.SQLITE) {
+        requiredFields = ["username", "password", "host", "port", "dbType"];
+      } else {
+        requiredFields.push("database");
+      }
+
+      const validation = this.validateRequired(req.body, requiredFields);
+      if (!validation.valid) {
+        return this.sendError(res, validation.error, HTTP_STATUS.BAD_REQUEST);
+      }
+
+      if (dbType !== bodyDbType) {
+        return this.sendError(
+          res,
+          `dbType in body must match ${HEADERS.DB_TYPE} in headers`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      this.logOperation("connect", { dbType, host, database });
+
+      chalk.italic.cyan(
+        `> Attempting to connect to ${dbType} ${
+          dbType === DB_TYPES.SQLITE
+            ? `database: ${database}`
+            : `server @ ${host}:${port} with user ${username}`
+        }`,
+      );
+
+      const config =
+        dbType === DB_TYPES.SQLITE
+          ? { dbType, database, ...sqliteConfig }
+          : { username, password, host, port, dbType, database, socketPath };
+
+      // Establish connection via dbContext
+      await dbContext.connect(config);
+      const strategy = dbContext.getStrategy();
+      const connectionId = connectionManager.generateConnectionId(config);
+
+      // Register existing connection
+      connectionManager.registerExistingConnection(connectionId, strategy, config);
+
+      return this.sendSuccess(res, {
+        message: `Connected to ${dbType} ${
+          dbType === DB_TYPES.SQLITE ? `database: ${database}` : `server @ ${host}:${port}`
+        }`,
+        database: database || "default",
+        connectionId,
+      });
+    } catch (error) {
+      this.handleError(res, error, "connecting to database");
+    }
   }
-};
 
-const getViews = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  const dbName = req.query.dbName || req.body?.dbName;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
-    const info = connectionManager.getConnectionInfo(connectionId);
-    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
-    if (!strategy.getViews)
-      return sendResponse(res, 501, null, "Views not supported for this database type");
-    const views = await strategy.getViews(currentDb);
-    sendResponse(res, 200, {
-      views,
-      count: Array.isArray(views) ? views.length : 0,
-      database: currentDb,
-      retrievedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    handleError(res, err, "fetching views");
-  }
-};
+  /**
+   * Switch database
+   */
+  async switchDatabase(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const { dbName } = req.body;
 
-const getProcedures = async (req, res) => {
-  const connectionId = req.headers["x-connection-id"] || req.headers["X-Connection-Id"];
-  const dbName = req.query.dbName || req.body?.dbName;
-  if (!connectionId) return sendResponse(res, 400, null, "x-connection-id header is required");
-  try {
-    const strategy = connectionManager.getConnection(connectionId);
-    if (dbName && strategy.switchDatabase) await strategy.switchDatabase(dbName);
-    const info = connectionManager.getConnectionInfo(connectionId);
-    const currentDb = dbName || info?.currentDatabase || info?.config?.database;
-    if (!strategy.getProcedures)
-      return sendResponse(res, 501, null, "Procedures not supported for this database type");
-    const procedures = await strategy.getProcedures(currentDb);
-    sendResponse(res, 200, {
-      procedures,
-      count: Array.isArray(procedures) ? procedures.length : 0,
-      database: currentDb,
-      retrievedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    handleError(res, err, "fetching procedures");
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      if (!dbName) {
+        return this.sendError(res, "Database name is required", HTTP_STATUS.BAD_REQUEST);
+      }
+
+      this.logOperation("switchDatabase", { connectionId, dbName });
+      const result = await databaseService.switchDatabase(connectionId, dbName);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "switching database");
+    }
   }
-};
+
+  /**
+   * Execute batch queries
+   */
+  async executeBatch(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const { queries, dbName } = req.body;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      if (!queries || !Array.isArray(queries) || queries.length === 0) {
+        return this.sendError(
+          res,
+          "queries array is required and must not be empty",
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      this.logOperation("executeBatch", { connectionId, count: queries.length });
+      const result = await databaseService.executeBatch(connectionId, queries, dbName);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "executing batch queries");
+    }
+  }
+
+  /**
+   * Get connection health (legacy compatibility)
+   */
+  async getConnectionHealth(req, res) {
+    try {
+      const isHealthy = await dbContext.validateConnection();
+      return this.sendSuccess(res, {
+        status: isHealthy ? "healthy" : "unhealthy",
+        connected: dbContext.isConnectionActive(),
+        dbType: dbContext.getCurrentDbType(),
+      });
+    } catch (error) {
+      return this.sendSuccess(res, {
+        status: "unhealthy",
+        connected: false,
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Analyze query
+   */
+  async analyzeQuery(req, res) {
+    try {
+      const { query } = req.body;
+
+      if (!query) {
+        return this.sendError(res, "query is required", HTTP_STATUS.BAD_REQUEST);
+      }
+
+      const trimmedQuery = query.trim().toUpperCase();
+      const isSelect = trimmedQuery.startsWith("SELECT");
+      const isReadOnly = /^(SELECT|SHOW|DESCRIBE|EXPLAIN)\s/i.test(trimmedQuery);
+
+      const analysis = {
+        type: isSelect ? "SELECT" : "OTHER",
+        isReadOnly,
+        requiresTransaction: !isReadOnly,
+        supportsPagination: isSelect,
+        queryLength: query.length,
+      };
+
+      return this.sendSuccess(res, {
+        query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
+        analysis,
+        analyzedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.handleError(res, error, "analyzing query");
+    }
+  }
+
+  /**
+   * Get views for database
+   */
+  async getViews(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const dbName = req.query.dbName || req.body?.dbName;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (!strategy.getViews) {
+        return this.sendError(
+          res,
+          "Views not supported for this database type",
+          HTTP_STATUS.NOT_IMPLEMENTED,
+        );
+      }
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const views = await strategy.getViews(currentDb);
+
+      return this.sendSuccess(res, {
+        views,
+        count: Array.isArray(views) ? views.length : 0,
+        database: currentDb,
+        retrievedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.handleError(res, error, "fetching views");
+    }
+  }
+
+  /**
+   * Get stored procedures for database
+   */
+  async getProcedures(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const dbName = req.query.dbName || req.body?.dbName;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (!strategy.getProcedures) {
+        return this.sendError(
+          res,
+          "Procedures not supported for this database type",
+          HTTP_STATUS.NOT_IMPLEMENTED,
+        );
+      }
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const procedures = await strategy.getProcedures(currentDb);
+
+      return this.sendSuccess(res, {
+        procedures,
+        count: Array.isArray(procedures) ? procedures.length : 0,
+        database: currentDb,
+        retrievedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.handleError(res, error, "fetching procedures");
+    }
+  }
+
+  /**
+   * Get database service metrics
+   */
+  async getMetrics(req, res) {
+    try {
+      const metrics = databaseService.getMetrics();
+      return this.sendSuccess(res, { metrics });
+    } catch (error) {
+      this.handleError(res, error, "fetching database metrics");
+    }
+  }
+
+  /**
+   * Clear query cache
+   */
+  async clearCache(req, res) {
+    try {
+      databaseService.clearCache();
+      return this.sendSuccess(res, {
+        message: "Query cache cleared successfully",
+      });
+    } catch (error) {
+      this.handleError(res, error, "clearing cache");
+    }
+  }
+}
+
+// Export controller instance with bound methods
+const controller = new DatabaseController();
 
 module.exports = {
-  getDatabases,
-  getTables,
-  getTableInfo,
-  executeQuery,
-  getMultipleTablesInfo,
-  connect,
-  switchDatabase,
-  executeBatch,
-  getConnectionHealth,
-  analyzeQuery,
-  getViews,
-  getProcedures,
+  getDatabases: controller.getDatabases.bind(controller),
+  getTables: controller.getTables.bind(controller),
+  getTableInfo: controller.getTableInfo.bind(controller),
+  executeQuery: controller.executeQuery.bind(controller),
+  getMultipleTablesInfo: controller.getMultipleTablesInfo.bind(controller),
+  connect: controller.connect.bind(controller),
+  switchDatabase: controller.switchDatabase.bind(controller),
+  executeBatch: controller.executeBatch.bind(controller),
+  getConnectionHealth: controller.getConnectionHealth.bind(controller),
+  analyzeQuery: controller.analyzeQuery.bind(controller),
+  getViews: controller.getViews.bind(controller),
+  getProcedures: controller.getProcedures.bind(controller),
+  getMetrics: controller.getMetrics.bind(controller),
+  clearCache: controller.clearCache.bind(controller),
 };

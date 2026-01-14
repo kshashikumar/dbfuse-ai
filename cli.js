@@ -7,6 +7,10 @@ const nodemon = require("nodemon");
 const argv = require("minimist")(process.argv.slice(2));
 const chalk = require("chalk");
 
+const connectionStore = require("./src/config/connection-store");
+const { AI_MODELS } = require("./src/core/constants/ai.constants");
+const { inferProviderFromModel, normalizeProvider } = require("./src/core/env");
+
 const MIN_NODE_VERSION = 16;
 const MIN_NPM_VERSION = 8;
 const [majorVersion] = process.versions.node.split(".").map(Number);
@@ -16,57 +20,46 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
+// Load .env if present
+require("dotenv").config();
+
 const defaultPort = 5000;
 const isVerbose = !!(argv.verbose || argv.v);
 
+// Build CLI model display info from AI_MODELS constants
 const supportedModels = {
   gemini: {
-    models: ["gemini-2.5-flash", "gemini-2.5-pro"],
+    models: AI_MODELS.GEMINI.models,
     note: "Free tier available",
     description: "Google's latest AI models",
   },
   openai: {
-    models: ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4o"],
+    models: AI_MODELS.OPENAI.models,
     note: "Paid",
     description: "OpenAI's ChatGPT models",
   },
   anthropic: {
-    models: [
-      "claude-opus-4-1",
-      "claude-opus-4",
-      "claude-sonnet-4",
-      "claude-3-7-sonnet",
-      "claude-3-5-haiku",
-    ],
+    models: AI_MODELS.ANTHROPIC.models,
     note: "Paid (Haiku most affordable)",
     description: "Anthropic's Claude models",
   },
   mistral: {
-    models: ["mistral-medium-2508", "mistral-large-2411", "mistral-small-2407", "codestral-2508"],
+    models: AI_MODELS.MISTRAL.models,
     note: "Paid",
     description: "Mistral AI's models",
   },
   cohere: {
-    models: [
-      "command-a-03-2025",
-      "command-a-reasoning-08-2025",
-      "command-a-vision-07-2025",
-      "command-r7b-12-2024",
-    ],
+    models: AI_MODELS.COHERE.models,
     note: "Free tier available",
     description: "Cohere's language models",
   },
   huggingface: {
-    models: [
-      "microsoft/DialoGPT-medium",
-      "facebook/blenderbot-400M-distill",
-      "microsoft/DialoGPT-large",
-    ],
+    models: AI_MODELS.HUGGINGFACE.models,
     note: "Free",
     description: "Open-source models via Hugging Face",
   },
   perplexity: {
-    models: ["sonar", "sonar-pro", "sonar-reasoning", "sonar-reasoning-pro", "sonar-deep-research"],
+    models: AI_MODELS.PERPLEXITY.models,
     note: "Paid",
     description: "Perplexity's search-enhanced models",
   },
@@ -89,6 +82,68 @@ function displaySection(title) {
   console.log(chalk.gray("─".repeat(50)));
 }
 
+function redactSensitiveData(message) {
+  if (message === null || message === undefined) {
+    return message;
+  }
+
+  // Handle objects by recursively redacting sensitive keys
+  if (typeof message === "object" && !Array.isArray(message)) {
+    const sensitiveKeys = [
+      "password",
+      "pass",
+      "token",
+      "secret",
+      "key",
+      "apiKey",
+      "apikey",
+      "username",
+      "user",
+      "credential",
+      "dbPassword",
+      "dbpassword",
+      "dbUser",
+      "dbuser",
+      "connectionsKey",
+      "connectionkey",
+    ];
+
+    const redacted = {};
+    for (const [key, value] of Object.entries(message)) {
+      if (sensitiveKeys.some((k) => key.toLowerCase().includes(k))) {
+        redacted[key] = "****";
+      } else if (typeof value === "object") {
+        redacted[key] = redactSensitiveData(value);
+      } else {
+        redacted[key] = value;
+      }
+    }
+    return redacted;
+  }
+
+  // Handle arrays
+  if (Array.isArray(message)) {
+    return message.map((item) => redactSensitiveData(item));
+  }
+
+  // Handle strings by masking common credential patterns
+  let str = String(message);
+
+  // Redact key=value or key:value patterns for sensitive keys
+  str = str.replace(
+    /\b(password|pass|token|secret|key|apikey|credential|username|user)[=:]\s*\S+/gi,
+    "$1=****",
+  );
+
+  // Redact long alphanumeric tokens that look like API keys (20+ chars)
+  str = str.replace(/\b[A-Za-z0-9_-]{20,}\b/g, "****");
+
+  // Redact anything that looks like a connection string with credentials
+  str = str.replace(/\b(\w+):\/\/([^:]+):([^@]+)@/g, "$1://$2:****@");
+
+  return str;
+}
+
 function displaySuccess(message) {
   if (!isVerbose) return;
   console.log(chalk.green.bold(`${message}`));
@@ -96,7 +151,10 @@ function displaySuccess(message) {
 
 function displayInfo(message) {
   if (!isVerbose) return;
-  console.log(chalk.blue(`${message}`));
+  const safeMessage = redactSensitiveData(message);
+  console.log(
+    chalk.blue(typeof safeMessage === "object" ? JSON.stringify(safeMessage) : `${safeMessage}`),
+  );
 }
 
 function displayWarning(message) {
@@ -129,28 +187,162 @@ function askYesNo(question, defaultValue = null) {
   });
 }
 
-async function askForPort() {
+async function askForPort(defaultValue = defaultPort) {
   displaySection("Server Configuration");
-  const port = await askQuestion(`Server port`, defaultPort);
+  const port = await askQuestion(`Server port`, defaultValue);
   const portNumber = parseInt(port, 10);
   return isNaN(portNumber) ? defaultPort : portNumber;
 }
 
-async function askForDatabaseCredentials() {
+async function askForDatabaseCredentials(defaults = { username: "root", password: "root" }) {
   displaySection("Database Configuration");
 
-  const useCustomCreds = await askYesNo("Configure custom database credentials?", false);
+  const useCustomCreds = await askYesNo(
+    "Configure custom database credentials Defaults (root/root)?",
+    false,
+  );
 
   if (!useCustomCreds) {
-    if (isVerbose) displayInfo("Using default credentials (root/root)");
-    return { username: "root", password: "root" };
+    if (isVerbose) displayInfo(`Using default credentials (${defaults.username || "root"}/****)`);
+    return {
+      username: defaults.username || "root",
+      password: defaults.password || "root",
+    };
   }
 
   if (isVerbose) console.log(chalk.cyan("\nEnter your database credentials:"));
-  const username = await askQuestion("   Username", "root");
-  const password = await askQuestion("   Password", "root");
+  const username = await askQuestion("   Username", defaults.username || "root");
+  const password = await askQuestion("   Password", defaults.password || "root");
 
   return { username, password };
+}
+
+async function askForConnectionsKey(existingValue = "") {
+  displaySection("Connection Store Encryption");
+  if (isVerbose) {
+    displayInfo(
+      "Encrypt stored database credentials with AES-256-GCM. Keep this key safe—losing it locks you out of saved connections.",
+    );
+  }
+
+  const hint = existingValue
+    ? "Enter a new encryption key (leave blank to keep current, type 'clear' to disable encryption)"
+    : "Enter an encryption key (leave blank to store connections in plaintext)";
+  const answer = await askQuestion(hint);
+  if (!answer && existingValue) {
+    return existingValue;
+  }
+  if (!answer || answer.toLowerCase() === "clear") {
+    return "";
+  }
+  return answer;
+}
+
+async function canDecryptConnectionStoreWithKey(testKey) {
+  const previous = process.env.DBFUSE_CONNECTIONS_KEY;
+  try {
+    process.env.DBFUSE_CONNECTIONS_KEY = testKey || "";
+    await connectionStore.readConnections();
+    return true;
+  } catch (err) {
+    return false;
+  } finally {
+    process.env.DBFUSE_CONNECTIONS_KEY = previous;
+  }
+}
+
+async function rotateConnectionStoreKey(oldKey, newKey) {
+  const previous = process.env.DBFUSE_CONNECTIONS_KEY;
+  try {
+    process.env.DBFUSE_CONNECTIONS_KEY = oldKey;
+    const records = await connectionStore.readConnections();
+    process.env.DBFUSE_CONNECTIONS_KEY = newKey;
+    await connectionStore.writeConnections(records);
+    return true;
+  } catch (err) {
+    console.error(chalk.red("Failed to re-encrypt saved connections:"), err.message || err);
+    return false;
+  } finally {
+    process.env.DBFUSE_CONNECTIONS_KEY = previous;
+  }
+}
+
+async function promptForExistingKeyOrDeletion() {
+  while (true) {
+    const answer = await askQuestion(
+      "Encrypted connections detected. Enter the previous key, type 'delete' to remove stored connections, or 'abort' to cancel setup",
+    );
+    const normalized = answer.trim().toLowerCase();
+    if (!answer) {
+      displayWarning("A key is required unless you delete the stored connections.");
+      continue;
+    }
+    if (normalized === "abort") {
+      throw new Error("User aborted to supply encryption key later");
+    }
+    if (normalized === "delete") {
+      await connectionStore.deleteConnectionStore();
+      displayWarning("Deleted dbConnections.json. You will start with an empty connections list.");
+      return { action: "deleted" };
+    }
+    const works = await canDecryptConnectionStoreWithKey(answer);
+    if (works) {
+      return { action: "key", key: answer };
+    }
+    displayWarning(
+      "That key did not decrypt the connection store. Try again or type 'delete' to wipe it.",
+    );
+  }
+}
+
+async function ensureConnectionStoreCompatibility(config) {
+  const metadata = connectionStore.inspectConnectionStore();
+  const filePath = metadata.filePath;
+  if (!metadata.exists || !metadata.encrypted) {
+    return;
+  }
+
+  const candidateKey = config.connectionsKey || "";
+  if (candidateKey) {
+    const works = await canDecryptConnectionStoreWithKey(candidateKey);
+    if (works) {
+      return;
+    }
+    displayWarning("Encrypted connections exist but the provided key did not work.");
+  } else {
+    displayWarning("Encrypted connections exist but no key was provided.");
+  }
+
+  try {
+    const resolution = await promptForExistingKeyOrDeletion();
+    if (resolution.action === "deleted") {
+      config.connectionsKey = candidateKey;
+      return;
+    }
+
+    const recoveredKey = resolution.key;
+    if (!candidateKey || candidateKey === recoveredKey) {
+      config.connectionsKey = recoveredKey;
+      return;
+    }
+
+    const rotate = await askYesNo(
+      "Re-encrypt existing connections with the new key you entered earlier?",
+      true,
+    );
+    if (rotate) {
+      const rotated = await rotateConnectionStoreKey(recoveredKey, candidateKey);
+      if (rotated) {
+        displaySuccess("Re-encrypted stored connections with the new key.");
+        return;
+      }
+      displayWarning("Rotation failed. Continuing with the previous key.");
+    }
+    config.connectionsKey = recoveredKey;
+  } catch (err) {
+    console.error(chalk.red("Setup aborted:"), err.message || err);
+    process.exit(1);
+  }
 }
 
 async function askForAIUsage() {
@@ -245,6 +437,12 @@ function syncEnvFile(config) {
       PORT: String(config.port || existing.PORT || 5000),
       DBFUSE_USERNAME: config.dbUsername || existing.DBFUSE_USERNAME || "root",
       DBFUSE_PASSWORD: config.dbPassword || existing.DBFUSE_PASSWORD || "root",
+      DBFUSE_CONNECTIONS_KEY:
+        config.connectionsKey !== undefined
+          ? config.connectionsKey
+          : existing.DBFUSE_CONNECTIONS_KEY || "",
+      MCP_ENABLED: process.env.MCP_ENABLED || existing.MCP_ENABLED || "true",
+      MCP_ONLY: process.env.MCP_ONLY || existing.MCP_ONLY || "false",
     };
     const content = Object.entries(merged)
       .map(([k, v]) => {
@@ -293,8 +491,19 @@ function validateEnvironment() {
 function displayConfiguration(config) {
   displaySection("Configuration Summary");
   console.log(chalk.white(`Server Port: ${chalk.green(config.port)}`));
-  console.log(chalk.white(`Database User: ${chalk.green(config.dbUsername)}`));
-  console.log(chalk.white(`Database Pass: ${chalk.green("*".repeat(config.dbPassword.length))}`));
+  console.log(chalk.white(`Database User: ${chalk.green("Configured")}`));
+  console.log(chalk.white(`Database Pass: ${chalk.green("Configured")}`));
+
+  // Display MCP mode
+  const mcpOnly = process.env.MCP_ONLY === "true";
+  const mcpEnabled = process.env.MCP_ENABLED === "true";
+  if (mcpOnly) {
+    console.log(chalk.white(`Server Mode: ${chalk.cyan("MCP Only (no web server)")}`));
+  } else if (mcpEnabled) {
+    console.log(chalk.white(`Server Mode: ${chalk.green("Web + MCP (both running)")}`));
+  } else {
+    console.log(chalk.white(`Server Mode: ${chalk.green("Web Only")}`));
+  }
 
   if (config.aiEnabled) {
     console.log(chalk.white(`AI Provider: ${chalk.green(config.aiProvider)}`));
@@ -305,6 +514,12 @@ function displayConfiguration(config) {
   } else {
     console.log(chalk.white(`AI Features: ${chalk.yellow("Disabled")}`));
   }
+
+  console.log(
+    chalk.white(
+      `Connection Store Encryption: ${config.connectionsKey ? chalk.green("Enabled") : chalk.yellow("Disabled")}`,
+    ),
+  );
 }
 
 async function main() {
@@ -312,24 +527,64 @@ async function main() {
     displayHeader();
     validateEnvironment();
 
+    const envPort = Number.isNaN(parseInt(process.env.PORT, 10))
+      ? null
+      : parseInt(process.env.PORT, 10);
+    const defaultPortChoice = envPort || defaultPort;
+
+    // Check if running in MCP-only mode (non-interactive)
+    // --mcp flag means run ONLY MCP server, not web server
+    const isNonInteractiveMcp = !!(argv.mcp || process.env.MCP_ONLY === "true");
+
     // Handle command line arguments
     const config = {
-      port: argv.p || (await askForPort()),
       aiEnabled: false,
       aiProvider: "",
       aiModel: "",
       apiKey: "",
+      connectionsKey: process.env.DBFUSE_CONNECTIONS_KEY || "",
     };
+
+    config.port = argv.p
+      ? parseInt(argv.p, 10) || defaultPortChoice
+      : await askForPort(defaultPortChoice);
 
     // Database credentials
     if (argv.dbuser && argv.dbpass) {
       config.dbUsername = argv.dbuser;
       config.dbPassword = argv.dbpass;
     } else {
-      const dbCreds = await askForDatabaseCredentials();
+      const dbCreds = await askForDatabaseCredentials({
+        username: process.env.DBFUSE_USERNAME || "root",
+        password: process.env.DBFUSE_PASSWORD || "root",
+      });
       config.dbUsername = dbCreds.username;
       config.dbPassword = dbCreds.password;
     }
+
+    const argConnectionsKey =
+      argv["connections-key"] ?? argv.connectionsKey ?? argv.connectionskey ?? null;
+    if (typeof argConnectionsKey === "string") {
+      config.connectionsKey = argConnectionsKey.toLowerCase() === "clear" ? "" : argConnectionsKey;
+    } else if (!config.connectionsKey) {
+      const existingKey = process.env.DBFUSE_CONNECTIONS_KEY || "";
+      config.connectionsKey = await askForConnectionsKey(existingKey);
+    }
+
+    const rawResetFlag =
+      argv["connections-reset"] ??
+      argv.connectionsReset ??
+      argv.resetConnections ??
+      argv["reset-connections"];
+    const shouldResetConnections =
+      rawResetFlag !== undefined &&
+      (rawResetFlag === "" || rawResetFlag === true || rawResetFlag === "true");
+    if (shouldResetConnections) {
+      await connectionStore.deleteConnectionStore();
+      displayWarning("Cleared saved connections via --connections-reset before startup.");
+    }
+
+    await ensureConnectionStoreCompatibility(config);
 
     // AI Configuration
     if (argv.model && argv.apikey) {
@@ -362,10 +617,18 @@ async function main() {
       }
 
       if (!provider) {
-        console.error(chalk.red("Invalid AI model specified. Exiting..."));
+        const inferredProvider = inferProviderFromModel(argv.model);
+        provider = normalizeProvider(inferredProvider);
+      }
+
+      if (!provider) {
+        console.error(chalk.red("Unable to infer AI provider from the model. Exiting..."));
         process.exit(1);
       }
       config.aiProvider = provider;
+    } else if (isNonInteractiveMcp) {
+      // In forced MCP mode, disable AI setup if not explicitly provided via args
+      config.aiEnabled = false;
     } else {
       config.aiEnabled = await askForAIUsage();
 
@@ -384,6 +647,17 @@ async function main() {
     process.env.AI_PROVIDER = config.aiProvider;
     process.env.AI_MODEL = config.aiModel;
     process.env.AI_API_KEY = config.apiKey;
+    process.env.DBFUSE_CONNECTIONS_KEY = config.connectionsKey || "";
+
+    // Set MCP mode: --mcp flag means MCP_ONLY (no web server)
+    // Otherwise, MCP runs alongside web server (MCP_ENABLED=true by default)
+    if (isNonInteractiveMcp) {
+      process.env.MCP_ONLY = "true";
+      process.env.MCP_ENABLED = "true";
+    } else {
+      process.env.MCP_ENABLED = process.env.MCP_ENABLED || "true";
+      process.env.MCP_ONLY = process.env.MCP_ONLY || "false";
+    }
 
     // Provider-specific API key export (for downstream model loader convenience)
     if (config.apiKey) {
@@ -413,19 +687,22 @@ async function main() {
     const scriptPath = path.resolve(__dirname, "src/index.js");
     nodemon({
       script: scriptPath,
-      stdout: false,
+      stdout: false, // MCP needs stdout for communication, so we might need to be careful here.
       cwd: path.resolve(__dirname),
       watch: [path.resolve(__dirname, "src")],
       ignore: ["**/node_modules/**", "**/.vscode/**", "**/workspaceStorage/**"],
+      // For MCP, we might want to disable stdout capturing if it interferes, but we need the script's stdout to reach the user.
     });
 
     nodemon.on("start", () => {
-      console.log(
-        chalk.green.bold(
-          `> Login Credentials: ${process.env.DBFUSE_USERNAME} / ${process.env.DBFUSE_PASSWORD}`,
-        ),
-      );
-      console.log(chalk.green.bold(`DBFuse AI is running on http://localhost:${config.port}`));
+      if (!config.mcpEnabled) {
+        console.log(
+          chalk.green.bold(
+            "> Login credentials are configured via DBFUSE_USERNAME / DBFUSE_PASSWORD",
+          ),
+        );
+        console.log(chalk.green.bold(`DBFuse AI is running on http://localhost:${config.port}`));
+      }
     });
 
     nodemon.on("restart", (files) => {

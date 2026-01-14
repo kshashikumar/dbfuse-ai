@@ -3,14 +3,16 @@ const express = require("express");
 
 const dbController = require("../controllers/dbController");
 const dbRouter = express.Router();
+const { HEADERS, HEADER_VARIANTS } = require("../core/constants");
+const { getHeaderValue } = require("../utils/http");
 
 // Middleware to validate database type header
 const validateDbType = (req, res, next) => {
-  const dbType = req.headers["x-db-type"] || req.headers["X-DB-Type"] || req.headers["X-Db-Type"];
+  const dbType = getHeaderValue(req.headers, HEADER_VARIANTS.DB_TYPE);
 
   if (!dbType) {
     return res.status(400).json({
-      error: "Database type (x-db-type) must be specified in headers",
+      error: `Database type (${HEADERS.DB_TYPE}) must be specified in headers`,
     });
   }
 

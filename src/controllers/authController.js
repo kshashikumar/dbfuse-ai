@@ -1,70 +1,124 @@
+/**
+ * @fileoverview Authentication controller
+ * Handles login, logout, and authentication verification
+ */
+
+const BaseController = require("./base/BaseController");
 const logger = require("../utils/logger");
+const {
+  decodeCredentials,
+  encodeCredentials,
+  verifyCredentials,
+  isAuthRequired,
+  sanitizeUsername,
+  validateTokenFormat,
+} = require("../utils/authUtil");
+const {
+  AUTH_MESSAGES,
+  BASIC_TOKEN_RESPONSE_KEY,
+  AUTH_STATE_KEY,
+  HTTP_STATUS,
+} = require("../core/constants");
 
-function _decodeCredentials(header) {
-  try {
-    const base64Part = header.trim().replace(/^Basic\s+/i, "");
-    const clean = base64Part.replace(/^Basic\s+/i, "");
+class AuthController extends BaseController {
+  /**
+   * Handle user login
+   */
+  async login(req, res) {
+    try {
+      const { username, password } = req.body;
 
-    const decoded = Buffer.from(clean, "base64").toString("ascii");
-    const [username, password] = decoded.split(":");
-    return [username, password];
-  } catch (err) {
-    // avoid logging raw header; just log error
-    logger.warn("Failed to decode basic auth credentials");
-    return [];
+      // Validate required fields
+      const validation = this.validateRequired(req.body, ["username", "password"]);
+      if (!validation.valid) {
+        logger.warn("Login attempt with missing credentials");
+        return this.sendError(res, AUTH_MESSAGES.MISSING_CREDENTIALS, HTTP_STATUS.BAD_REQUEST);
+      }
+
+      // Sanitize username
+      const sanitizedUsername = sanitizeUsername(username);
+
+      // If no auth configured, allow with dummy token
+      if (!isAuthRequired()) {
+        logger.info("No auth configured; allowing login without validation");
+        return this.sendSuccess(res, {
+          [BASIC_TOKEN_RESPONSE_KEY]: encodeCredentials(sanitizedUsername, sanitizedUsername),
+          message: "Login successful",
+        });
+      }
+
+      // Verify credentials
+      if (verifyCredentials(sanitizedUsername, password)) {
+        logger.info("User authenticated successfully:", sanitizedUsername);
+        return this.sendSuccess(res, {
+          [BASIC_TOKEN_RESPONSE_KEY]: encodeCredentials(sanitizedUsername, password),
+          message: "Login successful",
+        });
+      }
+
+      // Invalid credentials
+      logger.warn("Invalid login attempt for user:", sanitizedUsername);
+      return this.sendError(res, AUTH_MESSAGES.INVALID_CREDENTIALS, HTTP_STATUS.UNAUTHORIZED);
+    } catch (error) {
+      this.handleError(res, error, "login");
+    }
+  }
+
+  /**
+   * Handle user logout
+   */
+  async logout(req, res) {
+    try {
+      logger.info("User logged out");
+      return this.sendSuccess(res, {
+        message: AUTH_MESSAGES.LOGOUT_SUCCESS,
+      });
+    } catch (error) {
+      this.handleError(res, error, "logout");
+    }
+  }
+
+  /**
+   * Check if user is authenticated
+   */
+  async isAuthenticated(req, res) {
+    try {
+      // If no auth required, always return authenticated
+      if (!isAuthRequired()) {
+        logger.debug("No auth required; returning authenticated");
+        return this.sendSuccess(res, { [AUTH_STATE_KEY]: true });
+      }
+
+      // Validate token format
+      const authHeader = req.headers.authorization || "";
+      if (!validateTokenFormat(authHeader)) {
+        logger.debug("Invalid token format");
+        return this.sendSuccess(res, { [AUTH_STATE_KEY]: false }, HTTP_STATUS.UNAUTHORIZED);
+      }
+
+      // Decode and verify credentials
+      const [username, password] = decodeCredentials(authHeader);
+
+      if (verifyCredentials(username, password)) {
+        logger.debug("User is authenticated:", username);
+        return this.sendSuccess(res, { [AUTH_STATE_KEY]: true });
+      }
+
+      logger.debug("Authentication verification failed");
+      return this.sendSuccess(res, { [AUTH_STATE_KEY]: false }, HTTP_STATUS.UNAUTHORIZED);
+    } catch (error) {
+      this.handleError(res, error, "isAuthenticated");
+    }
   }
 }
 
-function basicToken(username, password) {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
-}
-
-const login = async (req, res) => {
-  const username = req.body.username;
-  const password = req.body.password;
-
-  // Basic validation
-  if (!username || !password) {
-    logger.warn("Missing username or password in login request");
-    return res.status(400).json({ error: "Username and password are required" });
-  }
-
-  if (!process.env.DBFUSE_USERNAME || !process.env.DBFUSE_PASSWORD) {
-    logger.info("No auth env set; allowing login without validation");
-    return res.status(200).json({ basicToken: basicToken(username, username) }); // Dummy token
-  }
-
-  if (username === process.env.DBFUSE_USERNAME && password === process.env.DBFUSE_PASSWORD) {
-    return res.status(200).json({ basicToken: basicToken(username, password) });
-  }
-
-  // Invalid credentials
-  logger.warn("Invalid credentials provided");
-  return res.status(401).json({ error: "Invalid username or password" });
-};
-
-const logout = async (req, res) => {
-  return res.status(200).json({ message: "Logged out successfully" });
-};
-
-const isAuthenticated = async (req, res) => {
-  if (!process.env.DBFUSE_USERNAME || !process.env.DBFUSE_PASSWORD) {
-    logger.info("No auth env set; returning authenticated without validation");
-    return res.status(200).json({ authenticated: true });
-  }
-
-  const [username, password] = _decodeCredentials(req.headers.authorization || "");
-  // Do not log raw credentials
-  if (username === process.env.DBFUSE_USERNAME && password === process.env.DBFUSE_PASSWORD) {
-    logger.debug("User is authenticated");
-    return res.status(200).json({ authenticated: true });
-  }
-  return res.status(401).json({ authenticated: false });
-};
+// Export controller instance with bound methods
+const controller = new AuthController();
 
 module.exports = {
-  login,
-  logout,
-  isAuthenticated,
-  _decodeCredentials,
+  login: controller.login.bind(controller),
+  logout: controller.logout.bind(controller),
+  isAuthenticated: controller.isAuthenticated.bind(controller),
+  // Export for testing
+  _controller: controller,
 };

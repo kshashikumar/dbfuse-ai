@@ -1,18 +1,18 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject, OnInit } from '@angular/core';
-import { Router, RouterModule } from '@angular/router';
-import { ThemeService } from '@lib/services/theme';
-import { LayoutHorizontalComponent } from './lib/components/layouts/layout-horizontal/layout-horizontal.component';
+import { Component, OnInit, inject } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
+import { ThemeService } from '@core/services/theme';
 
 @Component({
     selector: 'app-root',
     standalone: true,
-    imports: [CommonModule, RouterModule],
+    imports: [CommonModule, RouterOutlet],
     templateUrl: './app.component.html',
 })
 export class AppComponent implements OnInit {
     private readonly _themeService = inject(ThemeService);
-    private readonly _router = inject(Router);
 
-    ngOnInit(): void {}
+    ngOnInit(): void {
+        this._themeService.init();
+    }
 }

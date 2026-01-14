@@ -13,6 +13,7 @@ services:
       # Optional basic auth for UI (set both to enable)
       - DBFUSE_USERNAME=admin
       - DBFUSE_PASSWORD=admin
+      - DBFUSE_CONNECTIONS_KEY=
       # AI configuration (optional)
       - AI_PROVIDER=gemini
       - AI_MODEL=gemini-2.5-flash

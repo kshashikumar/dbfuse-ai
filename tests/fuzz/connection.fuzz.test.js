@@ -39,5 +39,4 @@ fc.assert(
   { numRuns: 250 },
 );
 
-// eslint-disable-next-line no-console
 console.log("connection.fuzz.test: passed 250 randomized cases");
