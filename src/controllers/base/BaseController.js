@@ -100,8 +100,40 @@ class BaseController {
       return this.sendError(res, error.message, HTTP_STATUS.UNAUTHORIZED);
     }
 
+    // API key errors (AI providers)
+    if (error.message.includes("API key is missing") || error.message.includes("API key")) {
+      return this.sendError(res, error.message, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // API quota/rate limit errors
+    if (
+      error.message.includes("429") ||
+      error.message.includes("quota") ||
+      error.message.includes("rate limit")
+    ) {
+      return this.sendError(
+        res,
+        `AI Provider Error: ${error.message}`,
+        HTTP_STATUS.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // AI Provider errors (400-level errors from OpenAI, Anthropic, etc.)
+    if (
+      error.message.includes("400") ||
+      error.message.includes("401") ||
+      error.message.includes("403") ||
+      error.message.includes("404")
+    ) {
+      return this.sendError(res, `AI Provider Error: ${error.message}`, HTTP_STATUS.BAD_REQUEST);
+    }
+
     // Generic server error
-    this.sendError(res, GENERAL_ERRORS.INTERNAL_SERVER_ERROR, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return this.sendError(
+      res,
+      GENERAL_ERRORS.INTERNAL_SERVER_ERROR,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR,
+    );
   }
 
   /**

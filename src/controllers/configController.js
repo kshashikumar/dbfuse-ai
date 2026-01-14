@@ -7,10 +7,31 @@ const BaseController = require("./base/BaseController");
 const logger = require("../utils/logger");
 const configService = require("../services/ConfigService");
 const connectionStore = require("../config/connection-store");
-const { CONFIG_MESSAGES, HTTP_STATUS } = require("../core/constants");
+const { CONFIG_MESSAGES, HTTP_STATUS, AI_MODELS, FALLBACK_AI_MODEL } = require("../core/constants");
 const { CONFIG_PORT_RESTART_DELAY_MS, ENV_KEYS } = require("../core/env");
 
 class ConfigController extends BaseController {
+  /**
+   * Return AI providers and model catalog for UI/clients
+   */
+  async getAIModelCatalog(req, res) {
+    try {
+      this.logOperation("getAIModelCatalog", { user: req.user });
+
+      const providers = Object.values(AI_MODELS).map((entry) => ({
+        provider: entry.provider,
+        models: entry.models,
+      }));
+
+      return this.sendSuccess(res, {
+        providers,
+        fallbackModel: FALLBACK_AI_MODEL,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.handleError(res, error, "reading AI model catalog");
+    }
+  }
   /**
    * Read current configuration
    */
@@ -124,4 +145,5 @@ const controller = new ConfigController();
 module.exports = {
   readConfig: controller.readConfig.bind(controller),
   updateConfig: controller.updateConfig.bind(controller),
+  getAIModelCatalog: controller.getAIModelCatalog.bind(controller),
 };

@@ -320,6 +320,12 @@ export interface ModelOption {
     models: string[];
 }
 
+export interface AIModelCatalogResponse {
+    providers: ModelOption[];
+    fallbackModel?: string;
+    generatedAt?: string;
+}
+
 export interface OpenAIPromptResponse {
     query: string;
     explanation?: string;

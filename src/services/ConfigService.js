@@ -130,10 +130,11 @@ class ConfigService {
   _applyOverlays(config) {
     ENV_OVERLAY_KEYS.forEach((key) => {
       if (process.env[key] != null && process.env[key] !== "") {
-        config[key] =
-          key === ENV_KEYS.PORT
-            ? parseInt(process.env[key]) || config[key] || SERVER_DEFAULT_PORT
-            : process.env[key];
+        if (key === ENV_KEYS.PORT) {
+          config[key] = parseInt(process.env[key]) || config[key] || SERVER_DEFAULT_PORT;
+        } else {
+          config[key] = process.env[key];
+        }
       }
     });
 

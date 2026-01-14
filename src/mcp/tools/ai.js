@@ -77,8 +77,10 @@ const generateSqlTool = {
     // Detect if prompt mentions specific table
     const promptMatch = prompt.match(/for (\w+) table/i);
     const requestedTable = promptMatch ? promptMatch[1] : null;
+    const dbType = connectionInfo?.config?.dbType || "mysql";
 
     let dbMeta;
+    let safeSelection = [];
 
     if (requestedTable && catalog.includes(requestedTable)) {
       // Single table: fetch detailed schema
@@ -108,15 +110,15 @@ const generateSqlTool = {
       ];
     } else {
       // Multiple tables: use LLM intelligent selection
-      const relevantTableNames = await llmService.selectRelevantTables({
-        catalog,
-        prompt,
-        maxTables: 5,
-      });
+      const relevantTableNames = await llmService.selectRelevantTables(dbType, catalog, prompt);
+      safeSelection =
+        relevantTableNames && relevantTableNames.length
+          ? relevantTableNames.slice(0, Math.min(5, relevantTableNames.length))
+          : catalog.slice(0, Math.min(5, catalog.length));
 
       // Fetch schema for selected tables
       const tableSchemas = [];
-      for (const tableName of relevantTableNames) {
+      for (const tableName of safeSelection) {
         try {
           const tableInfo = await strategy.getTableInfo(targetDatabase, tableName);
           tableSchemas.push({
@@ -150,11 +152,13 @@ const generateSqlTool = {
     }
 
     // Generate SQL using LLM
-    const result = await llmService.generateSQL({
+    const query = await llmService.generateSQLQuery(
       dbMeta,
+      targetDatabase,
       prompt,
-      dbType: connectionInfo?.config?.dbType || "mysql",
-    });
+      dbType,
+      requestedTable ? [requestedTable] : safeSelection,
+    );
 
     return {
       content: [
@@ -165,10 +169,9 @@ const generateSqlTool = {
               connectionId: runtimeId,
               database: targetDatabase,
               prompt,
-              generatedSQL: result.sql,
-              explanation: result.explanation,
+              generatedSQL: query,
               tablesAnalyzed: dbMeta[0].tables.map((t) => t.name),
-              confidence: result.confidence || "N/A",
+              confidence: "N/A",
             },
             null,
             2,

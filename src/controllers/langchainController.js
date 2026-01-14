@@ -78,6 +78,7 @@ class LangChainController extends BaseController {
       const requestedTable = promptMatch ? promptMatch[1] : null;
 
       let dbMeta;
+      let safeSelection = [];
 
       if (requestedTable && catalog.includes(requestedTable)) {
         // Single-table: fetch its columns only
@@ -106,7 +107,7 @@ class LangChainController extends BaseController {
       } else {
         // Multi-table: phase A selection, then fetch selected table schemas
         const selectedTables = await llmService.selectRelevantTables(dbType, catalog, prompt);
-        const safeSelection =
+        safeSelection =
           selectedTables && selectedTables.length
             ? selectedTables
             : catalog.slice(0, Math.min(12, catalog.length));
@@ -146,7 +147,13 @@ class LangChainController extends BaseController {
       }
 
       // Generate the SQL query using LLMService
-      const query = await llmService.generateSQLQuery(dbMeta, currentDb, prompt, dbType);
+      const query = await llmService.generateSQLQuery(
+        dbMeta,
+        currentDb,
+        prompt,
+        dbType,
+        requestedTable ? [requestedTable] : safeSelection,
+      );
 
       return this.sendSuccess(res, { query });
     } catch (error) {

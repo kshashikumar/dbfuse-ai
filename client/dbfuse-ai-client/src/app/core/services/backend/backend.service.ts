@@ -16,6 +16,7 @@ import {
     ConnectionConfig,
     ConfigData,
     SaveResponse,
+    AIModelCatalogResponse,
 } from '@core/utils/storage/storage.types';
 import { getSafeSessionStorage } from '@core/utils/browser-adapter';
 
@@ -67,6 +68,12 @@ export class BackendService {
 
     updateConfigData(config: ConfigData): Observable<SaveResponse> {
         return this._http.post<SaveResponse>(`${this.BASE_URL}/api/config`, config, { headers: this.getHeaders() });
+    }
+
+    getAIModelCatalog(): Observable<AIModelCatalogResponse> {
+        return this._http.get<AIModelCatalogResponse>(`${this.BASE_URL}/api/config/ai-models`, {
+            headers: this.getHeaders(),
+        });
     }
 
     // Database Information Methods

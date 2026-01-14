@@ -34,45 +34,7 @@ export class ConfigComponent implements OnInit {
     showConnectionsKey = false;
     pendingConnectionsReset = false;
 
-    supportedModels: ModelOption[] = [
-        {
-            provider: 'Gemini',
-            models: ['gemini-2.5-flash', 'gemini-2.5-pro'],
-        },
-        {
-            provider: 'OpenAI',
-            models: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4o'],
-        },
-        {
-            provider: 'Anthropic',
-            models: ['claude-opus-4-1', 'claude-opus-4', 'claude-sonnet-4', 'claude-3-7-sonnet', 'claude-3-5-haiku'],
-        },
-        {
-            provider: 'Mistral',
-            models: ['mistral-medium-2508', 'mistral-large-2411', 'mistral-small-2407', 'codestral-2508'],
-        },
-        {
-            provider: 'Cohere',
-            models: [
-                'command-a-03-2025',
-                'command-a-reasoning-08-2025',
-                'command-a-vision-07-2025',
-                'command-r7b-12-2024',
-            ],
-        },
-        {
-            provider: 'HuggingFace',
-            models: [
-                'meta-llama/Llama-3.1-8B-Instruct',
-                'meta-llama/Llama-3.1-70B-Instruct',
-                'Qwen/Qwen2.5-7B-Instruct',
-            ],
-        },
-        {
-            provider: 'Perplexity',
-            models: ['sonar', 'sonar-pro', 'sonar-reasoning', 'sonar-reasoning-pro', 'sonar-deep-research'],
-        },
-    ];
+    supportedModels: ModelOption[] = [];
 
     constructor(
         private backendService: BackendService,
@@ -82,6 +44,20 @@ export class ConfigComponent implements OnInit {
 
     ngOnInit() {
         this.loadConfig();
+        this.loadModelCatalog();
+    }
+
+    loadModelCatalog() {
+        this.backendService.getAIModelCatalog().subscribe({
+            next: (data) => {
+                this.supportedModels = data?.providers || [];
+            },
+            error: (error) => {
+                console.warn('Failed to load AI model catalog.', error);
+                this.supportedModels = [];
+                this.showMessage('Failed to load AI model catalog', 'error');
+            },
+        });
     }
 
     loadConfig() {

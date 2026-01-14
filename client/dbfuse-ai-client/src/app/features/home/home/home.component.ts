@@ -591,9 +591,21 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
                 },
                 error: (error) => {
                     console.error('AI prompt error:', error);
-                    alert('Failed to generate SQL query. Please ensure you are connected to a database.');
+                    alert(this.getAIErrorMessage(error));
                 },
             });
+    }
+
+    private getAIErrorMessage(error: any): string {
+        const fallback = 'Failed to generate SQL query. Please try again.';
+        if (!error) return fallback;
+        if (typeof error === 'string') return error;
+        const body = error.error;
+        if (typeof body === 'string') return body;
+        if (body && typeof body.error === 'string') return body.error;
+        if (body && typeof body.message === 'string') return body.message;
+        if (typeof error.message === 'string') return error.message;
+        return fallback;
     }
 
     onDiscQueryClick() {

@@ -21,6 +21,7 @@ class LLMService {
     this.llm = null;
     this.config = {
       model: null,
+      modelKey: null,
       apiKey: null,
     };
     this.metrics = {
@@ -41,12 +42,10 @@ class LLMService {
    * Initialize or reinitialize the LLM with given configuration
    */
   initialize(model, apiKey) {
-    const aiModel = (
-      model ||
-      argv.model ||
-      process.env.AI_MODEL ||
-      FALLBACK_AI_MODEL
-    ).toLowerCase();
+    const aiModel = String(
+      model || argv.model || process.env.AI_MODEL || FALLBACK_AI_MODEL || "",
+    ).trim();
+    const modelKey = aiModel.toLowerCase();
 
     let key = apiKey || argv.apikey || null;
     if (!key) {
@@ -60,13 +59,24 @@ class LLMService {
     }
 
     // Only reinitialize if config changed
-    if (this.config.model !== aiModel || this.config.apiKey !== key) {
+    if (this.config.modelKey !== modelKey || this.config.apiKey !== key) {
       this.config.model = aiModel;
+      this.config.modelKey = modelKey;
       this.config.apiKey = key;
-      this.llm = getAIModel(aiModel, key);
-      logger.info(
-        `LLM initialized with model: ${aiModel}, provider: ${inferProviderFromModel(aiModel)}`,
-      );
+
+      try {
+        this.llm = getAIModel(aiModel, key);
+        const provider = inferProviderFromModel(aiModel);
+        logger.info(`LLM initialized with model: ${aiModel}, provider: ${provider}`);
+      } catch (error) {
+        logger.error("Failed to initialize LLM:", {
+          model: aiModel,
+          provider: inferProviderFromModel(aiModel),
+          hasApiKey: !!key,
+          error: error.message,
+        });
+        throw new Error(`Failed to initialize AI model ${aiModel}: ${error.message}`);
+      }
     }
 
     return this.llm;
@@ -108,7 +118,7 @@ Respond with only JSON: {"tables":[...]} (names must come from the catalog).`;
         { role: "user", content: selectorUser },
       ]);
 
-      const text = (sel?.text || "").trim();
+      const text = this._extractResponseText(sel).trim();
 
       // Parse strict JSON with fallback
       let jsonText = text;
@@ -127,7 +137,12 @@ Respond with only JSON: {"tables":[...]} (names must come from the catalog).`;
 
       return filtered;
     } catch (error) {
-      logger.warn(`Table selection fallback: ${error.message}`);
+      logger.warn(`Table selection fallback: ${error.message}`, {
+        model: this.config.model,
+        provider: require("../core/env").inferProviderFromModel(this.config.model || ""),
+        catalogSize: catalog.length,
+        errorDetails: error.stack,
+      });
 
       // Fallback: heuristic matching from user prompt
       const p = String(userPrompt || "").toLowerCase();
@@ -233,6 +248,25 @@ Output only the SQL query.
   }
 
   /**
+   * Extract text content from LLM response across providers
+   */
+  _extractResponseText(response) {
+    if (!response) return "";
+    if (typeof response.text === "string") return response.text;
+    if (typeof response.content === "string") return response.content;
+    if (Array.isArray(response.content)) {
+      return response.content
+        .map((part) => {
+          if (typeof part === "string") return part;
+          if (part && typeof part.text === "string") return part.text;
+          return "";
+        })
+        .join("");
+    }
+    return String(response.content ?? "");
+  }
+
+  /**
    * Clean and validate generated SQL query
    */
   _cleanQuery(rawQuery) {
@@ -259,7 +293,7 @@ Output only the SQL query.
    * @param {string} dbType - Database type (mysql, postgresql, etc.)
    * @returns {Promise<string>} - Generated SQL query
    */
-  async generateSQLQuery(dbMeta, databaseName, prompt, dbType) {
+  async generateSQLQuery(dbMeta, databaseName, prompt, dbType, selectedTables) {
     this.metrics.totalRequests++;
     this.metrics.sqlGenerationCalls++;
     const startTime = Date.now();
@@ -299,18 +333,31 @@ Output only the SQL query.
       } else {
         // Multi-table query with intelligent table selection
         const catalog = buildTableCatalog([selectedDatabase]);
-        const selectedTables = await this.selectRelevantTables(dbType, catalog, prompt);
+        const preselected =
+          Array.isArray(selectedTables) && selectedTables.length
+            ? selectedTables
+            : (selectedDatabase.tables || [])
+                .filter((table) => Array.isArray(table.columns) && table.columns.length > 0)
+                .map((table) => table.name);
+        const resolvedSelection =
+          preselected.length > 0
+            ? preselected
+            : await this.selectRelevantTables(dbType, catalog, prompt);
+        let filteredSelection = resolvedSelection.filter((t) => catalog.includes(t));
+        if (!filteredSelection.length) {
+          filteredSelection = catalog.slice(0, Math.min(12, catalog.length));
+        }
 
         // Filter to selected tables
         const filteredDb = {
           name: selectedDatabase.name,
-          tables: (selectedDatabase.tables || []).filter((t) => selectedTables.includes(t.name)),
+          tables: (selectedDatabase.tables || []).filter((t) => filteredSelection.includes(t.name)),
         };
 
         // Build schema DSL with tier 2, fallback to tier 1 if too large
-        let schemaDSL = buildSchemaDSL([filteredDb], selectedTables, 2);
+        let schemaDSL = buildSchemaDSL([filteredDb], filteredSelection, 2);
         if (schemaDSL.length > this.BUDGET_CHARS) {
-          schemaDSL = buildSchemaDSL([filteredDb], selectedTables, 1);
+          schemaDSL = buildSchemaDSL([filteredDb], filteredSelection, 1);
           logger.debug("Schema DSL exceeded budget, using tier 1");
         }
 
@@ -330,7 +377,7 @@ Output only the SQL query.
         { role: "user", content: prompt },
       ]);
 
-      const cleanedQuery = this._cleanQuery(result.text);
+      const cleanedQuery = this._cleanQuery(this._extractResponseText(result));
 
       this.metrics.successfulRequests++;
       this._recordResponseTime(Date.now() - startTime);
@@ -341,7 +388,22 @@ Output only the SQL query.
     } catch (error) {
       this.metrics.failedRequests++;
       this._recordResponseTime(Date.now() - startTime);
-      throw error;
+
+      // Enhanced error logging
+      logger.error("LLM SQL Generation Failed:", {
+        model: this.config.model,
+        provider: this.config.model
+          ? require("../core/env").inferProviderFromModel(this.config.model)
+          : "unknown",
+        hasApiKey: !!this.config.apiKey,
+        errorMessage: error.message,
+        errorStack: error.stack,
+        dbType: dbType,
+        databaseName: databaseName,
+        promptLength: prompt?.length || 0,
+      });
+
+      throw new Error(`Failed to generate SQL query: ${error.message}`);
     }
   }
 

@@ -8,6 +8,8 @@ const argv = require("minimist")(process.argv.slice(2));
 const chalk = require("chalk");
 
 const connectionStore = require("./src/config/connection-store");
+const { AI_MODELS } = require("./src/core/constants/ai.constants");
+const { inferProviderFromModel, normalizeProvider } = require("./src/core/env");
 
 const MIN_NODE_VERSION = 16;
 const MIN_NPM_VERSION = 8;
@@ -24,54 +26,40 @@ require("dotenv").config();
 const defaultPort = 5000;
 const isVerbose = !!(argv.verbose || argv.v);
 
+// Build CLI model display info from AI_MODELS constants
 const supportedModels = {
   gemini: {
-    models: ["gemini-2.5-flash", "gemini-2.5-pro"],
+    models: AI_MODELS.GEMINI.models,
     note: "Free tier available",
     description: "Google's latest AI models",
   },
   openai: {
-    models: ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4o"],
+    models: AI_MODELS.OPENAI.models,
     note: "Paid",
     description: "OpenAI's ChatGPT models",
   },
   anthropic: {
-    models: [
-      "claude-opus-4-1",
-      "claude-opus-4",
-      "claude-sonnet-4",
-      "claude-3-7-sonnet",
-      "claude-3-5-haiku",
-    ],
+    models: AI_MODELS.ANTHROPIC.models,
     note: "Paid (Haiku most affordable)",
     description: "Anthropic's Claude models",
   },
   mistral: {
-    models: ["mistral-medium-2508", "mistral-large-2411", "mistral-small-2407", "codestral-2508"],
+    models: AI_MODELS.MISTRAL.models,
     note: "Paid",
     description: "Mistral AI's models",
   },
   cohere: {
-    models: [
-      "command-a-03-2025",
-      "command-a-reasoning-08-2025",
-      "command-a-vision-07-2025",
-      "command-r7b-12-2024",
-    ],
+    models: AI_MODELS.COHERE.models,
     note: "Free tier available",
     description: "Cohere's language models",
   },
   huggingface: {
-    models: [
-      "microsoft/DialoGPT-medium",
-      "facebook/blenderbot-400M-distill",
-      "microsoft/DialoGPT-large",
-    ],
+    models: AI_MODELS.HUGGINGFACE.models,
     note: "Free",
     description: "Open-source models via Hugging Face",
   },
   perplexity: {
-    models: ["sonar", "sonar-pro", "sonar-reasoning", "sonar-reasoning-pro", "sonar-deep-research"],
+    models: AI_MODELS.PERPLEXITY.models,
     note: "Paid",
     description: "Perplexity's search-enhanced models",
   },
@@ -629,7 +617,12 @@ async function main() {
       }
 
       if (!provider) {
-        console.error(chalk.red("Invalid AI model specified. Exiting..."));
+        const inferredProvider = inferProviderFromModel(argv.model);
+        provider = normalizeProvider(inferredProvider);
+      }
+
+      if (!provider) {
+        console.error(chalk.red("Unable to infer AI provider from the model. Exiting..."));
         process.exit(1);
       }
       config.aiProvider = provider;
