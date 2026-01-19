@@ -37,7 +37,22 @@ export class ConnectionModalComponent implements OnInit, OnChanges {
     @Output() onCancel = new EventEmitter<void>();
 
     connectionForm!: FormGroup;
-    dbTypes: DatabaseType[] = ['mysql2', 'pg', 'sqlite3', 'mssql', 'oracledb'];
+    dbTypes: DatabaseType[] = [
+        'mysql2',
+        'pg',
+        'sqlite3',
+        'mssql',
+        'oracledb',
+        'mongodb',
+        'redis',
+        'couchdb',
+        'cosmosdb',
+        'firestore',
+        'dynamodb',
+        'cassandra',
+        'hbase',
+        'memcached',
+    ];
     showPassword = false;
     showAdvanced = false;
     currentFields: FormFieldConfig[] = [];
@@ -101,6 +116,15 @@ export class ConnectionModalComponent implements OnInit, OnChanges {
             sqlite3: 'SQLite',
             mssql: 'SQL Server',
             oracledb: 'Oracle DB',
+            mongodb: 'MongoDB',
+            redis: 'Redis',
+            couchdb: 'CouchDB',
+            cosmosdb: 'Azure Cosmos DB',
+            firestore: 'Firestore',
+            dynamodb: 'DynamoDB',
+            cassandra: 'Cassandra',
+            hbase: 'HBase',
+            memcached: 'Memcached',
         };
         return labels[type] || type;
     }

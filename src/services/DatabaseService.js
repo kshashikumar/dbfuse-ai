@@ -91,6 +91,57 @@ class DatabaseService {
     this.transactionHooks = [];
   }
 
+  _inferOperationType(query) {
+    if (typeof query === "string") return "query";
+    if (!query || typeof query !== "object") return "query";
+
+    const mode = String(query.mode || query.payload?.mode || "").toLowerCase();
+    if (mode === "command") return "command";
+    if (mode === "crud") return "crud";
+    if (mode === "query") return "query";
+
+    const op =
+      query.operation ||
+      query.action ||
+      query.command ||
+      query.payload?.operation ||
+      query.payload?.action ||
+      query.payload?.command;
+    const normalized = op ? String(op).toLowerCase() : "";
+
+    if (!normalized) return "query";
+    if (normalized.includes("index")) return "indexes";
+    if (normalized === "explain") return "explain";
+    if (normalized === "command") return "command";
+
+    const crudPrefixes = [
+      "insert",
+      "update",
+      "delete",
+      "replace",
+      "upsert",
+      "create",
+      "set",
+      "add",
+      "put",
+      "patch",
+      "batch",
+    ];
+    if (normalized === "del" || normalized === "remove") return "crud";
+    if (crudPrefixes.some((prefix) => normalized.startsWith(prefix))) return "crud";
+
+    return "query";
+  }
+
+  _applySafePaging(options = {}) {
+    const page = Math.max(1, parseInt(options.page) || 1);
+    const pageSize = Math.min(
+      Math.max(1, parseInt(options.pageSize) || DEFAULT_CONFIG.PAGE_SIZE),
+      DEFAULT_CONFIG.MAX_PAGE_SIZE,
+    );
+    return { ...options, page, pageSize };
+  }
+
   /**
    * Update metrics after query execution
    * @private
@@ -232,6 +283,107 @@ class DatabaseService {
   }
 
   /**
+   * Get collections for NoSQL connections
+   * @param {string} connectionId - Connection ID
+   * @param {string} dbName - Database name (optional)
+   * @returns {Promise<Object>} Collections list
+   */
+  async getCollections(connectionId, dbName = null) {
+    const startTime = Date.now();
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const collections = await strategy.getCollections(currentDb);
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      return {
+        collections,
+        count: Array.isArray(collections) ? collections.length : 0,
+        database: currentDb,
+        retrievedAt: new Date().toISOString(),
+        executionTime,
+      };
+    } catch (error) {
+      this._updateMetrics(false, Date.now() - startTime);
+      throw error;
+    }
+  }
+
+  /**
+   * Get collection information for NoSQL connections
+   * @param {string} connectionId - Connection ID
+   * @param {string} collection - Collection name
+   * @param {string} dbName - Database name (optional)
+   * @returns {Promise<Object>} Collection information
+   */
+  async getCollectionInfo(connectionId, collection, dbName = null) {
+    const startTime = Date.now();
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (dbName && strategy.switchDatabase) {
+        await strategy.switchDatabase(dbName);
+      }
+
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const collectionInfo = await strategy.getCollectionInfo(currentDb, collection);
+      const normalized =
+        typeof strategy.normalizeMetadata === "function"
+          ? strategy.normalizeMetadata(collectionInfo)
+          : collectionInfo;
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      return {
+        ...normalized,
+        retrievedAt: new Date().toISOString(),
+        executionTime,
+      };
+    } catch (error) {
+      this._updateMetrics(false, Date.now() - startTime);
+      throw error;
+    }
+  }
+
+  /**
+   * Get key patterns for cache/key-value stores
+   * @param {string} connectionId - Connection ID
+   * @param {string} pattern - Pattern (optional)
+   * @returns {Promise<Object>} Key pattern results
+   */
+  async getKeyPatterns(connectionId, pattern = "*") {
+    const startTime = Date.now();
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+      const keys = await strategy.getKeys(pattern || "*");
+
+      const executionTime = Date.now() - startTime;
+      this._updateMetrics(true, executionTime);
+
+      return {
+        keys,
+        count: Array.isArray(keys) ? keys.length : 0,
+        pattern: pattern || "*",
+        retrievedAt: new Date().toISOString(),
+        executionTime,
+      };
+    } catch (error) {
+      this._updateMetrics(false, Date.now() - startTime);
+      throw error;
+    }
+  }
+
+  /**
    * Get table information
    * @param {string} connectionId - Connection ID
    * @param {string} table - Table name
@@ -258,12 +410,16 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = dbName || info?.currentDatabase || info?.config?.database;
       const tableInfo = await strategy.getTableInfo(currentDb, table);
+      const normalized =
+        typeof strategy.normalizeMetadata === "function"
+          ? strategy.normalizeMetadata(tableInfo)
+          : tableInfo;
 
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime);
 
       const result = {
-        ...tableInfo,
+        ...normalized,
         retrievedAt: new Date().toISOString(),
         executionTime,
       };
@@ -297,13 +453,20 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = dbName || info?.currentDatabase || info?.config?.database;
       const tableDetails = await strategy.getMultipleTablesInfo(currentDb, tables);
+      const normalized = Array.isArray(tableDetails)
+        ? tableDetails.map((info) =>
+            typeof strategy.normalizeMetadata === "function"
+              ? strategy.normalizeMetadata(info)
+              : info,
+          )
+        : tableDetails;
 
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime);
 
       return {
-        tables: tableDetails,
-        count: tableDetails.length,
+        tables: normalized,
+        count: Array.isArray(normalized) ? normalized.length : 0,
         database: currentDb,
         retrievedAt: new Date().toISOString(),
         executionTime,
@@ -322,24 +485,31 @@ class DatabaseService {
    * @returns {Promise<Object>} Query results
    */
   async executeQuery(connectionId, query, options = {}) {
-    const {
-      page = 1,
-      pageSize = DEFAULT_CONFIG.PAGE_SIZE,
-      dbName = null,
-      useCache = true,
-    } = options;
+    const { dbName = null, useCache = true } = options;
+    const safeOptions = this._applySafePaging(options);
+    const { page, pageSize } = safeOptions;
 
     const startTime = Date.now();
+    const isStringQuery = typeof query === "string";
 
     try {
       // Check rate limits
-      const allowed = await this._checkRateLimits(connectionId, query);
+      let rateLimitPayload = query;
+      if (!isStringQuery) {
+        try {
+          rateLimitPayload = JSON.stringify(query);
+        } catch {
+          rateLimitPayload = "[object]";
+        }
+      }
+
+      const allowed = await this._checkRateLimits(connectionId, rateLimitPayload);
       if (!allowed) {
         throw new Error("Query rate limit exceeded");
       }
 
       // Check cache for SELECT queries
-      const isSelect = query.trim().toUpperCase().startsWith("SELECT");
+      const isSelect = isStringQuery && query.trim().toUpperCase().startsWith("SELECT");
       if (useCache && isSelect) {
         const cacheKey = { query, page, pageSize, dbName };
         const cached = this.queryCache.get(connectionId, "query", cacheKey);
@@ -358,7 +528,14 @@ class DatabaseService {
         await strategy.switchDatabase(dbName);
       }
 
+      const opType = this._inferOperationType(query);
+      if (strategy.validateOperation) {
+        strategy.validateOperation(opType, query);
+      }
+
       const result = await strategy.executeQuery(query, { page, pageSize, dbName });
+      const normalized =
+        typeof strategy.normalizeResult === "function" ? strategy.normalizeResult(result) : result;
 
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime);
@@ -371,12 +548,12 @@ class DatabaseService {
       });
 
       // Cache SELECT results
-      if (useCache && isSelect && result.rows) {
+      if (useCache && isSelect && normalized.rows) {
         const cacheKey = { query, page, pageSize, dbName };
-        this.queryCache.set(connectionId, "query", cacheKey, result);
+        this.queryCache.set(connectionId, "query", cacheKey, normalized);
       }
 
-      return result;
+      return normalized;
     } catch (error) {
       const executionTime = Date.now() - startTime;
       this._updateMetrics(false, executionTime);
@@ -527,6 +704,61 @@ class DatabaseService {
         healthy: false,
         error: error.message,
       };
+    }
+  }
+
+  /**
+   * Fetch query results in a specific range for virtual scrolling
+   * @param {string} connectionId - Connection identifier
+   * @param {string} query - Base query without LIMIT/OFFSET (for SQL)
+   * @param {number} offset - Starting row index (0-based)
+   * @param {number} limit - Number of rows to fetch
+   * @param {string} collectionName - Collection name (for NoSQL)
+   * @param {object} filter - Query filter (for NoSQL)
+   * @param {object} options - Additional options
+   * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
+   */
+  async fetchQueryRange(
+    connectionId,
+    query,
+    offset,
+    limit,
+    collectionName = null,
+    filter = {},
+    options = {},
+  ) {
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+
+      if (!strategy) {
+        throw new Error(`No strategy found for connection: ${connectionId}`);
+      }
+
+      // Determine if this is a SQL or NoSQL database
+      const isNoSQL = collectionName !== null;
+
+      if (isNoSQL) {
+        // NoSQL path (MongoDB, etc.)
+        if (typeof strategy.fetchRowRange === "function") {
+          return await strategy.fetchRowRange(collectionName, filter, offset, limit, options);
+        } else {
+          throw new Error(`fetchRowRange not implemented for this database type`);
+        }
+      } else {
+        // SQL path
+        if (!query) {
+          throw new Error("Query is required for SQL databases");
+        }
+
+        if (typeof strategy.fetchRowRange === "function") {
+          return await strategy.fetchRowRange(query, offset, limit);
+        } else {
+          throw new Error(`fetchRowRange not implemented for this database type`);
+        }
+      }
+    } catch (error) {
+      logger.error(`fetchQueryRange error: ${error.message}`);
+      throw error;
     }
   }
 }

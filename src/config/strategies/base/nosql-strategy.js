@@ -23,8 +23,7 @@ class NoSQLStrategy extends DatabaseStrategy {
 
   // NoSQL specific query execution
   async executeQuery(query, options = {}) {
-    // NoSQL might not use string queries in the same way, but we can support JSON-like queries or specific command objects
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeQuery"));
+    return super.executeQuery(query, options);
   }
 }
 

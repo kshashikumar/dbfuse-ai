@@ -451,6 +451,65 @@ class MSSQLStrategy extends SQLStrategy {
 
     return tableDetails;
   }
+
+  /**
+   * Fetch rows in a specific range for virtual scrolling
+   * @param {string} query - Base query without LIMIT/OFFSET
+   * @param {number} offset - Starting row index (0-based)
+   * @param {number} limit - Number of rows to fetch
+   * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
+   */
+  async fetchRowRange(query, offset, limit) {
+    if (!this.pool) throw new Error("SQL Server connection not initialized");
+
+    // Validate inputs
+    if (offset < 0 || limit < 1 || limit > 1000) {
+      throw new Error("Invalid range parameters");
+    }
+
+    // Strip trailing semicolon if present
+    let workingQuery = query.trim().replace(/;+$/, "");
+
+    // SQL Server requires ORDER BY with OFFSET/FETCH
+    // If query doesn't have ORDER BY, add a default one
+    if (!modifiedQuery.toLowerCase().includes("order by")) {
+      modifiedQuery += " ORDER BY (SELECT NULL)";
+    }
+
+    // Fetch one extra row to determine if there are more results
+    const paginatedQuery = `
+      ${modifiedQuery}
+      OFFSET ${offset} ROWS
+      FETCH NEXT ${limit + 1} ROWS ONLY
+    `;
+
+    try {
+      const result = await this.pool.request().query(paginatedQuery);
+      const rows = result.recordset;
+      const hasMore = rows.length > limit;
+
+      // Remove extra row if present
+      const resultRows = hasMore ? rows.slice(0, limit) : rows;
+
+      // Extract column information from first row if available
+      let columns = [];
+      if (resultRows.length > 0) {
+        columns = Object.keys(resultRows[0]).map((key) => ({
+          name: key,
+          type: typeof resultRows[0][key],
+        }));
+      }
+
+      return {
+        rows: resultRows,
+        hasMore,
+        columns,
+      };
+    } catch (error) {
+      logger.error(`SQL Server fetchRowRange error: ${error.message}`);
+      throw error;
+    }
+  }
 }
 
 module.exports = MSSQLStrategy;

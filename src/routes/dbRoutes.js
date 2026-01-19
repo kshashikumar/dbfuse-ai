@@ -58,6 +58,9 @@ dbRouter.post(
 // Database information routes
 dbRouter.get("/databases", dbController.getDatabases);
 dbRouter.get("/tables", dbController.getTables);
+dbRouter.get("/collections", dbController.getCollections);
+dbRouter.get("/collection-info", dbController.getCollectionInfo);
+dbRouter.get("/key-patterns", dbController.getKeyPatterns);
 dbRouter.get(
   "/views",
   dbController.getViews ||
@@ -70,6 +73,13 @@ dbRouter.get(
   dbController.getProcedures ||
     ((req, res) => {
       res.status(501).json({ error: "Procedures endpoint not implemented yet" });
+    }),
+);
+dbRouter.get(
+  "/strategy-metadata",
+  dbController.getStrategyMetadata ||
+    ((req, res) => {
+      res.status(501).json({ error: "Strategy metadata endpoint not implemented yet" });
     }),
 );
 

@@ -5,6 +5,14 @@ const MSSQLStrategy = require("./strategies/mssql-strategy");
 const OracleStrategy = require("./strategies/oracle-strategy");
 const MongoDBStrategy = require("./strategies/mongodb-strategy");
 const RedisStrategy = require("./strategies/redis-strategy");
+const CouchDBStrategy = require("./strategies/couchdb-strategy");
+const CosmosDBStrategy = require("./strategies/cosmosdb-strategy");
+const FirestoreStrategy = require("./strategies/firestore-strategy");
+const DynamoDBStrategy = require("./strategies/dynamodb-strategy");
+const CassandraStrategy = require("./strategies/cassandra-strategy");
+const HBaseStrategy = require("./strategies/hbase-strategy");
+const MemcachedStrategy = require("./strategies/memcached-strategy");
+const { DEFAULT_CONFIG } = require("../core/constants");
 
 const strategyMap = Object.freeze({
   mysql2: MySQLStrategy,
@@ -14,6 +22,13 @@ const strategyMap = Object.freeze({
   oracledb: OracleStrategy,
   mongodb: MongoDBStrategy,
   redis: RedisStrategy,
+  couchdb: CouchDBStrategy,
+  cosmosdb: CosmosDBStrategy,
+  firestore: FirestoreStrategy,
+  dynamodb: DynamoDBStrategy,
+  cassandra: CassandraStrategy,
+  hbase: HBaseStrategy,
+  memcached: MemcachedStrategy,
 });
 
 // Strategy metadata for agent introspection
@@ -57,17 +72,130 @@ const strategyMetadata = Object.freeze({
     name: "MongoDB",
     version: "4.x+",
     type: "nosql",
-    capabilities: ["transactions", "batch", "aggregation"],
-    supportedFeatures: ["collections", "indexes", "aggregation-pipelines"],
+    capabilities: [
+      "transactions",
+      "batch",
+      "aggregation",
+      "crud",
+      "indexes",
+      "commands",
+      "explain",
+    ],
+    supportedFeatures: ["collections", "indexes", "aggregation-pipelines", "documents", "explain"],
   },
   redis: {
     name: "Redis",
     version: "6.x+",
     type: "cache",
-    capabilities: ["pipelining", "pub-sub", "transactions"],
-    supportedFeatures: ["key-value", "data-structures", "persistence"],
+    capabilities: ["pipelining", "pub-sub", "transactions", "crud", "ttl", "commands"],
+    supportedFeatures: ["key-value", "data-structures", "persistence", "keys"],
+  },
+  couchdb: {
+    name: "CouchDB",
+    version: "3.x+",
+    type: "nosql",
+    capabilities: ["crud", "query", "mango", "indexes", "documents"],
+    supportedFeatures: ["databases", "mango", "documents", "indexes"],
+  },
+  cosmosdb: {
+    name: "Azure Cosmos DB",
+    version: "SQL API",
+    type: "nosql",
+    capabilities: ["crud", "query", "indexes", "documents", "batch"],
+    supportedFeatures: ["databases", "containers", "sql-api", "partition-keys"],
+  },
+  firestore: {
+    name: "Firestore",
+    version: "1.x",
+    type: "nosql",
+    capabilities: ["crud", "query", "documents"],
+    supportedFeatures: ["collections", "documents", "collection-group"],
+  },
+  dynamodb: {
+    name: "DynamoDB",
+    version: "2012+",
+    type: "nosql",
+    capabilities: ["crud", "query", "batch", "indexes"],
+    supportedFeatures: ["tables", "gsi", "lsi", "items"],
+  },
+  cassandra: {
+    name: "Cassandra",
+    version: "4.x+",
+    type: "nosql",
+    capabilities: ["crud", "query", "cql"],
+    supportedFeatures: ["keyspaces", "tables", "indexes", "columns"],
+  },
+  hbase: {
+    name: "HBase",
+    version: "2.x+",
+    type: "nosql",
+    capabilities: ["crud", "scan"],
+    supportedFeatures: ["tables", "column-families", "rows"],
+  },
+  memcached: {
+    name: "Memcached",
+    version: "1.x",
+    type: "cache",
+    capabilities: ["crud", "ttl", "commands"],
+    supportedFeatures: ["key-value", "stats"],
   },
 });
+
+function buildCapabilityModel(dbType) {
+  const meta = strategyMetadata[dbType] || {};
+  const type = meta.type || "sql";
+  const caps = Array.isArray(meta.capabilities) ? meta.capabilities : [];
+
+  const operations = new Set();
+  const features = new Set();
+
+  if (type === "sql") {
+    operations.add("query");
+    operations.add("crud");
+    operations.add("indexes");
+    operations.add("explain");
+    features.add("pagination");
+    if (caps.includes("transactions")) {
+      features.add("transactions");
+    }
+  } else {
+    operations.add("query");
+    if (caps.includes("crud") || caps.includes("documents")) {
+      operations.add("crud");
+    }
+    if (caps.includes("commands") || caps.includes("command")) {
+      operations.add("command");
+    }
+    if (caps.includes("indexes")) {
+      operations.add("indexes");
+    }
+    if (caps.includes("explain")) {
+      operations.add("explain");
+    }
+    if (caps.includes("aggregation")) {
+      features.add("aggregation");
+    }
+    if (caps.includes("ttl")) {
+      features.add("ttl");
+    }
+    if (caps.includes("transactions")) {
+      features.add("transactions");
+    }
+    if (caps.includes("batch")) {
+      features.add("batch");
+    }
+  }
+
+  return {
+    operations: Array.from(operations),
+    features: Array.from(features),
+    limits: {
+      maxPageSize: DEFAULT_CONFIG.MAX_PAGE_SIZE,
+      maxScan: DEFAULT_CONFIG.MAX_PAGE_SIZE,
+      supportsWrite: true,
+    },
+  };
+}
 
 // Strategy hooks for agent framework
 const hooks = {
@@ -177,6 +305,8 @@ async function createStrategy(dbType) {
     }
 
     const strategy = new Strategy();
+    strategy.dbType = dbType;
+    strategy.capabilityModel = buildCapabilityModel(dbType);
     await executeHooks("strategy.created", { dbType, strategy });
     await executeHooks("strategy.validated", { dbType, validation });
 

@@ -125,7 +125,22 @@ export class ConnectionService {
             errors.push('Database type is required');
         }
 
-        const validDbTypes = ['mysql2', 'pg', 'sqlite3', 'mssql', 'oracledb'];
+        const validDbTypes = [
+            'mysql2',
+            'pg',
+            'sqlite3',
+            'mssql',
+            'oracledb',
+            'mongodb',
+            'redis',
+            'couchdb',
+            'cosmosdb',
+            'firestore',
+            'dynamodb',
+            'cassandra',
+            'hbase',
+            'memcached',
+        ];
         if (config.dbType && !validDbTypes.includes(config.dbType)) {
             errors.push(`Database type must be one of: ${validDbTypes.join(', ')}`);
         }
@@ -135,8 +150,30 @@ export class ConnectionService {
             if (!config.database?.trim()) {
                 errors.push('Database file path is required for SQLite');
             }
+        } else if (
+            config.dbType === 'mongodb' ||
+            config.dbType === 'redis' ||
+            config.dbType === 'couchdb' ||
+            config.dbType === 'cosmosdb' ||
+            config.dbType === 'cassandra' ||
+            config.dbType === 'hbase' ||
+            config.dbType === 'memcached'
+        ) {
+            if (!config.host?.trim()) {
+                errors.push('Host is required');
+            }
+            if (!config.port || config.port <= 0 || config.port > 65535) {
+                errors.push('Valid port number is required (1-65535)');
+            }
+        } else if (config.dbType === 'firestore' || config.dbType === 'dynamodb') {
+            if (config.host && !config.host.trim()) {
+                errors.push('Host must be a valid hostname');
+            }
+            if (config.port && (config.port <= 0 || config.port > 65535)) {
+                errors.push('Valid port number is required (1-65535)');
+            }
         } else {
-            // Non-SQLite databases require these fields
+            // SQL databases require these fields
             if (!config.username?.trim()) {
                 errors.push('Username is required');
             }
@@ -226,6 +263,88 @@ export class ConnectionService {
                 poolSize: 10,
                 poolTimeout: 30,
             },
+            mongodb: {
+                dbType: 'mongodb',
+                host: 'localhost',
+                port: 27017,
+                database: '',
+                username: '',
+                password: '',
+                ssl: false,
+                connectionTimeout: 60000,
+                poolSize: 10,
+            },
+            redis: {
+                dbType: 'redis',
+                host: 'localhost',
+                port: 6379,
+                database: '0',
+                username: '',
+                password: '',
+                ssl: false,
+                connectionTimeout: 60000,
+            },
+            couchdb: {
+                dbType: 'couchdb',
+                host: 'localhost',
+                port: 5984,
+                database: '',
+                username: '',
+                password: '',
+                ssl: false,
+                connectionTimeout: 60000,
+            },
+            cosmosdb: {
+                dbType: 'cosmosdb',
+                host: 'localhost',
+                port: 443,
+                database: '',
+                password: '',
+                ssl: true,
+                connectionTimeout: 60000,
+            },
+            firestore: {
+                dbType: 'firestore',
+                host: 'localhost',
+                port: 443,
+                database: '',
+                ssl: true,
+                connectionTimeout: 60000,
+            },
+            dynamodb: {
+                dbType: 'dynamodb',
+                host: 'localhost',
+                port: 443,
+                database: '',
+                username: '',
+                password: '',
+                ssl: true,
+                connectionTimeout: 60000,
+            },
+            cassandra: {
+                dbType: 'cassandra',
+                host: 'localhost',
+                port: 9042,
+                database: '',
+                username: '',
+                password: '',
+                connectionTimeout: 60000,
+                poolSize: 10,
+            },
+            hbase: {
+                dbType: 'hbase',
+                host: 'localhost',
+                port: 9090,
+                database: '',
+                connectionTimeout: 60000,
+            },
+            memcached: {
+                dbType: 'memcached',
+                host: 'localhost',
+                port: 11211,
+                database: '',
+                connectionTimeout: 60000,
+            },
         };
 
         return defaults[dbType] || {};
@@ -248,6 +367,23 @@ export class ConnectionService {
             return `${connection.database} (${connection.dbType})`;
         }
         const dbInfo = connection.database ? `/${connection.database}` : '';
+        if (!connection.host || !connection.port) {
+            return `${connection.database || 'default'} (${connection.dbType})`;
+        }
+        const noUserTypes = new Set([
+            'mongodb',
+            'redis',
+            'couchdb',
+            'cosmosdb',
+            'firestore',
+            'dynamodb',
+            'cassandra',
+            'hbase',
+            'memcached',
+        ]);
+        if (noUserTypes.has(connection.dbType) || !connection.username) {
+            return `${connection.host}:${connection.port}${dbInfo} (${connection.dbType})`;
+        }
         return `${connection.username}@${connection.host}:${connection.port}${dbInfo} (${connection.dbType})`;
     }
 

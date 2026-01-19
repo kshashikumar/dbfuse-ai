@@ -5,6 +5,10 @@ const { buildTableCatalog, buildSchemaDSL } = require("../utils/schemaCompressor
 const { inferProviderFromModel, PROVIDER_API_ENV_KEYS } = require("../core/env");
 
 const argv = require("minimist")(process.argv.slice(2));
+const DEFAULT_LLM_REQUEST_TIMEOUT_MS = Number(process.env.LLM_REQUEST_TIMEOUT_MS) || 30000;
+const DEFAULT_TABLE_SELECT_TIMEOUT_MS =
+  Number(process.env.LLM_TABLE_SELECT_TIMEOUT_MS) ||
+  Math.min(DEFAULT_LLM_REQUEST_TIMEOUT_MS, 15000);
 
 /**
  * LLMService - Singleton service for Language Model operations
@@ -34,6 +38,8 @@ class LLMService {
     };
     this.lastResponseTimes = [];
     this.BUDGET_CHARS = SCHEMA_PROMPT_BUDGET_CHARS;
+    this.requestTimeoutMs = DEFAULT_LLM_REQUEST_TIMEOUT_MS;
+    this.tableSelectTimeoutMs = DEFAULT_TABLE_SELECT_TIMEOUT_MS;
 
     LLMService.instance = this;
   }
@@ -112,11 +118,14 @@ User request: ${userPrompt}
 Respond with only JSON: {"tables":[...]} (names must come from the catalog).`;
 
     try {
-      const llm = this.getLLM();
-      const sel = await llm.call([
-        { role: "system", content: selectorSystem },
-        { role: "user", content: selectorUser },
-      ]);
+      const sel = await this.callWithTimeout(
+        [
+          { role: "system", content: selectorSystem },
+          { role: "user", content: selectorUser },
+        ],
+        this.tableSelectTimeoutMs,
+        "Table selection timed out.",
+      );
 
       const text = this._extractResponseText(sel).trim();
 
@@ -266,13 +275,31 @@ Output only the SQL query.
     return String(response.content ?? "");
   }
 
+  extractResponseText(response) {
+    return this._extractResponseText(response);
+  }
+
+  async callWithTimeout(messages, timeoutMs = this.requestTimeoutMs, errorMessage) {
+    const llm = this.getLLM();
+    return this._withTimeout(
+      llm.call(messages),
+      timeoutMs,
+      errorMessage || "LLM request timed out.",
+    );
+  }
+
   /**
    * Clean and validate generated SQL query
    */
   _cleanQuery(rawQuery) {
-    const cleaned = rawQuery
-      .trim()
-      .replace(/^["']|["']$/g, "") // Remove surrounding quotes
+    let cleaned = String(rawQuery || "").trim();
+    if (
+      (cleaned.startsWith("'") && cleaned.endsWith("'")) ||
+      (cleaned.startsWith('"') && cleaned.endsWith('"'))
+    ) {
+      cleaned = cleaned.slice(1, -1);
+    }
+    cleaned = cleaned
       .replace(/\s+/g, " ") // Replace multiple spaces/newlines with single space
       .replace(/;{2,}/g, ";") // Ensure only one semicolon
       .replace(/[\r\n]+/g, ""); // Remove line breaks
@@ -282,6 +309,35 @@ Output only the SQL query.
     }
 
     return cleaned;
+  }
+
+  _withTimeout(promise, timeoutMs, errorMessage) {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return promise;
+    }
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(errorMessage));
+      }, timeoutMs);
+
+      promise
+        .then((value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+        })
+        .catch((error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
   }
 
   /**
@@ -370,12 +426,14 @@ Output only the SQL query.
         );
       }
 
-      // Call LLM
-      const llm = this.getLLM();
-      const result = await llm.call([
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt },
-      ]);
+      const result = await this.callWithTimeout(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
+        ],
+        this.requestTimeoutMs,
+        "SQL generation timed out.",
+      );
 
       const cleanedQuery = this._cleanQuery(this._extractResponseText(result));
 

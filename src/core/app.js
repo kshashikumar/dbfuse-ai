@@ -57,8 +57,9 @@ const ROUTE_PATHS = Object.freeze({
   SQL: `${API_BASE}/sql`,
   SQL_HEALTH: `${API_BASE}/sql/health`,
   CONNECTIONS: `${API_BASE}/connections`,
-  OPENAI: `${API_BASE}/openai`,
   CONFIG: `${API_BASE}/config`,
+  RAG: `${API_BASE}/rag`,
+  CHAT: `${API_BASE}/chat`,
 });
 
 const ROUTES_WITH_AUTH_BYPASS = Object.freeze([

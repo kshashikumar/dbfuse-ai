@@ -56,20 +56,85 @@ export interface DbMeta {
     tables: Table[];
 }
 
-export interface OpenAIPromptResponse {
-    query: string;
+export type TaskStepType = 'plan' | 'execute' | 'result' | 'followup';
+export type TaskStepStatus = 'pending' | 'running' | 'done' | 'failed';
+
+export interface TaskStep {
+    taskId: string;
+    stepId: string;
+    type: TaskStepType;
+    description: string;
+    dbType: string;
+    operation: string;
+    capabilityRequired: string | null;
+    payload: any;
+    requiresConfirmation: boolean;
+    dependsOn: string[];
+    status: TaskStepStatus;
+    result: any;
+    error: string | null;
+    startedAt: string | null;
+    finishedAt: string | null;
 }
 
-export interface OpenAIPrompt {
-    dbMeta: DbMeta[];
-    databaseName: string;
-    prompt: string;
+export interface RAGPromptResponse {
+    queryId?: string;
+    taskId?: string;
+    query: string;
+    strategy?: string;
+    analysis?: Record<string, any>;
+    explanation?: string | null;
+    suggestions?: string[] | null;
+    taskSteps?: TaskStep[];
+    context?: {
+        tables?: {
+            name: string;
+            score?: number;
+            columns?: string[];
+        }[];
+        relationships?: {
+            from?: string;
+            to?: string;
+            metadata?: Record<string, any> | null;
+        }[];
+    } | null;
+    timestamp?: string;
+}
+
+export interface RAGHistoryEntry {
+    id: string;
+    nlQuery: string;
+    generatedQuery: string;
+    strategy?: string | null;
+    success?: boolean;
+    executionTime?: number | null;
+    feedback?: Record<string, any> | null;
+    createdAt?: number | null;
+}
+
+export interface RAGHistoryResponse {
+    history: RAGHistoryEntry[];
+    timestamp?: string;
 }
 
 // Enhanced storage types to support new backend features
 
 // Database Types
-export type DatabaseType = 'mysql2' | 'pg' | 'sqlite3' | 'mssql' | 'oracledb';
+export type DatabaseType =
+    | 'mysql2'
+    | 'pg'
+    | 'sqlite3'
+    | 'mssql'
+    | 'oracledb'
+    | 'mongodb'
+    | 'redis'
+    | 'couchdb'
+    | 'cosmosdb'
+    | 'firestore'
+    | 'dynamodb'
+    | 'cassandra'
+    | 'hbase'
+    | 'memcached';
 
 // Basic Connection Interface (existing structure)
 export interface Connection {
@@ -142,6 +207,20 @@ export interface Connection {
     lockingMode?: string;
     foreignKeys?: boolean;
     readOnly?: boolean;
+
+    // NoSQL optional fields
+    endpoint?: string;
+    region?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    sessionToken?: string;
+    projectId?: string;
+    key?: string;
+    primaryKey?: string;
+    contactPoints?: string[];
+    dataCenter?: string;
+    protocol?: string;
+    options?: Record<string, any>;
 }
 
 // Connection Configuration for creating/editing connections
@@ -209,6 +288,14 @@ export interface TableInfo {
         definition?: string;
         sql?: string;
         is_disabled?: boolean;
+    }[];
+    sampleDocuments?: any[];
+    documentCount?: number | null;
+    sampleKeys?: {
+        key: string;
+        type?: string;
+        ttl?: number | null;
+        valuePreview?: string | null;
     }[];
 }
 
@@ -292,12 +379,6 @@ export interface ConnectionHealth {
     health?: any;
 }
 
-export interface OpenAIPrompt {
-    dbMeta: DbMeta[];
-    databaseName: string;
-    prompt: string;
-}
-
 export interface ConfigData {
     AI_MODEL: string;
     AI_API_KEY: string;
@@ -324,13 +405,6 @@ export interface AIModelCatalogResponse {
     providers: ModelOption[];
     fallbackModel?: string;
     generatedAt?: string;
-}
-
-export interface OpenAIPromptResponse {
-    query: string;
-    explanation?: string;
-    confidence?: number;
-    suggestions?: string[];
 }
 
 // Query Options
@@ -384,7 +458,50 @@ export interface ValidationResult {
     errors: string[];
     warnings?: string[];
 }
+// Query Enrichment Types
+export interface EnrichedEntity {
+    name: string;
+    type: 'table' | 'collection' | 'keyspace';
+    score: number;
+    schema?: any;
+}
 
+export interface QueryCapabilities {
+    type: 'sql' | 'nosql' | 'cache';
+    operations: string[];
+    features: string[];
+}
+
+export interface PlannedStep {
+    id: string;
+    label: string;
+    confidence: number;
+    reasoning?: string;
+}
+
+export interface AlternativeStrategy {
+    name: string;
+    description: string;
+}
+
+export interface EnrichedQueryContext {
+    queryIntent: string;
+    confidence: number;
+    reasoning?: string;
+    complexity: 'simple' | 'medium' | 'complex';
+    selectedStrategy: string;
+    alternativeStrategies: AlternativeStrategy[];
+    plannedSteps: PlannedStep[];
+    availableEntities: string[];
+    relevantEntities: EnrichedEntity[];
+    capabilities: QueryCapabilities;
+    phase: 'quick' | 'semantic' | 'full' | 'fallback';
+    timestamp: string;
+    error?: string;
+    errorType?: 'timeout' | 'network' | 'schema' | 'strategy' | 'llm' | 'unknown';
+    fallbackUsed?: boolean;
+    warnings?: string[];
+}
 // Database Schema Information
 export interface SchemaInfo {
     databases: DatabaseStats[];

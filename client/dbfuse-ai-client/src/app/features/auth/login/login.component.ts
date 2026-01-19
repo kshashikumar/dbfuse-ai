@@ -43,21 +43,7 @@ export class LoginComponent implements OnInit {
     }
 
     getInputClasses(): string {
-        return `
-      mt-1 appearance-none relative block w-full px-3 py-3 
-      border border-gray-300 dark:border-gray-600 
-      placeholder-gray-500 dark:placeholder-gray-400 
-      text-gray-900 dark:text-white 
-      bg-white dark:bg-gray-700
-      rounded-lg 
-      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 
-      focus:z-10 
-      disabled:opacity-50 disabled:cursor-not-allowed
-      transition-colors duration-200
-      text-sm
-    `
-            .replace(/\s+/g, ' ')
-            .trim();
+        return 'ui-input mt-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed';
     }
 
     togglePasswordVisibility(): void {

@@ -184,8 +184,51 @@ const SqlitePolicy = {
 
 // mongodb
 const MongoDBPolicy = {
-  ...DefaultPolicy,
-  dedupeKey: (c) => `mongodb|${c.host}|${c.port}|${c.database}|${c.username}`,
+  validateOnAdd(input) {
+    const required = ["host", "port", "dbType"];
+    const missing = required.filter((f) => !input[f]);
+    return missing.length ? `Missing required fields: ${missing.join(", ")}` : null;
+  },
+  normalizeOnAdd(input) {
+    return {
+      username: input.username || "",
+      password: input.password || "",
+      host: input.host,
+      port: parseInt(input.port, 10),
+      dbType: input.dbType,
+      database: input.database || "",
+      ssl: !!input.ssl,
+      connectionTimeout: parseInt(input.connectionTimeout, 10) || 60000,
+      poolSize: parseInt(input.poolSize, 10) || 10,
+      status: "Available",
+    };
+  },
+  normalizeOnEdit(current, updates) {
+    return {
+      username: updates.username ?? current.username,
+      password: updates.password ?? current.password,
+      host: updates.host ?? current.host,
+      port: updates.port ? parseInt(updates.port, 10) : current.port,
+      database: typeof updates.database === "string" ? updates.database : current.database,
+      ssl: updates.hasOwnProperty("ssl") ? !!updates.ssl : current.ssl,
+      connectionTimeout: updates.connectionTimeout
+        ? parseInt(updates.connectionTimeout, 10)
+        : current.connectionTimeout,
+      poolSize: updates.poolSize ? parseInt(updates.poolSize, 10) : current.poolSize,
+    };
+  },
+  normalizeOnSave(conn) {
+    return {
+      ...conn,
+      port: parseInt(conn.port, 10) || conn.port,
+      connectionTimeout: parseInt(conn.connectionTimeout, 10) || 60000,
+      poolSize: parseInt(conn.poolSize, 10) || 10,
+      ssl: !!conn.ssl,
+      username: conn.username || "",
+      password: conn.password || "",
+    };
+  },
+  dedupeKey: (c) => `mongodb|${c.host}|${c.port}|${c.database}|${c.username || ""}`,
   display: (c) => ({
     databaseDisplay: c.database || "test",
     databaseShort: c.database || "test",
@@ -195,11 +238,112 @@ const MongoDBPolicy = {
 
 // redis
 const RedisPolicy = {
-  ...DefaultPolicy,
-  dedupeKey: (c) => `redis|${c.host}|${c.port}|${c.database}|${c.username}`,
+  validateOnAdd(input) {
+    const required = ["host", "port", "dbType"];
+    const missing = required.filter((f) => !input[f]);
+    return missing.length ? `Missing required fields: ${missing.join(", ")}` : null;
+  },
+  normalizeOnAdd(input) {
+    return {
+      username: input.username || "",
+      password: input.password || "",
+      host: input.host,
+      port: parseInt(input.port, 10),
+      dbType: input.dbType,
+      database: input.database || "0",
+      ssl: !!input.ssl,
+      connectionTimeout: parseInt(input.connectionTimeout, 10) || 60000,
+      poolSize: parseInt(input.poolSize, 10) || 10,
+      status: "Available",
+    };
+  },
+  normalizeOnEdit(current, updates) {
+    return {
+      username: updates.username ?? current.username,
+      password: updates.password ?? current.password,
+      host: updates.host ?? current.host,
+      port: updates.port ? parseInt(updates.port, 10) : current.port,
+      database: typeof updates.database === "string" ? updates.database : current.database,
+      ssl: updates.hasOwnProperty("ssl") ? !!updates.ssl : current.ssl,
+      connectionTimeout: updates.connectionTimeout
+        ? parseInt(updates.connectionTimeout, 10)
+        : current.connectionTimeout,
+      poolSize: updates.poolSize ? parseInt(updates.poolSize, 10) : current.poolSize,
+    };
+  },
+  normalizeOnSave(conn) {
+    return {
+      ...conn,
+      port: parseInt(conn.port, 10) || conn.port,
+      connectionTimeout: parseInt(conn.connectionTimeout, 10) || 60000,
+      poolSize: parseInt(conn.poolSize, 10) || 10,
+      ssl: !!conn.ssl,
+      username: conn.username || "",
+      password: conn.password || "",
+      database: conn.database || "0",
+    };
+  },
+  dedupeKey: (c) => `redis|${c.host}|${c.port}|${c.database}|${c.username || ""}`,
   display: (c) => ({
     databaseDisplay: c.database || "0",
     databaseShort: c.database || "0",
+    extras: {},
+  }),
+};
+
+// generic NoSQL (document/kv/wide-column)
+const GenericNoSQLPolicy = {
+  validateOnAdd(input) {
+    const optionalHostTypes = new Set(["firestore", "dynamodb"]);
+    const required = optionalHostTypes.has(String(input.dbType || "").toLowerCase())
+      ? ["dbType"]
+      : ["host", "port", "dbType"];
+    const missing = required.filter((f) => !input[f]);
+    return missing.length ? `Missing required fields: ${missing.join(", ")}` : null;
+  },
+  normalizeOnAdd(input) {
+    return {
+      username: input.username || "",
+      password: input.password || "",
+      host: input.host,
+      port: parseInt(input.port, 10),
+      dbType: input.dbType,
+      database: input.database || "",
+      ssl: !!input.ssl,
+      connectionTimeout: parseInt(input.connectionTimeout, 10) || 60000,
+      poolSize: parseInt(input.poolSize, 10) || 10,
+      status: "Available",
+    };
+  },
+  normalizeOnEdit(current, updates) {
+    return {
+      username: updates.username ?? current.username,
+      password: updates.password ?? current.password,
+      host: updates.host ?? current.host,
+      port: updates.port ? parseInt(updates.port, 10) : current.port,
+      database: typeof updates.database === "string" ? updates.database : current.database,
+      ssl: updates.hasOwnProperty("ssl") ? !!updates.ssl : current.ssl,
+      connectionTimeout: updates.connectionTimeout
+        ? parseInt(updates.connectionTimeout, 10)
+        : current.connectionTimeout,
+      poolSize: updates.poolSize ? parseInt(updates.poolSize, 10) : current.poolSize,
+    };
+  },
+  normalizeOnSave(conn) {
+    return {
+      ...conn,
+      port: parseInt(conn.port, 10) || conn.port,
+      connectionTimeout: parseInt(conn.connectionTimeout, 10) || 60000,
+      poolSize: parseInt(conn.poolSize, 10) || 10,
+      ssl: !!conn.ssl,
+      username: conn.username || "",
+      password: conn.password || "",
+    };
+  },
+  dedupeKey: (c) => `${c.dbType}|${c.host}|${c.port}|${c.database || ""}|${c.username || ""}`,
+  display: (c) => ({
+    databaseDisplay: c.database || "",
+    databaseShort: c.database || "",
     extras: {},
   }),
 };
@@ -213,6 +357,13 @@ const DB_POLICIES = new Map([
   ["sqlite3", SqlitePolicy],
   ["mongodb", MongoDBPolicy],
   ["redis", RedisPolicy],
+  ["couchdb", GenericNoSQLPolicy],
+  ["cosmosdb", GenericNoSQLPolicy],
+  ["firestore", GenericNoSQLPolicy],
+  ["dynamodb", GenericNoSQLPolicy],
+  ["cassandra", GenericNoSQLPolicy],
+  ["hbase", GenericNoSQLPolicy],
+  ["memcached", GenericNoSQLPolicy],
   ["default", DefaultPolicy],
 ]);
 

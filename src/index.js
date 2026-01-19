@@ -10,10 +10,12 @@ require("dotenv").config({ override: true });
 
 const authMiddleware = require("./middleware/authentication");
 const dbRouter = require("./routes/dbRoutes");
-const langchainRouter = require("./routes/langchainRoutes");
+const ragRouter = require("./routes/ragRoutes");
+const chatRouter = require("./routes/chatRoutes");
 const authRouter = require("./routes/authRoutes");
 const connectionRouter = require("./routes/connectionRoutes");
 const configRouter = require("./routes/configRoutes");
+const queryRangeRouter = require("./routes/queryRangeRoutes");
 const logger = require("./utils/logger");
 const {
   CORS_OPTIONS,
@@ -91,8 +93,10 @@ app.use(authMiddleware.authentication);
 app.use(ROUTE_PATHS.AUTH, authRouter);
 app.use(ROUTE_PATHS.SQL, dbRouter);
 app.use(ROUTE_PATHS.CONNECTIONS, connectionRouter);
-app.use(ROUTE_PATHS.OPENAI, langchainRouter);
+app.use(ROUTE_PATHS.RAG, ragRouter);
+app.use(ROUTE_PATHS.CHAT, chatRouter);
 app.use(ROUTE_PATHS.CONFIG, configRouter);
+app.use(`${ROUTE_PATHS.ROOT}/query`, queryRangeRouter);
 // Respect PORT when provided, including 0 (ephemeral). Fallback only when unset or invalid.
 let port = SERVER_CONSTANTS.DEFAULT_PORT;
 if (process.env.PORT !== undefined) {
@@ -120,6 +124,12 @@ if (!mcpOnly) {
     const actualPort = server.address().port;
     logger.info(SERVER_LOG_MESSAGES.STARTUP_URL(actualPort));
   });
+  try {
+    const { initializeChatGateway } = require("./chat/ChatGateway");
+    initializeChatGateway(server);
+  } catch (error) {
+    logger.error("Failed to initialize chat gateway:", error);
+  }
 }
 
 // error handler

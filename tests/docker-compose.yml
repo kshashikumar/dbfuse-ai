@@ -86,34 +86,30 @@ services:
     command: tail -f /dev/null # Keep container running
     working_dir: /data
 
-  # Adminer - Universal database management tool (alternative to pgAdmin)
-  # Supports PostgreSQL, MySQL, MariaDB, SQLite, MS SQL, Oracle, Firebird, SimpleDB, Elasticsearch, MongoDB
-  adminer:
-    image: adminer:latest
-    container_name: my-adminer-ui
+  # MongoDB Database Service
+  mongodb:
+    image: mongo:7
+    container_name: my-mongo-db
     restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+      MONGO_INITDB_DATABASE: mydatabase
     ports:
-      - "8080:8080" # Maps your local port 8080 to the container's port 8080
-    depends_on:
-      - postgres
-      # - mysql
-      - mssql
-      - oracle
-
-  # SQL Server Management Studio Web (CloudBeaver) - Alternative DB management UI
-  cloudbeaver:
-    image: dbeaver/cloudbeaver:latest
-    container_name: my-cloudbeaver-ui
-    restart: unless-stopped
-    ports:
-      - "8978:8978" # Maps your local port 8978 to the container's port 8978
+      - "27017:27017"
     volumes:
-      - cloudbeaver-data:/opt/cloudbeaver/workspace
-    depends_on:
-      - postgres
-      # - mysql
-      - mssql
-      - oracle
+      - mongodb-data:/data/db
+
+  # Redis Cache Service
+  redis:
+    image: redis:7-alpine
+    container_name: my-redis-cache
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "root"]
 
 volumes:
   # Defines the named volumes for data persistence
@@ -122,7 +118,8 @@ volumes:
   mssql-data:
   oracle-data:
   sqlite-data:
-  cloudbeaver-data:
+  mongodb-data:
+  redis-data:
 
 # Network configuration (optional - Docker creates a default network)
 networks:

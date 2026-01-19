@@ -23,6 +23,9 @@ const executeQueryTool = {
       connectionId || connectionManager.getAllConnectionsInfo()[0]?.id,
     );
     const strategy = connectionManager.getConnection(runtimeId);
+    if (typeof strategy.validateOperation === "function") {
+      strategy.validateOperation("query", { query });
+    }
     const result = await strategy.executeQuery(query);
     return {
       content: [

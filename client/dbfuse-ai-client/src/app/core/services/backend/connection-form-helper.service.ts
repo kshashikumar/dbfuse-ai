@@ -158,6 +158,23 @@ export class ConnectionFormHelper {
                 passwordControl?.setValidators([Validators.required]);
                 portControl?.setValidators([Validators.required, Validators.min(1), Validators.max(65535)]);
                 break;
+
+            case 'mongodb':
+            case 'redis':
+            case 'couchdb':
+            case 'cosmosdb':
+            case 'cassandra':
+            case 'hbase':
+            case 'memcached':
+                hostControl?.setValidators([Validators.required, this.hostnameValidator]);
+                portControl?.setValidators([Validators.required, Validators.min(1), Validators.max(65535)]);
+                break;
+
+            case 'firestore':
+            case 'dynamodb':
+                hostControl?.setValidators([this.hostnameValidator]);
+                portControl?.setValidators([Validators.min(1), Validators.max(65535)]);
+                break;
         }
 
         // Update validity for all controls
@@ -193,6 +210,15 @@ export class ConnectionFormHelper {
             mssql: 1433,
             oracledb: 1521,
             sqlite3: 0, // Not applicable
+            mongodb: 27017,
+            redis: 6379,
+            couchdb: 5984,
+            cosmosdb: 443,
+            firestore: 443,
+            dynamodb: 443,
+            cassandra: 9042,
+            hbase: 9090,
+            memcached: 11211,
         };
         return dbType ? ports[dbType] : 3306;
     }
@@ -205,6 +231,15 @@ export class ConnectionFormHelper {
             mssql: 'master',
             oracledb: 'XE',
             sqlite3: './data/database.db',
+            mongodb: '',
+            redis: '0',
+            couchdb: '',
+            cosmosdb: '',
+            firestore: '',
+            dynamodb: '',
+            cassandra: '',
+            hbase: '',
+            memcached: '',
         };
         return defaults[dbType];
     }
@@ -238,6 +273,7 @@ export class ConnectionFormHelper {
             'connectionTimeout',
             'poolSize',
         ];
+        const basicNoSqlFields = ['host', 'port', 'dbType', 'database', 'ssl', 'connectionTimeout', 'poolSize'];
 
         const specificFields: Record<DatabaseType, string[]> = {
             mysql2: [
@@ -290,6 +326,15 @@ export class ConnectionFormHelper {
                 'foreignKeys',
                 'readOnly',
             ],
+            mongodb: [...commonFields],
+            redis: [...basicNoSqlFields, 'password'],
+            couchdb: [...commonFields],
+            cosmosdb: ['host', 'port', 'dbType', 'database', 'password', 'ssl', 'connectionTimeout'],
+            firestore: ['host', 'port', 'dbType', 'database', 'ssl', 'connectionTimeout'],
+            dynamodb: ['host', 'port', 'dbType', 'database', 'username', 'password', 'ssl', 'connectionTimeout'],
+            cassandra: [...commonFields],
+            hbase: ['host', 'port', 'dbType', 'database', 'connectionTimeout'],
+            memcached: ['host', 'port', 'dbType', 'database', 'connectionTimeout'],
         };
 
         return specificFields[dbType] || commonFields;
@@ -324,6 +369,29 @@ export class ConnectionFormHelper {
                     errors.push('Valid port number is required (1-65535)');
                 }
                 break;
+
+            case 'mongodb':
+            case 'redis':
+            case 'couchdb':
+            case 'cosmosdb':
+            case 'cassandra':
+            case 'hbase':
+            case 'memcached':
+                if (!config.host) errors.push('Host is required');
+                if (!config.port || config.port < 1 || config.port > 65535) {
+                    errors.push('Valid port number is required (1-65535)');
+                }
+                break;
+
+            case 'firestore':
+            case 'dynamodb':
+                if (config.host && config.host.trim() === '') {
+                    errors.push('Host must be a valid hostname');
+                }
+                if (config.port && (config.port < 1 || config.port > 65535)) {
+                    errors.push('Valid port number is required (1-65535)');
+                }
+                break;
         }
 
         // PostgreSQL specific
@@ -342,7 +410,7 @@ export class ConnectionFormHelper {
         }
 
         // SSL warnings
-        if (config.host !== 'localhost' && !config.ssl && config.dbType !== 'sqlite3') {
+        if (config.host && config.host !== 'localhost' && !config.ssl && config.dbType !== 'sqlite3') {
             warnings.push('Consider enabling SSL for remote connections');
         }
 
@@ -467,6 +535,80 @@ export class ConnectionFormHelper {
                 { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
                 { name: 'poolSize', label: 'Pool Size', type: 'number', group: 'advanced' },
                 { name: 'poolTimeout', label: 'Pool Timeout (s)', type: 'number', group: 'advanced' },
+            ],
+
+            mongodb: [
+                { name: 'host', label: 'Host', type: 'text', required: true, group: 'basic' },
+                { name: 'port', label: 'Port', type: 'number', required: true, group: 'basic' },
+                { name: 'database', label: 'Database (optional)', type: 'text', group: 'basic' },
+                { name: 'username', label: 'Username', type: 'text', required: false, group: 'basic' },
+                { name: 'password', label: 'Password', type: 'password', required: false, group: 'basic' },
+                { name: 'ssl', label: 'Enable TLS', type: 'checkbox', group: 'security' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
+                { name: 'poolSize', label: 'Pool Size', type: 'number', group: 'advanced' },
+            ],
+
+            redis: [
+                { name: 'host', label: 'Host', type: 'text', required: true, group: 'basic' },
+                { name: 'port', label: 'Port', type: 'number', required: true, group: 'basic' },
+                { name: 'database', label: 'Database Index', type: 'text', group: 'basic' },
+                { name: 'password', label: 'Password', type: 'password', required: false, group: 'basic' },
+                { name: 'ssl', label: 'Enable TLS', type: 'checkbox', group: 'security' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
+            ],
+            couchdb: [
+                { name: 'host', label: 'Host', type: 'text', required: true, group: 'basic' },
+                { name: 'port', label: 'Port', type: 'number', required: true, group: 'basic' },
+                { name: 'database', label: 'Database (optional)', type: 'text', group: 'basic' },
+                { name: 'username', label: 'Username', type: 'text', required: false, group: 'basic' },
+                { name: 'password', label: 'Password', type: 'password', required: false, group: 'basic' },
+                { name: 'ssl', label: 'Enable TLS', type: 'checkbox', group: 'security' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
+            ],
+            cosmosdb: [
+                { name: 'host', label: 'Host', type: 'text', required: true, group: 'basic' },
+                { name: 'port', label: 'Port', type: 'number', required: true, group: 'basic' },
+                { name: 'database', label: 'Database (optional)', type: 'text', group: 'basic' },
+                { name: 'password', label: 'Primary Key', type: 'password', required: false, group: 'basic' },
+                { name: 'ssl', label: 'Enable TLS', type: 'checkbox', group: 'security' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
+            ],
+            firestore: [
+                { name: 'host', label: 'Host (optional)', type: 'text', required: false, group: 'basic' },
+                { name: 'port', label: 'Port (optional)', type: 'number', required: false, group: 'basic' },
+                { name: 'database', label: 'Project ID', type: 'text', required: false, group: 'basic' },
+                { name: 'ssl', label: 'Enable TLS', type: 'checkbox', group: 'security' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
+            ],
+            dynamodb: [
+                { name: 'host', label: 'Host (optional)', type: 'text', required: false, group: 'basic' },
+                { name: 'port', label: 'Port (optional)', type: 'number', required: false, group: 'basic' },
+                { name: 'database', label: 'Region', type: 'text', required: false, group: 'basic' },
+                { name: 'username', label: 'Access Key ID', type: 'text', required: false, group: 'basic' },
+                { name: 'password', label: 'Secret Access Key', type: 'password', required: false, group: 'basic' },
+                { name: 'ssl', label: 'Enable TLS', type: 'checkbox', group: 'security' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
+            ],
+            cassandra: [
+                { name: 'host', label: 'Host', type: 'text', required: true, group: 'basic' },
+                { name: 'port', label: 'Port', type: 'number', required: true, group: 'basic' },
+                { name: 'database', label: 'Keyspace (optional)', type: 'text', group: 'basic' },
+                { name: 'username', label: 'Username', type: 'text', required: false, group: 'basic' },
+                { name: 'password', label: 'Password', type: 'password', required: false, group: 'basic' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
+                { name: 'poolSize', label: 'Pool Size', type: 'number', group: 'advanced' },
+            ],
+            hbase: [
+                { name: 'host', label: 'Host', type: 'text', required: true, group: 'basic' },
+                { name: 'port', label: 'Port', type: 'number', required: true, group: 'basic' },
+                { name: 'database', label: 'Namespace (optional)', type: 'text', group: 'basic' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
+            ],
+            memcached: [
+                { name: 'host', label: 'Host', type: 'text', required: true, group: 'basic' },
+                { name: 'port', label: 'Port', type: 'number', required: true, group: 'basic' },
+                { name: 'database', label: 'Namespace (optional)', type: 'text', group: 'basic' },
+                { name: 'connectionTimeout', label: 'Connection Timeout (ms)', type: 'number', group: 'advanced' },
             ],
         };
 

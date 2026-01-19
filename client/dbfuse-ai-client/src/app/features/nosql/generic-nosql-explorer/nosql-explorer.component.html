@@ -1,0 +1,537 @@
+<div class="flex h-full flex-col bg-background">
+    <div class="border-b border-border px-6 py-4 flex items-center justify-between">
+        <div>
+            <h2 class="text-lg font-semibold text-foreground">{{ explorerTitle }}</h2>
+            <p class="text-sm text-muted-foreground">
+                Browse {{ databaseLabel.toLowerCase() }}, {{ collectionLabel.toLowerCase() }},
+                and {{ detailLabel.toLowerCase() }} without leaving DBFuse.
+            </p>
+        </div>
+        <button
+            (click)="refreshDatabases()"
+            [disabled]="loadingDatabases"
+            class="btn btn-secondary btn-sm"
+            aria-label="Refresh databases"
+        >
+            <span class="icon-[mdi--refresh] w-3 h-3 mr-1" [class.animate-spin]="loadingDatabases"></span>
+            Refresh
+        </button>
+    </div>
+
+    <div class="px-6 py-2 border-b border-border flex items-center justify-between">
+        <label class="inline-flex items-center text-xs text-muted-foreground">
+            <input type="checkbox" [(ngModel)]="readOnlyMode" class="mr-2" />
+            Read-only mode
+        </label>
+        <div class="text-xs text-muted-foreground" *ngIf="actionLoading">Working...</div>
+    </div>
+
+    <div
+        *ngIf="errorMessage"
+        class="px-6 py-2 text-xs text-destructive border-b border-destructive/20 bg-destructive/10"
+    >
+        {{ errorMessage }}
+    </div>
+    <div
+        *ngIf="actionMessage"
+        class="px-6 py-2 text-xs text-emerald-700 border-b border-emerald-200 bg-emerald-50 dark:text-emerald-300 dark:border-emerald-700/60 dark:bg-emerald-900/20"
+    >
+        {{ actionMessage }}
+    </div>
+
+    <div class="flex-1 overflow-hidden p-4">
+        <div class="grid h-full grid-cols-12 gap-4">
+            <div class="col-span-12 lg:col-span-3 h-full overflow-hidden rounded-lg border border-border">
+                <div class="px-4 py-2 border-b border-border text-xs font-semibold text-muted-foreground">
+                    {{ databaseLabel }}
+                </div>
+                <div class="h-full overflow-auto p-2 space-y-1 scrollbar-hidden">
+                    <div
+                        *ngIf="loadingDatabases"
+                        class="text-xs text-muted-foreground px-2 py-1"
+                    >
+                        Loading {{ databaseLabel.toLowerCase() }}...
+                    </div>
+                    <button
+                        *ngFor="let db of availableDatabases"
+                        (click)="selectDatabase(db.name)"
+                        class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150"
+                        [ngClass]="{
+                            'bg-muted': selectedDatabase === db.name,
+                            
+                            'text-foreground': selectedDatabase === db.name,
+                            
+                            'text-muted-foreground': selectedDatabase !== db.name,
+                            
+                        }"
+                    >
+                        <div class="flex items-center justify-between">
+                            <span class="truncate">{{ db.name }}</span>
+                            <span class="text-xs text-muted-foreground">{{ db.tables?.length || 0 }}</span>
+                        </div>
+                    </button>
+                    <div
+                        *ngIf="!loadingDatabases && availableDatabases.length === 0"
+                        class="text-xs text-muted-foreground px-2 py-1"
+                    >
+                        No {{ databaseLabel.toLowerCase() }} found.
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-3 h-full overflow-hidden rounded-lg border border-border">
+                <div class="px-4 py-2 border-b border-border">
+                    <div class="text-xs font-semibold text-muted-foreground">{{ collectionLabel }}</div>
+                    <div class="mt-2 relative">
+                        <span class="icon-[mdi--magnify] w-3 h-3 absolute left-2 top-2 text-muted-foreground"></span>
+                        <input
+                            [(ngModel)]="filterText"
+                            (input)="filterCollectionsList()"
+                            type="text"
+                            placeholder="Filter"
+                            class="w-full pl-7 pr-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                        />
+                    </div>
+                </div>
+                <div class="h-full overflow-auto p-2 space-y-1 scrollbar-hidden">
+                    <div
+                        *ngIf="loadingCollections"
+                        class="text-xs text-muted-foreground px-2 py-1"
+                    >
+                        Loading {{ collectionLabel.toLowerCase() }}...
+                    </div>
+                    <button
+                        *ngFor="let name of filteredCollections"
+                        (click)="selectCollection(name)"
+                        class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150"
+                        [ngClass]="{
+                            'bg-muted': selectedCollection === name,
+                            
+                            'text-foreground': selectedCollection === name,
+                            
+                            'text-muted-foreground': selectedCollection !== name,
+                            
+                        }"
+                    >
+                        <span class="truncate">{{ name }}</span>
+                    </button>
+                    <div
+                        *ngIf="!loadingCollections && filteredCollections.length === 0"
+                        class="text-xs text-muted-foreground px-2 py-1"
+                    >
+                        No {{ collectionLabel.toLowerCase() }} found.
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-6 h-full overflow-hidden rounded-lg border border-border">
+                <div class="px-4 py-2 border-b border-border flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-semibold text-muted-foreground">{{ detailLabel }}</div>
+                        <div class="text-sm text-foreground truncate">
+                            {{ selectedCollection || 'Select an item' }}
+                        </div>
+                    </div>
+                    <div class="text-xs text-muted-foreground" *ngIf="collectionInfo?.documentCount !== null">
+                        {{ collectionInfo?.documentCount }} docs
+                    </div>
+                </div>
+                <div class="h-full overflow-auto p-4 space-y-4 scrollbar-hidden">
+                    <div *ngIf="loadingDetails" class="text-xs text-muted-foreground">
+                        Loading details...
+                    </div>
+
+                    <div *ngIf="!loadingDetails && !collectionInfo" class="text-xs text-muted-foreground">
+                        Select a {{ collectionLabel.toLowerCase().slice(0, -1) }} to view details.
+                    </div>
+
+                    <ng-container *ngIf="collectionInfo">
+                        <div *ngIf="dbType === 'mongodb'">
+                            <div class="text-xs font-semibold text-foreground">Schema fields</div>
+                            <div class="mt-2 space-y-1">
+                                <div
+                                    *ngFor="let field of collectionInfo.columns"
+                                    class="flex items-center justify-between text-xs text-muted-foreground border-b border-border py-1"
+                                >
+                                    <span class="truncate">{{ field.column_name }}</span>
+                                    <span class="text-muted-foreground">{{ field.data_type || 'unknown' }}</span>
+                                </div>
+                                <div
+                                    *ngIf="collectionInfo.columns?.length === 0"
+                                    class="text-xs text-muted-foreground"
+                                >
+                                    No fields detected.
+                                </div>
+                            </div>
+                            <div *ngIf="supportsIndexes">
+                                <div class="mt-4 text-xs font-semibold text-foreground">Indexes</div>
+                                <div class="mt-2 space-y-1">
+                                    <div
+                                        *ngFor="let idx of mongoIndexes"
+                                        class="flex items-center justify-between text-xs text-muted-foreground border-b border-border py-1"
+                                    >
+                                        <span class="truncate">{{ idx.name }}</span>
+                                        <span class="text-muted-foreground">
+                                            {{ idx.type || 'unknown' }}{{ idx.unique ? ' (unique)' : '' }}
+                                        </span>
+                                    </div>
+                                    <div
+                                        *ngIf="mongoIndexes.length === 0"
+                                        class="text-xs text-muted-foreground"
+                                    >
+                                        No indexes detected.
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 text-xs font-semibold text-foreground">Index actions</div>
+                                <div *ngIf="supportsCrud; else mongoIndexWriteDisabled" class="mt-2 space-y-3">
+                                    <div class="rounded border border-border p-3 bg-background">
+                                        <div class="text-xs font-semibold text-muted-foreground">Create index</div>
+                                        <textarea
+                                            [(ngModel)]="mongoIndexKeys"
+                                            rows="3"
+                                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                            placeholder="Index keys JSON"
+                                        ></textarea>
+                                        <textarea
+                                            [(ngModel)]="mongoIndexOptions"
+                                            rows="2"
+                                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                            placeholder="Index options JSON (optional)"
+                                        ></textarea>
+                                        <button
+                                            (click)="runMongoCreateIndex()"
+                                            class="btn btn-primary btn-sm mt-2"
+                                        >
+                                            Create index
+                                        </button>
+                                    </div>
+
+                                    <div class="rounded border border-border p-3 bg-background">
+                                        <div class="text-xs font-semibold text-muted-foreground">Drop index</div>
+                                        <input
+                                            [(ngModel)]="mongoDropIndexName"
+                                            type="text"
+                                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                            placeholder="Index name"
+                                        />
+                                        <button
+                                            (click)="runMongoDropIndex()"
+                                            class="btn btn-danger btn-sm mt-2"
+                                        >
+                                            Drop index
+                                        </button>
+                                    </div>
+                                </div>
+                                <ng-template #mongoIndexWriteDisabled>
+                                    <div class="mt-2 text-xs text-muted-foreground">
+                                        Index write operations are not available for this database.
+                                    </div>
+                                </ng-template>
+                            </div>
+                            <div *ngIf="supportsAggregation" class="mt-6 text-xs font-semibold text-foreground">
+                                Aggregation
+                            </div>
+                            <div *ngIf="supportsAggregation" class="mt-2 rounded border border-border p-3 bg-background">
+                                <textarea
+                                    [(ngModel)]="mongoAggregatePipeline"
+                                    rows="4"
+                                    class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                    placeholder="Aggregation pipeline JSON"
+                                ></textarea>
+                                <button
+                                    (click)="runMongoAggregate()"
+                                    class="btn btn-secondary btn-sm mt-2"
+                                >
+                                    Run aggregation
+                                </button>
+                            </div>
+                            <div *ngIf="supportsExplain" class="mt-6 text-xs font-semibold text-foreground">
+                                Explain
+                            </div>
+                            <div *ngIf="supportsExplain" class="mt-2 rounded border border-border p-3 bg-background">
+                                <textarea
+                                    [(ngModel)]="mongoExplainPayload"
+                                    rows="3"
+                                    class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                    placeholder="Explain payload JSON"
+                                ></textarea>
+                                <button
+                                    (click)="runMongoExplain()"
+                                    class="btn btn-secondary btn-sm mt-2"
+                                >
+                                    Run explain
+                                </button>
+                            </div>
+                            <div class="mt-4 text-xs font-semibold text-foreground">Sample documents</div>
+                            <div class="mt-2 space-y-2">
+                                <pre
+                                    *ngFor="let doc of collectionInfo.sampleDocuments"
+                                    class="text-xs whitespace-pre-wrap bg-muted dark:bg-muted border border-border rounded p-2 text-foreground"
+                                >
+{{ doc | json }}</pre>
+                                <div
+                                    *ngIf="!collectionInfo.sampleDocuments || collectionInfo.sampleDocuments.length === 0"
+                                    class="text-xs text-muted-foreground"
+                                >
+                                    No documents sampled.
+                                </div>
+                            </div>
+                            <div class="mt-6 text-xs font-semibold text-foreground">Actions</div>
+                            <div *ngIf="supportsCrud; else mongoActionsDisabled" class="mt-2 space-y-3">
+                                <div class="rounded border border-border p-3 bg-background">
+                                    <div class="text-xs font-semibold text-muted-foreground">Insert</div>
+                                    <textarea
+                                        [(ngModel)]="mongoInsertPayload"
+                                        rows="4"
+                                        class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                    ></textarea>
+                                    <button
+                                        (click)="runMongoInsert()"
+                                        class="btn btn-primary btn-sm mt-2"
+                                    >
+                                        Insert
+                                    </button>
+                                </div>
+
+                                <div class="rounded border border-border p-3 bg-background">
+                                    <div class="text-xs font-semibold text-muted-foreground">Update</div>
+                                    <div class="mt-2 grid grid-cols-1 gap-2">
+                                        <textarea
+                                            [(ngModel)]="mongoUpdateFilter"
+                                            rows="3"
+                                            class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                            placeholder="Filter JSON"
+                                        ></textarea>
+                                        <textarea
+                                            [(ngModel)]="mongoUpdatePayload"
+                                            rows="3"
+                                            class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                            placeholder="Update JSON"
+                                        ></textarea>
+                                        <select
+                                            [(ngModel)]="mongoUpdateMode"
+                                            class="w-32 text-xs border border-border rounded bg-background text-foreground px-2 py-1"
+                                        >
+                                            <option value="updateOne">updateOne</option>
+                                            <option value="updateMany">updateMany</option>
+                                        </select>
+                                    </div>
+                                    <button
+                                        (click)="runMongoUpdate()"
+                                        class="btn btn-primary btn-sm mt-2"
+                                    >
+                                        Update
+                                    </button>
+                                </div>
+
+                                <div class="rounded border border-border p-3 bg-background">
+                                    <div class="text-xs font-semibold text-muted-foreground">Delete</div>
+                                    <textarea
+                                        [(ngModel)]="mongoDeleteFilter"
+                                        rows="3"
+                                        class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="Filter JSON"
+                                    ></textarea>
+                                    <div class="mt-2 flex items-center justify-between">
+                                        <select
+                                            [(ngModel)]="mongoDeleteMode"
+                                            class="w-32 text-xs border border-border rounded bg-background text-foreground px-2 py-1"
+                                        >
+                                            <option value="deleteOne">deleteOne</option>
+                                            <option value="deleteMany">deleteMany</option>
+                                        </select>
+                                    <button
+                                        (click)="runMongoDelete()"
+                                        class="btn btn-danger btn-sm"
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                            <ng-template #mongoActionsDisabled>
+                                <div class="mt-2 text-xs text-muted-foreground">
+                                    Write operations are not available for this database.
+                                </div>
+                            </ng-template>
+                        </div>
+                        </div>
+
+                        <div *ngIf="dbType === 'redis'">
+                            <div class="text-xs font-semibold text-foreground">Key type breakdown</div>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                <span
+                                    *ngFor="let stat of redisKeyTypeStats"
+                                    class="badge"
+                                >
+                                    {{ stat.type }}: {{ stat.count }}
+                                </span>
+                                <span
+                                    *ngIf="redisKeyTypeStats.length === 0"
+                                    class="text-xs text-muted-foreground"
+                                >
+                                    No key types detected.
+                                </span>
+                            </div>
+                            <div class="mt-4 text-xs font-semibold text-foreground">Key prefix patterns</div>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                <span
+                                    *ngFor="let stat of redisKeyPrefixStats"
+                                    class="badge"
+                                >
+                                    {{ stat.prefix }}: {{ stat.count }}
+                                </span>
+                                <span
+                                    *ngIf="redisKeyPrefixStats.length === 0"
+                                    class="text-xs text-muted-foreground"
+                                >
+                                    No key prefixes detected.
+                                </span>
+                            </div>
+                            <div class="text-xs font-semibold text-foreground">Key samples</div>
+                            <div class="mt-2 space-y-2">
+                                <div
+                                    *ngFor="let key of collectionInfo.sampleKeys"
+                                    class="border border-border rounded p-2 bg-muted dark:bg-muted"
+                                >
+                                    <div class="flex items-center justify-between text-xs text-foreground">
+                                        <span class="font-semibold truncate">{{ key.key }}</span>
+                                        <span class="text-muted-foreground">{{ key.type || 'unknown' }}</span>
+                                    </div>
+                                    <div class="mt-1 text-[11px] text-muted-foreground">
+                                        TTL: {{ key.ttl !== null ? key.ttl : 'n/a' }}
+                                    </div>
+                                    <pre
+                                        *ngIf="key.valuePreview"
+                                        class="mt-2 text-[11px] whitespace-pre-wrap text-muted-foreground"
+                                    >{{ key.valuePreview }}</pre>
+                                </div>
+                                <div
+                                    *ngIf="!collectionInfo.sampleKeys || collectionInfo.sampleKeys.length === 0"
+                                    class="text-xs text-muted-foreground"
+                                >
+                                    No keys sampled.
+                                </div>
+                            </div>
+                            <div *ngIf="supportsCommands" class="mt-6 text-xs font-semibold text-foreground">
+                                Command
+                            </div>
+                            <div *ngIf="supportsCommands" class="mt-2 rounded border border-border p-3 bg-background">
+                                <input
+                                    [(ngModel)]="redisCommand"
+                                    type="text"
+                                    class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                    placeholder="Command"
+                                />
+                                <input
+                                    [(ngModel)]="redisCommandArgs"
+                                    type="text"
+                                    class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                    placeholder="Args"
+                                />
+                                <button
+                                    (click)="runRedisCommand()"
+                                    class="btn btn-secondary btn-sm mt-2"
+                                >
+                                    Run command
+                                </button>
+                            </div>
+                            <div *ngIf="supportsTtl" class="mt-6 text-xs font-semibold text-foreground">
+                                TTL batch update
+                            </div>
+                            <div *ngIf="supportsTtl" class="mt-2 rounded border border-border p-3 bg-background">
+                                <input
+                                    [(ngModel)]="redisExpirePattern"
+                                    type="text"
+                                    class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                    placeholder="Pattern"
+                                />
+                                <div class="mt-2 flex items-center gap-2">
+                                    <input
+                                        [(ngModel)]="redisExpireTtl"
+                                        type="number"
+                                        class="w-32 text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="TTL (sec)"
+                                    />
+                                    <input
+                                        [(ngModel)]="redisExpireLimit"
+                                        type="number"
+                                        class="w-28 text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="Limit"
+                                    />
+                                </div>
+                                <button
+                                    (click)="runRedisExpireMany()"
+                                    class="btn btn-secondary btn-sm mt-2"
+                                >
+                                    Apply TTL
+                                </button>
+                            </div>
+                            <div class="mt-6 text-xs font-semibold text-foreground">Actions</div>
+                            <div *ngIf="supportsCrud; else redisActionsDisabled" class="mt-2 space-y-3">
+                                <div class="rounded border border-border p-3 bg-background">
+                                    <div class="text-xs font-semibold text-muted-foreground">Set key</div>
+                                    <input
+                                        [(ngModel)]="redisKey"
+                                        type="text"
+                                        class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="Key"
+                                    />
+                                    <textarea
+                                        [(ngModel)]="redisValue"
+                                        rows="2"
+                                        class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="Value"
+                                    ></textarea>
+                                    <input
+                                        [(ngModel)]="redisTtl"
+                                        type="number"
+                                        class="mt-2 w-32 text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="TTL (sec)"
+                                    />
+                                    <button
+                                        (click)="runRedisSet()"
+                                        class="btn btn-primary btn-sm mt-2"
+                                    >
+                                        Set
+                                    </button>
+                                </div>
+
+                                <div class="rounded border border-border p-3 bg-background">
+                                    <div class="text-xs font-semibold text-muted-foreground">Delete key</div>
+                                    <input
+                                        [(ngModel)]="redisDeleteKey"
+                                        type="text"
+                                        class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="Key"
+                                    />
+                                    <button
+                                        (click)="runRedisDelete()"
+                                        class="btn btn-danger btn-sm mt-2"
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                            <ng-template #redisActionsDisabled>
+                                <div class="mt-2 text-xs text-muted-foreground">
+                                    Write operations are not available for this database.
+                                </div>
+                            </ng-template>
+                        </div>
+                        <div *ngIf="actionResult" class="mt-6">
+                            <div class="text-xs font-semibold text-foreground">Last action result</div>
+                            <pre class="mt-2 text-xs whitespace-pre-wrap bg-muted dark:bg-muted border border-border rounded p-2 text-foreground">{{ actionResult | json }}</pre>
+                        </div>
+                    </ng-container>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+
+

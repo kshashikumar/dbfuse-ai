@@ -50,12 +50,28 @@ const validateConnectionRecord = (record) => {
     return { valid: false, errors: ["Record must be an object"] };
   }
 
+  const dbType = String(record.dbType || "").toLowerCase();
+  const optionalHostTypes = new Set(["firestore", "dynamodb"]);
+  const requiresHost = dbType !== "sqlite3" && !optionalHostTypes.has(dbType);
+  const requiresUsername = ![
+    "sqlite3",
+    "mongodb",
+    "redis",
+    "couchdb",
+    "cosmosdb",
+    "firestore",
+    "dynamodb",
+    "cassandra",
+    "hbase",
+    "memcached",
+  ].includes(dbType);
+
   // Required fields validation
   if (!record.dbType || typeof record.dbType !== "string") {
     errors.push("dbType is required and must be a string");
   }
 
-  if (!record.host || typeof record.host !== "string") {
+  if (requiresHost && (!record.host || typeof record.host !== "string")) {
     errors.push("host is required and must be a string");
   }
 
@@ -63,7 +79,7 @@ const validateConnectionRecord = (record) => {
     errors.push("port must be a valid number");
   }
 
-  if (!record.username || typeof record.username !== "string") {
+  if (requiresUsername && (!record.username || typeof record.username !== "string")) {
     errors.push("username is required and must be a string");
   }
 

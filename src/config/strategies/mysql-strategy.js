@@ -587,6 +587,54 @@ class MySQLStrategy extends SQLStrategy {
     );
     return procs.map((p) => ({ name: p.procedure_name, schema: p.routine_schema }));
   }
+
+  /**
+   * Fetch rows in a specific range for virtual scrolling
+   * @param {string} query - Base query without LIMIT/OFFSET
+   * @param {number} offset - Starting row index (0-based)
+   * @param {number} limit - Number of rows to fetch
+   * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
+   */
+  async fetchRowRange(query, offset, limit) {
+    if (!this.pool) throw new Error("MySQL connection not initialized");
+
+    // Validate inputs
+    if (offset < 0 || limit < 1 || limit > 1000) {
+      throw new Error("Invalid range parameters");
+    }
+
+    // Strip trailing semicolon if present
+    const cleanQuery = query.trim().replace(/;+$/, "");
+
+    // Fetch one extra row to determine if there are more results
+    const paginatedQuery = `${cleanQuery} LIMIT ${limit + 1} OFFSET ${offset}`;
+
+    try {
+      const [rows] = await this.pool.query(paginatedQuery);
+      const hasMore = rows.length > limit;
+
+      // Remove extra row if present
+      const resultRows = hasMore ? rows.slice(0, limit) : rows;
+
+      // Extract column information from first row if available
+      let columns = [];
+      if (resultRows.length > 0) {
+        columns = Object.keys(resultRows[0]).map((key) => ({
+          name: key,
+          type: typeof resultRows[0][key],
+        }));
+      }
+
+      return {
+        rows: resultRows,
+        hasMore,
+        columns,
+      };
+    } catch (error) {
+      logger.error(`MySQL fetchRowRange error: ${error.message}`);
+      throw error;
+    }
+  }
 }
 
 module.exports = MySQLStrategy;

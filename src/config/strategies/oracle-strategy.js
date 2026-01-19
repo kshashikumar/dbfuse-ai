@@ -507,6 +507,59 @@ class OracleStrategy extends SQLStrategy {
 
     return tableDetails;
   }
+
+  /**
+   * Fetch rows in a specific range for virtual scrolling
+   * @param {string} query - Base query without LIMIT/OFFSET
+   * @param {number} offset - Starting row index (0-based)
+   * @param {number} limit - Number of rows to fetch
+   * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
+   */
+  async fetchRowRange(query, offset, limit) {
+    if (!this.connection) throw new Error("Oracle connection not initialized");
+
+    // Validate inputs
+    if (offset < 0 || limit < 1 || limit > 1000) {
+      throw new Error("Invalid range parameters");
+    }
+
+    // Strip trailing semicolon if present
+    const cleanQuery = query.trim().replace(/;+$/, "");
+
+    // Fetch one extra row to determine if there are more results
+    const paginatedQuery = `
+      ${cleanQuery}
+      OFFSET ${offset} ROWS
+      FETCH NEXT ${limit + 1} ROWS ONLY
+    `;
+
+    try {
+      const result = await this.connection.execute(paginatedQuery);
+      const rows = result.rows;
+      const hasMore = rows && rows.length > limit;
+
+      // Remove extra row if present
+      const resultRows = hasMore ? rows.slice(0, limit) : rows || [];
+
+      // Extract column information from metadata
+      let columns = [];
+      if (result.metaData && result.metaData.length > 0) {
+        columns = result.metaData.map((col) => ({
+          name: col.name,
+          type: col.dbTypeName || col.fetchType,
+        }));
+      }
+
+      return {
+        rows: resultRows,
+        hasMore,
+        columns,
+      };
+    } catch (error) {
+      logger.error(`Oracle fetchRowRange error: ${error.message}`);
+      throw error;
+    }
+  }
 }
 
 module.exports = OracleStrategy;

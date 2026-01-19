@@ -181,6 +181,40 @@ class DatabaseStrategy {
     };
   }
 
+  getCapabilities() {
+    return (
+      this.capabilityModel || this.capabilities || { operations: [], features: [], limits: {} }
+    );
+  }
+
+  validateOperation(operation, _payload) {
+    if (!operation) return true;
+    const caps = this.getCapabilities();
+    const operations = Array.isArray(caps?.operations)
+      ? caps.operations.map((op) => String(op).toLowerCase())
+      : [];
+    const op = String(operation).toLowerCase();
+    if (operations.length === 0 || operations.includes(op)) {
+      return true;
+    }
+    const label = this.dbType || "this database";
+    throw new Error(`Operation '${operation}' is not supported for ${label}.`);
+  }
+
+  normalizeResult(result) {
+    if (result && typeof result === "object") {
+      return result;
+    }
+    return { raw: result };
+  }
+
+  normalizeMetadata(metadata) {
+    if (metadata && typeof metadata === "object") {
+      return metadata;
+    }
+    return { raw: metadata };
+  }
+
   // Core connection methods
   async connect(config) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("connect"));
@@ -298,6 +332,15 @@ class DatabaseStrategy {
 
   // Query analysis and validation
   analyzeQuery(query) {
+    if (typeof query !== "string") {
+      return {
+        type: "COMMAND",
+        isReadOnly: false,
+        requiresTransaction: false,
+        supportsPagination: false,
+      };
+    }
+
     const trimmedQuery = query.trim().toUpperCase();
 
     for (const [type, patterns] of Object.entries(QUERY_TYPES)) {
@@ -367,6 +410,17 @@ class DatabaseStrategy {
 
   buildCountQuery(baseQuery) {
     return `SELECT COUNT(*) as count FROM (${baseQuery}) as subquery`;
+  }
+
+  /**
+   * Fetch rows in a specific range for virtual scrolling
+   * @param {string} query - Base query without LIMIT/OFFSET
+   * @param {number} offset - Starting row index (0-based)
+   * @param {number} limit - Number of rows to fetch
+   * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
+   */
+  async fetchRowRange(query, offset, limit) {
+    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("fetchRowRange"));
   }
 
   // Connection health and monitoring

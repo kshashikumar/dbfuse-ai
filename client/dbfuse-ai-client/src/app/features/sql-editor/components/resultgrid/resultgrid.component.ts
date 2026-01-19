@@ -8,30 +8,50 @@ import {
     SimpleChanges,
     OnInit,
     inject,
+    ViewChild,
+    ElementRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { ScrollingModule, CdkVirtualScrollViewport } from '@angular/cdk/scrolling';
+import { CollectionViewer, DataSource } from '@angular/cdk/collections';
 import { BackendService } from '@core/services/backend/backend.service';
 import { TruncatePipe } from '@shared/pipes/truncate.pipe';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, BehaviorSubject, Observable, Subscription } from 'rxjs';
+import { getSafeSessionStorage } from '@core/utils/browser-adapter';
 
 @Component({
     selector: 'app-resultgrid',
     standalone: true,
-    imports: [CommonModule, RouterModule, FormsModule, TruncatePipe],
+    imports: [CommonModule, RouterModule, FormsModule, TruncatePipe, ScrollingModule],
     templateUrl: './resultgrid.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ResultGridComponent implements OnInit {
     private readonly _dbService = inject(BackendService);
     private readonly _cdr = inject(ChangeDetectorRef);
+    private readonly _http = inject(HttpClient);
 
-    @Input() triggerQuery: string = '';
+    @ViewChild('headerScroll', { read: ElementRef }) headerScroll?: ElementRef;
+    @ViewChild('bodyScroll', { read: CdkVirtualScrollViewport }) bodyScroll?: CdkVirtualScrollViewport;
+
+    @Input() triggerQuery: any = '';
     @Input() executeTriggered: boolean = false;
+    @Input() externalResult: any = null;
     @Input() dbName: string = '';
     @Input() tabId: string = '';
     @Output() resultsChanged = new EventEmitter<any[]>();
+
+    // Virtual scrolling
+    dataSource: VirtualDataSource | null = null;
+    displayedColumns: string[] = [];
+    isVirtualScrollLoading = false;
+
+    get connectionId(): string {
+        return getSafeSessionStorage().getItem('connectionId') || '';
+    }
 
     // Removed heavy per-tab caching; keep minimal state only
     headers: string[] = [];
@@ -70,11 +90,21 @@ export class ResultGridComponent implements OnInit {
         if (changes['executeTriggered']) {
             const prev = changes['executeTriggered'].previousValue;
             const curr = changes['executeTriggered'].currentValue;
-            const hasQuery = typeof this.triggerQuery === 'string' && this.triggerQuery.trim() !== '';
+            const hasQuery =
+                (typeof this.triggerQuery === 'string' && this.triggerQuery.trim() !== '') ||
+                (this.triggerQuery && typeof this.triggerQuery === 'object');
             if (prev !== curr && hasQuery) {
                 this.currentPage = 1;
                 this.executeQuery();
             }
+        }
+
+        // If parent provided an external result (e.g., Chat), apply it immediately
+        if (changes['externalResult'] && this.externalResult) {
+            this.queryResults = [this.externalResult];
+            this.activeQueryIndex = 0;
+            this.applyActiveQueryData();
+            this._cdr.markForCheck();
         }
 
         // Keep pagination state reset if dbName/tabId changes, but do not auto-execute
@@ -104,82 +134,53 @@ export class ResultGridComponent implements OnInit {
 
     executeQuery(): void {
         this.isLoading = true;
+        this.isVirtualScrollLoading = true;
         this.errorMessage = null;
-        this._cdr.markForCheck();
 
-        this._dbService
-            .executeQuery(this.triggerQuery, this.dbName, { page: this.currentPage, pageSize: this.pageSize })
-            .subscribe({
-                next: (data) => {
-                    if (data) {
-                        if (Array.isArray(data.queries)) {
-                            // Multi-query
-                            this.queryResults = data.queries;
-                            // Keep index in range (e.g., after re-exec)
-                            this.activeQueryIndex = Math.min(this.activeQueryIndex, this.queryResults.length - 1);
-                            if (this.activeQueryIndex < 0) this.activeQueryIndex = 0;
+        // Extract base query for virtual scrolling
+        if (typeof this.triggerQuery === 'string') {
+            const query = this.triggerQuery.trim();
 
-                            // Let parent render tabs
-                            this.resultsChanged.emit(
-                                (data.queries || []).map((q: any, idx: number) => {
-                                    // Try to infer table name from query or fallback to index
-                                    let tableName = '';
-                                    const match = q.query?.match(/FROM\s+([^\s;]+)/i);
-                                    if (match && match[1]) {
-                                        tableName = match[1].replace(/[`"'[\]]/g, ''); // strip quotes/brackets
-                                    }
-                                    const displayName =
-                                        this.dbName && tableName
-                                            ? `${this.dbName}.${tableName}`
-                                            : `${this.dbName || 'Query'}_${idx + 1}`;
+            // Initialize virtual scroll data source
+            this.dataSource = new VirtualDataSource(
+                this._http,
+                this.connectionId,
+                query,
+                100, // chunk size
+                20, // max chunks in cache
+            );
 
-                                    return { ...q, displayName };
-                                }),
-                            );
-
-                            // Apply selected result to grid
-                            this.applyActiveQueryData();
-
-                            // No per-tab caching retained; state lives in-memory per component
-                        } else {
-                            // Single-query fallback
-                            const single = data as any;
-                            const rows = Array.isArray(single.rows) ? single.rows : [];
-                            const totalRows = typeof single.totalRows === 'number' ? single.totalRows : rows.length;
-
-                            this.queryResults = [];
-                            this.activeQueryIndex = 0;
-                            this.resultsChanged.emit([]); // parent hides tabs
-
-                            this.setData(rows);
-                            this.totalRows = totalRows || 0;
-                            this.totalPages = Math.ceil(this.totalRows / this.pageSize) || 1;
-                            // No per-tab caching retained
-                        }
-                    } else {
-                        this.setData([]);
-                        this.queryResults = [];
-                        this.resultsChanged.emit([]);
-                        this.totalRows = 0;
-                        this.totalPages = 1;
+            // Load first chunk to get columns
+            this.dataSource
+                .loadInitialData()
+                .then((firstRows) => {
+                    if (firstRows && firstRows.length > 0) {
+                        this.displayedColumns = Object.keys(firstRows[0]);
                     }
+                    this.isVirtualScrollLoading = false;
                     this.isLoading = false;
                     this._cdr.markForCheck();
-                },
-                error: (error) => {
-                    this.errorMessage =
-                        error?.error?.error ||
-                        'An error occurred while executing the query. Please check your syntax and try again.';
+                })
+                .catch((error) => {
+                    this.errorMessage = error.message || 'Failed to load data';
+                    this.isVirtualScrollLoading = false;
                     this.isLoading = false;
-                    this.rows = [];
-                    this.headers = [];
-                    this.queryResults = [];
-                    this.resultsChanged.emit([]);
-                    this.totalRows = 0;
-                    this.totalPages = 1;
                     this._cdr.markForCheck();
-                },
-            });
+                });
+        } else {
+            this.isLoading = false;
+            this.isVirtualScrollLoading = false;
+        }
+
+        this._cdr.markForCheck();
+    }
+
+    // Synchronize horizontal scroll between header and body
+    onBodyScroll(event: Event): void {
+        if (this.headerScroll && this.bodyScroll) {
+            const scrollLeft = this.bodyScroll.measureScrollOffset('left');
+            this.headerScroll.nativeElement.scrollLeft = scrollLeft;
+        }
     }
 
     // PUBLIC: switch active result from parent
@@ -308,48 +309,6 @@ export class ResultGridComponent implements OnInit {
         document.body.removeChild(textArea);
     }
 
-    changePage(newPage: number): void {
-        if (newPage > 0 && newPage <= this.totalPages && newPage !== this.currentPage) {
-            this.currentPage = newPage;
-            this.executeQuery(); // backend paginates current SELECT; we keep active index
-        }
-    }
-
-    // Change page size via dropdown and re-run the query
-    changePageSize(event: Event): void {
-        const value = Number((event.target as HTMLSelectElement).value);
-        if (!isNaN(value) && value > 0 && value !== this.pageSize) {
-            this.pageSize = value;
-            this.currentPage = 1;
-            this.executeQuery();
-        }
-    }
-
-    goToPage(event: Event): void {
-        const target = event.target as HTMLInputElement;
-        const pageNumber = parseInt(target.value, 10);
-
-        if (!isNaN(pageNumber) && pageNumber >= 1 && pageNumber <= this.totalPages) {
-            this.changePage(pageNumber);
-        } else {
-            target.value = this.currentPage.toString();
-        }
-    }
-
-    // Utility method to get cell display value
-    getCellDisplayValue(value: any): string {
-        if (value === null || value === undefined) {
-            return 'NULL';
-        }
-        if (typeof value === 'boolean') {
-            return value ? 'TRUE' : 'FALSE';
-        }
-        if (typeof value === 'object') {
-            return JSON.stringify(value);
-        }
-        return String(value);
-    }
-
     // Method to determine cell content type for styling
     getCellType(value: any): string {
         if (value === null || value === undefined) {
@@ -379,19 +338,17 @@ export class ResultGridComponent implements OnInit {
     }
 
     async confirmExport(format: 'json' | 'csv' | 'excel'): Promise<void> {
+        // Get current data from the data source
         let data: any[] = [];
 
-        if (this.exportScope === 'all') {
-            // prefer already-available full payload
-            const active = this.activeResult;
-            if (active?.allRows && Array.isArray(active.allRows) && active.allRows.length) {
-                data = active.allRows;
-            } else {
-                // try to fetch all pages from backend
-                data = await this.fetchAllRows();
-            }
-        } else {
-            data = this.rows || [];
+        if (this.dataSource) {
+            // Get the current cached data from data source
+            const currentData = await firstValueFrom(
+                this.dataSource.connect({
+                    viewChange: new BehaviorSubject({ start: 0, end: Number.MAX_SAFE_INTEGER }),
+                }),
+            );
+            data = currentData.filter((row) => row && Object.keys(row).length > 0);
         }
 
         if (!data || data.length === 0) {
@@ -401,8 +358,7 @@ export class ResultGridComponent implements OnInit {
         }
 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const scope = this.exportScope === 'all' ? 'all' : 'current';
-        const baseName = `result-${scope}-${timestamp}`;
+        const baseName = `result-${timestamp}`;
 
         if (format === 'json') {
             const blob = new Blob([this.convertToJSON(data)], { type: 'application/json;charset=utf-8' });
@@ -451,7 +407,10 @@ export class ResultGridComponent implements OnInit {
     private convertToCSV(data: any[]): string {
         if (!data || data.length === 0) return '';
 
-        const cols = this.headers && this.headers.length > 0 ? this.headers : Object.keys(data[0] || {});
+        const cols =
+            this.displayedColumns && this.displayedColumns.length > 0
+                ? this.displayedColumns
+                : Object.keys(data[0] || {});
         const escape = (v: any) => {
             if (v === null || v === undefined) return '';
             const s = String(v);
@@ -473,7 +432,10 @@ export class ResultGridComponent implements OnInit {
 
     private convertToExcel(data: any[]): string {
         // Build a minimal HTML table which Excel can open
-        const cols = this.headers && this.headers.length > 0 ? this.headers : Object.keys(data[0] || {});
+        const cols =
+            this.displayedColumns && this.displayedColumns.length > 0
+                ? this.displayedColumns
+                : Object.keys(data[0] || {});
         const headerRow = cols
             .map((c) => `<th style="border:1px solid #ccc;padding:4px;background:#f0f0f0;">${this.escapeHtml(c)}</th>`)
             .join('');
@@ -508,6 +470,9 @@ export class ResultGridComponent implements OnInit {
         const active = this.activeResult;
         // choose base SQL: prefer the active statement, else fall back to original triggerQuery
         const query = active?.query || this.triggerQuery;
+        if (query && typeof query !== 'string') {
+            return this.rows || [];
+        }
         const pageSize = active?.pagination?.pageSize || this.pageSize;
         const totalPagesFromMeta = active?.pagination?.totalPages;
         const totalRowsFromMeta = active?.totalRows || this.totalRows;
@@ -571,5 +536,198 @@ export class ResultGridComponent implements OnInit {
         }
 
         return allRows;
+    }
+
+    private normalizeSingleResult(payload: any): { rows: any[]; totalRows: number; pagination?: any } {
+        if (!payload) {
+            return { rows: [], totalRows: 0 };
+        }
+
+        if (Array.isArray(payload.rows)) {
+            return {
+                rows: payload.rows,
+                totalRows: typeof payload.totalRows === 'number' ? payload.totalRows : payload.rows.length,
+                pagination: payload.pagination,
+            };
+        }
+
+        if (Array.isArray(payload.documents)) {
+            return {
+                rows: payload.documents,
+                totalRows: typeof payload.totalRows === 'number' ? payload.totalRows : payload.documents.length,
+                pagination: payload.pagination,
+            };
+        }
+
+        if (Array.isArray(payload.keys) && Array.isArray(payload.values)) {
+            const rows = payload.keys.map((key: any, idx: number) => ({
+                key,
+                value: payload.values[idx],
+            }));
+            return { rows, totalRows: rows.length };
+        }
+
+        if (Array.isArray(payload.keys)) {
+            const rows = payload.keys.map((key: any) => ({ key }));
+            return { rows, totalRows: rows.length };
+        }
+
+        if (payload.key !== undefined && payload.value !== undefined) {
+            return { rows: [{ key: payload.key, value: payload.value }], totalRows: 1 };
+        }
+
+        if (payload.value !== undefined) {
+            return { rows: [{ value: payload.value }], totalRows: 1 };
+        }
+
+        if (payload.values !== undefined) {
+            const values = Array.isArray(payload.values) ? payload.values : [payload.values];
+            const rows = values.map((value: any) => ({ value }));
+            return { rows, totalRows: rows.length };
+        }
+
+        if (typeof payload === 'object') {
+            return { rows: [payload], totalRows: 1 };
+        }
+
+        return { rows: [{ value: payload }], totalRows: 1 };
+    }
+}
+
+// Virtual Data Source for efficient scrolling
+class VirtualDataSource extends DataSource<any> {
+    private readonly dataStream = new BehaviorSubject<any[]>([]);
+    private subscription: Subscription | null = null;
+    private cache = new Map<number, any[]>();
+    private cacheOrder: number[] = [];
+    private loadingChunks = new Set<number>();
+    private totalRowCount: number | null = null;
+    private hasMore = true;
+
+    constructor(
+        private http: HttpClient,
+        private connectionId: string,
+        private query: string,
+        private chunkSize: number = 100,
+        private maxCachedChunks: number = 20,
+    ) {
+        super();
+    }
+
+    private getHeaders(): HttpHeaders {
+        const storage = getSafeSessionStorage();
+        const token = storage.getItem('token');
+        const dbType = storage.getItem('dbType') || 'mysql2';
+        const connectionId = storage.getItem('connectionId') || '';
+        return new HttpHeaders({
+            'Content-Type': 'application/json',
+            'x-db-type': dbType,
+            'x-connection-id': connectionId,
+            Authorization: token ? token : '',
+        });
+    }
+
+    connect(collectionViewer: CollectionViewer): Observable<any[]> {
+        this.subscription = collectionViewer.viewChange.subscribe((range) => {
+            const startChunk = Math.floor(range.start / this.chunkSize);
+            const endChunk = Math.ceil(range.end / this.chunkSize);
+
+            for (let chunkIndex = startChunk; chunkIndex <= endChunk; chunkIndex++) {
+                // Don't fetch if we've reached the end
+                if (this.totalRowCount !== null && chunkIndex * this.chunkSize >= this.totalRowCount) {
+                    break;
+                }
+                if (!this.cache.has(chunkIndex) && !this.loadingChunks.has(chunkIndex) && this.hasMore) {
+                    this.fetchChunk(chunkIndex);
+                }
+            }
+        });
+
+        return this.dataStream.asObservable();
+    }
+
+    disconnect(): void {
+        this.subscription?.unsubscribe();
+        this.dataStream.complete();
+    }
+
+    async loadInitialData(): Promise<any[]> {
+        return this.fetchChunk(0);
+    }
+
+    private async fetchChunk(chunkIndex: number): Promise<any[]> {
+        if (this.cache.has(chunkIndex)) {
+            return this.cache.get(chunkIndex)!;
+        }
+
+        this.loadingChunks.add(chunkIndex);
+        const offset = chunkIndex * this.chunkSize;
+
+        try {
+            const response: any = await firstValueFrom(
+                this.http.post(
+                    '/api/query/range',
+                    {
+                        connectionId: this.connectionId,
+                        query: this.query,
+                        offset,
+                        limit: this.chunkSize,
+                    },
+                    {
+                        headers: this.getHeaders(),
+                    },
+                ),
+            );
+
+            // Handle API response structure: { success: true, data: { rows: [...], hasMore: boolean } }
+            const rows = response?.data?.rows || response?.rows || [];
+            const hasMoreData = response?.data?.hasMore ?? true;
+
+            // If we got fewer rows than requested, we've reached the end
+            if (rows.length < this.chunkSize) {
+                this.hasMore = false;
+                this.totalRowCount = offset + rows.length;
+            } else if (hasMoreData === false) {
+                this.hasMore = false;
+                this.totalRowCount = offset + rows.length;
+            }
+
+            this.cacheChunk(chunkIndex, rows);
+            this.updateDataStream();
+
+            return rows;
+        } catch (error) {
+            console.error('Error fetching chunk', chunkIndex, error);
+            throw error;
+        } finally {
+            this.loadingChunks.delete(chunkIndex);
+        }
+    }
+
+    private cacheChunk(chunkIndex: number, data: any[]): void {
+        if (this.cacheOrder.length >= this.maxCachedChunks) {
+            const oldestChunk = this.cacheOrder.shift();
+            if (oldestChunk !== undefined) {
+                this.cache.delete(oldestChunk);
+            }
+        }
+
+        this.cache.set(chunkIndex, data);
+        this.cacheOrder.push(chunkIndex);
+    }
+
+    private updateDataStream(): void {
+        const allData: any[] = [];
+        const sortedChunks = Array.from(this.cache.keys()).sort((a, b) => a - b);
+
+        // Build continuous array from cached chunks only
+        for (const chunkIndex of sortedChunks) {
+            const chunkData = this.cache.get(chunkIndex);
+            if (chunkData && chunkData.length > 0) {
+                allData.push(...chunkData);
+            }
+        }
+
+        this.dataStream.next(allData);
     }
 }

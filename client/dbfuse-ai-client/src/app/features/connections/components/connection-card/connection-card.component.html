@@ -1,28 +1,27 @@
-<div class="group relative rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-surface-dark">
-    <div
-        class="cursor-pointer space-y-4"
-        (click)="onSelectConnection()"
-    >
+<div class="ui-card group relative overflow-hidden p-4 transition-colors duration-200 hover:bg-muted/40">
+    <div class="cursor-pointer space-y-3" (click)="onSelectConnection()">
         <div class="flex items-start gap-3">
             <div class="flex flex-1 items-start gap-3">
-                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-xl text-brand dark:bg-slate-900/60">
+                <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-muted text-lg text-muted-foreground">
                     <span *ngIf="connection.dbType === 'mysql2'" class="icon-[logos--mysql]"></span>
                     <span *ngIf="connection.dbType === 'pg'" class="icon-[logos--postgresql]"></span>
                     <span *ngIf="connection.dbType === 'sqlite3'" class="icon-[vscode-icons--file-type-sqlite]"></span>
                     <span *ngIf="connection.dbType === 'mssql'" class="icon-[devicon--microsoftsqlserver]"></span>
                     <span *ngIf="connection.dbType === 'oracledb'" class="icon-[logos--oracle]"></span>
-                    <span *ngIf="!['mysql2', 'pg', 'sqlite3', 'mssql', 'oracledb'].includes(connection.dbType)" class="icon-[mdi--database]"></span>
+                    <span *ngIf="connection.dbType === 'mongodb'" class="icon-[logos--mongodb]"></span>
+                    <span *ngIf="connection.dbType === 'redis'" class="icon-[logos--redis]"></span>
+                    <span *ngIf="!['mysql2', 'pg', 'sqlite3', 'mssql', 'oracledb', 'mongodb', 'redis'].includes(connection.dbType)" class="icon-[mdi--database]"></span>
                 </div>
 
                 <div class="min-w-0 space-y-1">
-                    <p class="text-[11px] uppercase tracking-[0.3em] text-slate-400">
+                    <p class="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
                         {{ getDbTypeLabel(connection.dbType) }}
                     </p>
-                    <h3 class="text-base font-semibold text-slate-900 dark:text-white truncate">
+                    <h3 class="text-base font-semibold text-foreground truncate">
                         {{ getConnectionTitle() }}
                     </h3>
-                    <p class="text-sm text-slate-500 dark:text-slate-400 truncate">
-                        {{ connection.username || 'Unknown user' }} · {{ connection.host }}:{{ connection.port }}
+                    <p class="text-sm text-muted-foreground truncate">
+                        {{ connection.username || 'Unknown user' }} &#64; {{ connection.host }}:{{ connection.port }}
                     </p>
                 </div>
             </div>
@@ -43,36 +42,36 @@
             </span>
         </div>
 
-        <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm text-slate-600 dark:text-slate-300">
+        <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-muted-foreground">
             <div class="space-y-1">
-                <dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Status</dt>
-                <dd class="flex items-center gap-2 text-slate-900 dark:text-white">
+                <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Status</dt>
+                <dd class="flex items-center gap-2 text-foreground">
                     <span class="h-2.5 w-2.5 rounded-full" [ngClass]="getStatusColor(connection.status)"></span>
                     {{ getStatusText(connection.status) }}
                 </dd>
             </div>
             <div class="space-y-1">
-                <dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Database</dt>
-                <dd class="text-slate-900 dark:text-white truncate">
-                    {{ connection.database || '—' }}
+                <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Database</dt>
+                <dd class="text-foreground truncate">
+                    {{ connection.database || 'No database' }}
                 </dd>
             </div>
             <div class="space-y-1">
-                <dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Pool Size</dt>
-                <dd class="text-slate-900 dark:text-white">
-                    {{ connection.poolSize || '—' }}
+                <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Pool Size</dt>
+                <dd class="text-foreground">
+                    {{ connection.poolSize || 'Auto' }}
                 </dd>
             </div>
             <div class="space-y-1">
-                <dt class="text-xs font-medium uppercase tracking-wide text-slate-400">Activity</dt>
-                <dd class="text-slate-900 dark:text-white">
+                <dt class="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Activity</dt>
+                <dd class="text-foreground">
                     {{ connection.lastUsed ? formatLastUsed(connection.lastUsed) : 'Not used yet' }}
                 </dd>
             </div>
         </dl>
     </div>
 
-    <div class="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
         <div class="flex flex-wrap items-center gap-2">
             <button
                 type="button"
@@ -96,7 +95,7 @@
 
             <button
                 type="button"
-                class="btn btn-ghost btn-sm gap-1 text-red-600 hover:text-red-700 dark:text-red-400"
+                class="btn btn-ghost btn-sm gap-1 text-destructive hover:text-destructive"
                 (click)="onDeleteConnection(); $event.stopPropagation()"
             >
                 <span class="icon-[mdi--delete] h-3.5 w-3.5"></span>
@@ -116,3 +115,7 @@
         </button>
     </div>
 </div>
+
+
+
+

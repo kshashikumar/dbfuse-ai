@@ -18,7 +18,7 @@
 /**
  * @typedef {Object} ConnectionConfig
  * @property {string} id - Unique connection identifier
- * @property {string} dbType - Database type (mysql2, pg, mssql, oracledb, sqlite3, mongodb, redis)
+ * @property {string} dbType - Database type (mysql2, pg, mssql, oracledb, sqlite3, mongodb, redis, couchdb, cosmosdb, firestore, dynamodb, cassandra, hbase, memcached)
  * @property {string} [name] - Human-readable connection name
  * @property {string} [host] - Database host address
  * @property {number} [port] - Database port number

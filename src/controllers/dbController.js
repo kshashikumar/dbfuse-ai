@@ -7,6 +7,7 @@ const BaseController = require("./base/BaseController");
 const chalk = require("chalk");
 const dbContext = require("../config/database-context");
 const { connectionManager } = require("../config");
+const { getStrategyMetadata } = require("../config/create-strategy");
 const databaseService = require("../services/DatabaseService");
 const logger = require("../utils/logger");
 const {
@@ -164,10 +165,13 @@ class DatabaseController extends BaseController {
         );
       }
 
-      if (!query || typeof query !== "string") {
+      const isStringQuery = typeof query === "string";
+      const isObjectQuery = query && typeof query === "object";
+
+      if (!query || (!isStringQuery && !isObjectQuery)) {
         return this.sendError(
           res,
-          "query is required and must be a string",
+          "query is required and must be a string or object",
           HTTP_STATUS.BAD_REQUEST,
         );
       }
@@ -179,7 +183,11 @@ class DatabaseController extends BaseController {
         DEFAULT_CONFIG.MAX_PAGE_SIZE,
       );
 
-      this.logOperation("executeQuery", { connectionId, queryLength: query.length });
+      this.logOperation("executeQuery", {
+        connectionId,
+        queryLength: isStringQuery ? query.length : undefined,
+        queryMode: !isStringQuery ? query.mode || query.operation || query.action : undefined,
+      });
 
       const result = await databaseService.executeQuery(connectionId, query, {
         page,
@@ -197,24 +205,109 @@ class DatabaseController extends BaseController {
         });
       }
 
-      // Handle single query response with pagination
-      const response = {
-        rows: result.rows || [],
-        totalRows: result.totalRows || 0,
-        messages: result.messages || [],
-        pagination: {
-          page,
-          pageSize,
-          totalPages: result.totalRows ? Math.ceil(result.totalRows / pageSize) : null,
-          hasMore: result.totalRows ? page * pageSize < result.totalRows : false,
-        },
+      // Handle string query response with pagination
+      if (isStringQuery) {
+        const response = {
+          rows: result.rows || [],
+          totalRows: result.totalRows || 0,
+          messages: result.messages || [],
+          pagination: {
+            page,
+            pageSize,
+            totalPages: result.totalRows ? Math.ceil(result.totalRows / pageSize) : null,
+            hasMore: result.totalRows ? page * pageSize < result.totalRows : false,
+          },
+          executedAt: new Date().toISOString(),
+          cached: result.cached || false,
+        };
+
+        return this.sendSuccess(res, response);
+      }
+
+      return this.sendSuccess(res, {
+        ...result,
         executedAt: new Date().toISOString(),
         cached: result.cached || false,
-      };
-
-      return this.sendSuccess(res, response);
+      });
     } catch (error) {
       this.handleError(res, error, "executing query");
+    }
+  }
+
+  /**
+   * Get collections for NoSQL connections
+   */
+  async getCollections(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const dbName = req.query.dbName || req.body?.dbName;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      this.logOperation("getCollections", { connectionId, dbName });
+      const result = await databaseService.getCollections(connectionId, dbName);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "fetching collections");
+    }
+  }
+
+  /**
+   * Get collection information
+   */
+  async getCollectionInfo(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const dbName = req.query.dbName || req.body?.dbName;
+      const collection = req.query.collection || req.body?.collection;
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      if (!collection) {
+        return this.sendError(res, "collection parameter is required", HTTP_STATUS.BAD_REQUEST);
+      }
+
+      this.logOperation("getCollectionInfo", { connectionId, collection, dbName });
+      const result = await databaseService.getCollectionInfo(connectionId, collection, dbName);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "fetching collection information");
+    }
+  }
+
+  /**
+   * Get key patterns for cache/key-value stores
+   */
+  async getKeyPatterns(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const pattern = req.query.pattern || req.body?.pattern || "*";
+
+      if (!connectionId) {
+        return this.sendError(
+          res,
+          `${HEADERS.CONNECTION_ID} header is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      this.logOperation("getKeyPatterns", { connectionId, pattern });
+      const result = await databaseService.getKeyPatterns(connectionId, pattern);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      this.handleError(res, error, "fetching key patterns");
     }
   }
 
@@ -245,10 +338,35 @@ class DatabaseController extends BaseController {
 
       // Validate required fields based on database type
       let requiredFields = ["dbType"];
-      if (dbType !== DB_TYPES.SQLITE) {
-        requiredFields = ["username", "password", "host", "port", "dbType"];
-      } else {
+      const sqlTypes = new Set([
+        DB_TYPES.MYSQL,
+        DB_TYPES.POSTGRESQL,
+        DB_TYPES.SQLITE,
+        DB_TYPES.MSSQL,
+        DB_TYPES.ORACLE,
+      ]);
+      const noSqlTypes = new Set([
+        DB_TYPES.MONGODB,
+        DB_TYPES.REDIS,
+        DB_TYPES.COUCHBASE,
+        DB_TYPES.COUCHDB,
+        DB_TYPES.COSMOSDB,
+        DB_TYPES.FIRESTORE,
+        DB_TYPES.DYNAMODB,
+        DB_TYPES.CASSANDRA,
+        DB_TYPES.HBASE,
+        DB_TYPES.MEMCACHED,
+      ]);
+      const optionalHostTypes = new Set([DB_TYPES.FIRESTORE, DB_TYPES.DYNAMODB]);
+
+      if (dbType === DB_TYPES.SQLITE) {
         requiredFields.push("database");
+      } else if (sqlTypes.has(dbType)) {
+        requiredFields = ["username", "password", "host", "port", "dbType"];
+      } else if (noSqlTypes.has(dbType)) {
+        requiredFields = optionalHostTypes.has(dbType) ? ["dbType"] : ["host", "port", "dbType"];
+      } else {
+        requiredFields = ["host", "port", "dbType"];
       }
 
       const validation = this.validateRequired(req.body, requiredFields);
@@ -503,6 +621,47 @@ class DatabaseController extends BaseController {
   }
 
   /**
+   * Get strategy metadata for current database type
+   */
+  async getStrategyMetadata(req, res) {
+    try {
+      const connectionId = this._getConnectionId(req);
+      const headerDbType = this._getDbType(req);
+
+      let dbType = headerDbType;
+      if (!dbType && connectionId) {
+        const info = connectionManager.getConnectionInfo(connectionId);
+        dbType = info?.config?.dbType;
+      }
+
+      if (!dbType) {
+        return this.sendError(
+          res,
+          `${HEADERS.DB_TYPE} header or connection is required`,
+          HTTP_STATUS.BAD_REQUEST,
+        );
+      }
+
+      const metadata = getStrategyMetadata(dbType);
+      if (!metadata) {
+        return this.sendError(
+          res,
+          "Strategy metadata not available for this database type",
+          HTTP_STATUS.NOT_IMPLEMENTED,
+        );
+      }
+
+      return this.sendSuccess(res, {
+        dbType,
+        metadata,
+        retrievedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.handleError(res, error, "fetching strategy metadata");
+    }
+  }
+
+  /**
    * Get database service metrics
    */
   async getMetrics(req, res) {
@@ -536,6 +695,9 @@ module.exports = {
   getDatabases: controller.getDatabases.bind(controller),
   getTables: controller.getTables.bind(controller),
   getTableInfo: controller.getTableInfo.bind(controller),
+  getCollections: controller.getCollections.bind(controller),
+  getCollectionInfo: controller.getCollectionInfo.bind(controller),
+  getKeyPatterns: controller.getKeyPatterns.bind(controller),
   executeQuery: controller.executeQuery.bind(controller),
   getMultipleTablesInfo: controller.getMultipleTablesInfo.bind(controller),
   connect: controller.connect.bind(controller),
@@ -545,6 +707,7 @@ module.exports = {
   analyzeQuery: controller.analyzeQuery.bind(controller),
   getViews: controller.getViews.bind(controller),
   getProcedures: controller.getProcedures.bind(controller),
+  getStrategyMetadata: controller.getStrategyMetadata.bind(controller),
   getMetrics: controller.getMetrics.bind(controller),
   clearCache: controller.clearCache.bind(controller),
 };

@@ -11,6 +11,13 @@ const DB_TYPES = {
   ORACLE: "oracledb",
   MONGODB: "mongodb",
   REDIS: "redis",
+  COUCHDB: "couchdb",
+  COSMOSDB: "cosmosdb",
+  FIRESTORE: "firestore",
+  DYNAMODB: "dynamodb",
+  CASSANDRA: "cassandra",
+  HBASE: "hbase",
+  MEMCACHED: "memcached",
 };
 
 const QUERY_TYPES = {
@@ -87,6 +94,13 @@ const DB_DEFAULTS = {
     ORACLE: 1521,
     MONGODB: 27017,
     REDIS: 6379,
+    COUCHDB: 5984,
+    COSMOSDB: 443,
+    FIRESTORE: 443,
+    DYNAMODB: 443,
+    CASSANDRA: 9042,
+    HBASE: 9090,
+    MEMCACHED: 11211,
   },
   USER: "root",
   CHARSET: "UTF8_GENERAL_CI",

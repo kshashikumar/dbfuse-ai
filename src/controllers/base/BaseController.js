@@ -105,6 +105,11 @@ class BaseController {
       return this.sendError(res, error.message, HTTP_STATUS.BAD_REQUEST);
     }
 
+    // Missing driver dependencies
+    if (error.message.includes("driver not installed")) {
+      return this.sendError(res, error.message, HTTP_STATUS.BAD_REQUEST);
+    }
+
     // API quota/rate limit errors
     if (
       error.message.includes("429") ||

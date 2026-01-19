@@ -51,6 +51,9 @@ export class ConnectionCardComponent {
                 this.connection.databaseDisplay ?? this.connection.database ?? this.connection.databasePath ?? 'SQLite'
             );
         }
+        if (!this.connection.host || !this.connection.port) {
+            return this.connection.databaseDisplay ?? this.connection.database ?? this.connection.dbType;
+        }
         return `${this.connection.host}:${this.connection.port}`;
     }
 
@@ -61,6 +64,15 @@ export class ConnectionCardComponent {
             sqlite3: 'SQLite',
             mssql: 'SQL Server',
             oracledb: 'Oracle DB',
+            mongodb: 'MongoDB',
+            redis: 'Redis',
+            couchdb: 'CouchDB',
+            cosmosdb: 'Azure Cosmos DB',
+            firestore: 'Firestore',
+            dynamodb: 'DynamoDB',
+            cassandra: 'Cassandra',
+            hbase: 'HBase',
+            memcached: 'Memcached',
         };
         return labels[type] || type;
     }

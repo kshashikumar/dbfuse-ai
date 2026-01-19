@@ -1,0 +1,356 @@
+const logger = require("../../utils/logger");
+
+const NoSQLStrategy = require("./base/nosql-strategy");
+
+class DynamoDBStrategy extends NoSQLStrategy {
+  constructor() {
+    super();
+    this.client = null;
+    this.docClient = null;
+    this.currentDatabase = null;
+    this.connectionConfig = null;
+  }
+
+  async connect(config) {
+    let DynamoDBClient;
+    let DynamoDBDocumentClient;
+    try {
+      ({ DynamoDBClient } = require("@aws-sdk/client-dynamodb"));
+      ({ DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb"));
+    } catch (error) {
+      throw new Error(
+        "DynamoDB driver not installed. Add '@aws-sdk/client-dynamodb' and '@aws-sdk/lib-dynamodb' to dependencies to enable DynamoDB support.",
+      );
+    }
+
+    const region =
+      config.region ||
+      config.database ||
+      process.env.AWS_REGION ||
+      process.env.AWS_DEFAULT_REGION ||
+      "us-east-1";
+    const endpoint = this._buildEndpoint(config);
+    const accessKeyId = config.accessKeyId || config.username;
+    const secretAccessKey = config.secretAccessKey || config.password;
+    const credentials =
+      accessKeyId && secretAccessKey
+        ? {
+            accessKeyId,
+            secretAccessKey,
+            sessionToken: config.sessionToken,
+          }
+        : undefined;
+
+    this.client = new DynamoDBClient({
+      region,
+      endpoint,
+      credentials,
+    });
+    this.docClient = DynamoDBDocumentClient.from(this.client);
+    this.connectionConfig = config;
+    this.currentDatabase = config.database || region;
+    logger.info("DynamoDB connection established");
+  }
+
+  async disconnect() {
+    if (this.client && typeof this.client.destroy === "function") {
+      this.client.destroy();
+    }
+    this.client = null;
+    this.docClient = null;
+    this.currentDatabase = null;
+  }
+
+  async validateConnection() {
+    if (!this.client) return false;
+    try {
+      const { ListTablesCommand } = require("@aws-sdk/client-dynamodb");
+      await this.client.send(new ListTablesCommand({ Limit: 1 }));
+      return true;
+    } catch (err) {
+      logger.error("DynamoDB connection validation failed:", err);
+      return false;
+    }
+  }
+
+  async getDatabases() {
+    if (!this.client) throw new Error("DynamoDB connection not initialized");
+    const tables = await this.getCollections();
+    return [
+      {
+        name: this.currentDatabase || "default",
+        sizeOnDisk: 0,
+        tables: tables.map((name) => ({ name })),
+        views: [],
+      },
+    ];
+  }
+
+  async switchDatabase(dbName) {
+    if (!dbName) return;
+    this.currentDatabase = dbName;
+  }
+
+  async getCollections() {
+    if (!this.client) throw new Error("DynamoDB connection not initialized");
+    const { ListTablesCommand } = require("@aws-sdk/client-dynamodb");
+    const tables = [];
+    let lastEvaluatedTableName = undefined;
+
+    do {
+      const response = await this.client.send(
+        new ListTablesCommand({
+          Limit: 50,
+          ExclusiveStartTableName: lastEvaluatedTableName,
+        }),
+      );
+      if (response.TableNames) {
+        tables.push(...response.TableNames);
+      }
+      lastEvaluatedTableName = response.LastEvaluatedTableName;
+      if (tables.length >= 200) break;
+    } while (lastEvaluatedTableName);
+
+    return tables;
+  }
+
+  async getCollectionInfo(_dbName, collectionName) {
+    if (!this.client) throw new Error("DynamoDB connection not initialized");
+    if (!collectionName) throw new Error("DynamoDB table name is required.");
+
+    const { DescribeTableCommand } = require("@aws-sdk/client-dynamodb");
+    const metadata = await this.client.send(
+      new DescribeTableCommand({ TableName: collectionName }),
+    );
+    const table = metadata.Table || {};
+
+    const columns = (table.AttributeDefinitions || []).map((attr) => ({
+      column_name: attr.AttributeName,
+      data_type: attr.AttributeType,
+    }));
+
+    const indexes = [];
+    for (const gsi of table.GlobalSecondaryIndexes || []) {
+      indexes.push({
+        index_name: gsi.IndexName,
+        type: "GSI",
+        definition: JSON.stringify({
+          keySchema: gsi.KeySchema,
+          projection: gsi.Projection,
+        }),
+      });
+    }
+    for (const lsi of table.LocalSecondaryIndexes || []) {
+      indexes.push({
+        index_name: lsi.IndexName,
+        type: "LSI",
+        definition: JSON.stringify({
+          keySchema: lsi.KeySchema,
+          projection: lsi.Projection,
+        }),
+      });
+    }
+
+    let sampleDocuments = [];
+    try {
+      const { ScanCommand } = require("@aws-sdk/lib-dynamodb");
+      const result = await this.docClient.send(
+        new ScanCommand({ TableName: collectionName, Limit: 20 }),
+      );
+      sampleDocuments = result.Items || [];
+    } catch (error) {
+      logger.debug("DynamoDB sample scan failed:", error.message || error);
+    }
+
+    return {
+      db_name: this.currentDatabase || "default",
+      table_name: collectionName,
+      columns,
+      indexes,
+      foreign_keys: [],
+      triggers: [],
+      sampleDocuments,
+    };
+  }
+
+  async getTables(dbName) {
+    return this.getCollections(dbName);
+  }
+
+  async getTableInfo(dbName, tableName) {
+    return this.getCollectionInfo(dbName, tableName);
+  }
+
+  async getMultipleTablesInfo(dbName, tableNames) {
+    const details = [];
+    for (const name of tableNames || []) {
+      details.push(await this.getCollectionInfo(dbName, name));
+    }
+    return details;
+  }
+
+  async _executeQueryImpl(query, options = {}) {
+    if (!this.docClient) throw new Error("DynamoDB connection not initialized");
+    const normalized = this._normalizeQuery(query, options);
+    const operation = normalized.operation;
+
+    const {
+      GetCommand,
+      PutCommand,
+      UpdateCommand,
+      DeleteCommand,
+      QueryCommand,
+      ScanCommand,
+      BatchGetCommand,
+      BatchWriteCommand,
+    } = require("@aws-sdk/lib-dynamodb");
+
+    switch (operation) {
+      case "get": {
+        if (!normalized.table || !normalized.key) {
+          throw new Error("DynamoDB table and key are required.");
+        }
+        const response = await this.docClient.send(
+          new GetCommand({ TableName: normalized.table, Key: normalized.key }),
+        );
+        return { documents: response.Item ? [response.Item] : [] };
+      }
+      case "put":
+      case "insert": {
+        if (!normalized.table || !normalized.item) {
+          throw new Error("DynamoDB table and item are required.");
+        }
+        await this.docClient.send(
+          new PutCommand({
+            TableName: normalized.table,
+            Item: normalized.item,
+            ...normalized.requestOptions,
+          }),
+        );
+        return { inserted: true };
+      }
+      case "update": {
+        if (!normalized.table || !normalized.key) {
+          throw new Error("DynamoDB table and key are required.");
+        }
+        const response = await this.docClient.send(
+          new UpdateCommand({
+            TableName: normalized.table,
+            Key: normalized.key,
+            ...normalized.requestOptions,
+            ReturnValues: normalized.requestOptions?.ReturnValues || "ALL_NEW",
+          }),
+        );
+        return { updated: true, document: response.Attributes || null };
+      }
+      case "delete": {
+        if (!normalized.table || !normalized.key) {
+          throw new Error("DynamoDB table and key are required.");
+        }
+        await this.docClient.send(
+          new DeleteCommand({
+            TableName: normalized.table,
+            Key: normalized.key,
+            ...normalized.requestOptions,
+          }),
+        );
+        return { deleted: true };
+      }
+      case "query": {
+        if (!normalized.table) throw new Error("DynamoDB table is required.");
+        const response = await this.docClient.send(
+          new QueryCommand({
+            TableName: normalized.table,
+            ...normalized.requestOptions,
+            Limit: normalized.limit || normalized.requestOptions?.Limit,
+            ExclusiveStartKey:
+              normalized.exclusiveStartKey || normalized.requestOptions?.ExclusiveStartKey,
+          }),
+        );
+        return {
+          documents: response.Items || [],
+          lastEvaluatedKey: response.LastEvaluatedKey || null,
+          count: response.Count,
+          scannedCount: response.ScannedCount,
+        };
+      }
+      case "scan": {
+        if (!normalized.table) throw new Error("DynamoDB table is required.");
+        const response = await this.docClient.send(
+          new ScanCommand({
+            TableName: normalized.table,
+            ...normalized.requestOptions,
+            Limit: normalized.limit || normalized.requestOptions?.Limit,
+            ExclusiveStartKey:
+              normalized.exclusiveStartKey || normalized.requestOptions?.ExclusiveStartKey,
+          }),
+        );
+        return {
+          documents: response.Items || [],
+          lastEvaluatedKey: response.LastEvaluatedKey || null,
+          count: response.Count,
+          scannedCount: response.ScannedCount,
+        };
+      }
+      case "batchget": {
+        if (!normalized.requestItems) {
+          throw new Error("DynamoDB batch get requires requestItems.");
+        }
+        const response = await this.docClient.send(
+          new BatchGetCommand({ RequestItems: normalized.requestItems }),
+        );
+        return { responses: response.Responses || {}, unprocessed: response.UnprocessedKeys || {} };
+      }
+      case "batchwrite": {
+        if (!normalized.requestItems) {
+          throw new Error("DynamoDB batch write requires requestItems.");
+        }
+        const response = await this.docClient.send(
+          new BatchWriteCommand({ RequestItems: normalized.requestItems }),
+        );
+        return { unprocessed: response.UnprocessedItems || {} };
+      }
+      default:
+        throw new Error(`Unsupported DynamoDB operation: ${operation}`);
+    }
+  }
+
+  _buildEndpoint(config = {}) {
+    if (config.endpoint) return config.endpoint;
+    if (!config.host) return undefined;
+    const host = this.normalizeHost(config.host);
+    const port = config.port ? `:${config.port}` : "";
+    const protocol = config.ssl === false ? "http" : "https";
+    return `${protocol}://${host}${port}`;
+  }
+
+  _normalizeQuery(query, options = {}) {
+    if (typeof query === "string") {
+      return { operation: "scan", table: query };
+    }
+
+    const payload = query?.payload || {};
+    const operation = (
+      query?.operation ||
+      query?.action ||
+      payload.operation ||
+      payload.action ||
+      "scan"
+    )
+      .toString()
+      .toLowerCase();
+
+    return {
+      operation,
+      table: query?.table || query?.collection || payload.table || payload.collection,
+      key: query?.key || payload.key,
+      item: query?.item || query?.document || payload.item || payload.document,
+      requestOptions: query?.options || payload.options || {},
+      requestItems: query?.requestItems || payload.requestItems,
+      limit: query?.limit || payload.limit || options?.pageSize,
+      exclusiveStartKey: query?.exclusiveStartKey || payload.exclusiveStartKey,
+    };
+  }
+}
+
+module.exports = DynamoDBStrategy;

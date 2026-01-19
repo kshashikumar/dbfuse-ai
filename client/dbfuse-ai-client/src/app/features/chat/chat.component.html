@@ -1,0 +1,379 @@
+<div class="flex h-full bg-background">
+    <!-- Chat Messages Panel (Left Side) -->
+    <div [ngClass]="hasResults ? 'w-1/2' : 'flex-1'" class="min-w-0 flex flex-col border-r border-border">
+        <div class="border-b border-border px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-lg font-semibold text-foreground">Chat to DB</h2>
+                    <p class="text-sm text-muted-foreground">
+                        Ask questions and get natural-language answers from your data.
+                    </p>
+                </div>
+                <div class="text-xs text-muted-foreground">
+                    <span *ngIf="selectedDatabase">DB: {{ selectedDatabase }}</span>
+                    <span *ngIf="!selectedDatabase">Select a database</span>
+                </div>
+            </div>
+        </div>
+
+        <div
+            *ngIf="!isSqlBased"
+            class="px-6 py-2 text-xs text-amber-700 bg-amber-50 border-b border-amber-200 dark:text-amber-200 dark:bg-amber-900/20 dark:border-amber-700"
+        >
+            Chat to DB is available for SQL connections only. Switch to a SQL database to use this view.
+        </div>
+
+        <div class="flex-1 overflow-auto p-6 space-y-4 scrollbar-hidden">
+        <!-- Empty state -->
+        <div *ngIf="!messages.length" class="text-sm text-muted-foreground text-center py-8">
+            <p class="text-base mb-2">💬 Start a conversation</p>
+            <p>Ask questions about your data and get natural-language answers.</p>
+        </div>
+
+        <!-- Message history -->
+        <div *ngFor="let message of messages" class="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div
+                class="rounded-lg border px-4 py-3 text-sm"
+                [ngClass]="{
+                    'bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/30': message.role === 'user',
+                    'bg-card border-border': message.role === 'assistant'
+                }"
+            >
+                <!-- Collapsible completed steps for assistant messages (shown at top) -->
+                <div *ngIf="message.role === 'assistant' && message.steps?.length" class="mb-3">
+                    <button
+                        type="button"
+                        class="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded hover:bg-muted/50 transition-colors group text-xs font-medium text-muted-foreground hover:text-foreground"
+                        (click)="toggleSteps(message)"
+                    >
+                        <!-- Show spinner if any step is running, otherwise show chevron -->
+                        <svg 
+                            *ngIf="!hasRunningStep(message.steps)"
+                            class="w-3 h-3 transition-transform duration-150 text-muted-foreground group-hover:text-foreground" 
+                            [ngClass]="{'rotate-90': message.showSteps}" 
+                            fill="currentColor" 
+                            viewBox="0 0 16 16"
+                        >
+                            <path d="M6 4l4 4-4 4V4z"/>
+                        </svg>
+                        <svg 
+                            *ngIf="hasRunningStep(message.steps)" 
+                            class="w-3 h-3 animate-spin text-primary" 
+                            fill="none" 
+                            viewBox="0 0 24 24"
+                        >
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span 
+                            class="flex-1 text-left"
+                            [ngClass]="{'text-primary': hasRunningStep(message.steps)}"
+                        >
+                            {{ getLastStepLabel(message.steps) }}
+                        </span>
+                    </button>
+                    <div *ngIf="message.showSteps" class="mt-1 ml-5 space-y-1 text-xs border-l border-border/50 pl-3">
+                        <div *ngFor="let step of message.steps" class="flex items-start gap-2 py-0.5">
+                            <span
+                                class="shrink-0 w-3.5 h-3.5 flex items-center justify-center mt-0.5"
+                                [ngClass]="{
+                                    'text-primary': step.status === 'running',
+                                    'text-green-600 dark:text-green-400': step.status === 'done',
+                                    'text-muted-foreground': step.status === 'pending' || step.status === 'skipped',
+                                    'text-destructive': step.status === 'failed'
+                                }"
+                            >
+                                <svg *ngIf="step.status === 'done'" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
+                                </svg>
+                                <svg *ngIf="step.status === 'running'" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+                                    <circle cx="8" cy="8" r="2.5"/>
+                                </svg>
+                                <svg *ngIf="step.status === 'pending' || step.status === 'skipped'" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+                                    <circle cx="8" cy="8" r="2" opacity="0.5"/>
+                                </svg>
+                                <svg *ngIf="step.status === 'failed'" class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                                    <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                                </svg>
+                            </span>
+                            <div 
+                                class="flex-1 min-w-0 transition-colors"
+                                [ngClass]="{
+                                    'text-primary font-medium': step.status === 'running',
+                                    'text-muted-foreground': step.status !== 'running'
+                                }"
+                            >
+                                <span class="font-normal">{{ step.label }}</span>
+                                <span *ngIf="step.note" class="text-muted-foreground/80 ml-1">
+                                    - {{ step.note }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Query Analysis Card (if enriched context available) -->
+                <div *ngIf="message.role === 'assistant' && message.enrichedContext" class="mb-3 p-3 bg-muted/30 rounded-md border border-border/50">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-medium text-muted-foreground">Query Analysis</span>
+                        <button 
+                            type="button"
+                            (click)="toggleEnrichmentDetails(message)"
+                            class="text-xs text-primary hover:underline"
+                        >
+                            {{ message.showEnrichmentDetails ? 'Hide' : 'Show' }} details
+                        </button>
+                    </div>
+                    <div class="flex flex-wrap gap-2 text-xs mb-2">
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
+                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                                <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                            </svg>
+                            {{ message.enrichedContext.queryIntent }}
+                        </span>
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded"
+                            [ngClass]="{
+                                'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300': message.enrichedContext.complexity === 'simple',
+                                'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300': message.enrichedContext.complexity === 'medium',
+                                'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300': message.enrichedContext.complexity === 'complex'
+                            }"
+                        >
+                            {{ message.enrichedContext.complexity }}
+                        </span>
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded">
+                            {{ message.enrichedContext.selectedStrategy }}
+                        </span>
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded">
+                            {{ (message.enrichedContext.confidence * 100).toFixed(0) }}% confidence
+                        </span>
+                    </div>
+
+                    <!-- Detected Entities -->
+                    <div *ngIf="message.enrichedContext.relevantEntities?.length" class="mb-2">
+                        <span class="text-xs font-medium text-muted-foreground mb-1 block">Detected Entities:</span>
+                        <div class="flex flex-wrap gap-1.5">
+                            <span *ngFor="let entity of message.enrichedContext.relevantEntities" 
+                                class="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded text-xs">
+                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v3A1.5 1.5 0 0 1 5.5 7h-3A1.5 1.5 0 0 1 1 5.5v-3zM2.5 2a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zm6.5.5A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-3A1.5 1.5 0 0 1 9 5.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zM1 10.5A1.5 1.5 0 0 1 2.5 9h3A1.5 1.5 0 0 1 7 10.5v3A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zm6.5.5A1.5 1.5 0 0 1 10.5 9h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3z"/>
+                                </svg>
+                                {{ entity.name }}
+                                <span *ngIf="entity.score" class="text-[10px] opacity-75">({{ (entity.score * 100).toFixed(0) }}%)</span>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Expanded Details -->
+                    <div *ngIf="message.showEnrichmentDetails" class="mt-3 pt-3 border-t border-border/50 space-y-2">
+                        <!-- Reasoning -->
+                        <div *ngIf="message.enrichedContext.reasoning" class="text-xs">
+                            <span class="font-medium text-muted-foreground">Reasoning:</span>
+                            <span class="text-foreground ml-1">{{ message.enrichedContext.reasoning }}</span>
+                        </div>
+
+                        <!-- Planned Steps -->
+                        <div *ngIf="message.enrichedContext.plannedSteps?.length" class="text-xs">
+                            <span class="font-medium text-muted-foreground block mb-1">Planned Steps:</span>
+                            <div class="ml-3 space-y-1">
+                                <div *ngFor="let step of message.enrichedContext.plannedSteps; let i = index" class="flex items-start gap-2">
+                                    <span class="shrink-0 text-muted-foreground">{{ i + 1 }}.</span>
+                                    <div class="flex-1">
+                                        <span class="text-foreground">{{ step.label }}</span>
+                                        <span *ngIf="step.reasoning" class="text-muted-foreground ml-1"> - {{ step.reasoning }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Alternative Strategies -->
+                        <div *ngIf="message.enrichedContext.alternativeStrategies?.length" class="text-xs">
+                            <span class="font-medium text-muted-foreground block mb-1">Alternative Strategies:</span>
+                            <div class="flex flex-wrap gap-1.5">
+                                <span *ngFor="let alt of message.enrichedContext.alternativeStrategies" 
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded">
+                                    {{ alt.name }}
+                                    <span *ngIf="alt.description" class="text-[10px] opacity-75 ml-0.5" [title]="alt.description">ⓘ</span>
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Capabilities -->
+                        <div *ngIf="message.enrichedContext.capabilities" class="text-xs">
+                            <span class="font-medium text-muted-foreground block mb-1">Capabilities:</span>
+                            <div class="ml-3 text-muted-foreground">
+                                <div *ngIf="message.enrichedContext.capabilities.operations?.length">
+                                    Operations: {{ message.enrichedContext.capabilities.operations.join(', ') }}
+                                </div>
+                                <div *ngIf="message.enrichedContext.capabilities.supportedFeatures?.length">
+                                    Features: {{ message.enrichedContext.capabilities.supportedFeatures.join(', ') }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Phase and Timestamp -->
+                        <div class="flex items-center gap-3 text-[10px] text-muted-foreground">
+                            <span>Phase: {{ message.enrichedContext.phase }}</span>
+                            <span>•</span>
+                            <span>{{ message.enrichedContext.timestamp | date:'short' }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-foreground whitespace-pre-wrap">
+                    {{ message.text }}
+                </p>
+
+                <div *ngIf="message.error" class="mt-3 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
+                    <div class="flex items-start gap-2">
+                        <svg class="w-4 h-4 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                        </svg>
+                        <span>{{ message.error }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="border-t border-border p-4">
+        <div class="flex items-start gap-2">
+            <textarea
+                [(ngModel)]="promptText"
+                [disabled]="!isSqlBased"
+                rows="2"
+                class="ui-input h-auto resize-none"
+                placeholder="Ask about your data..."
+                (keydown.enter)="$event.shiftKey || sendPrompt()"
+            ></textarea>
+            <button
+                (click)="sendPrompt()"
+                [disabled]="loading || !isSqlBased"
+                class="btn btn-primary"
+                aria-label="Send prompt"
+            >
+                {{ loading ? 'Working...' : 'Send' }}
+            </button>
+        </div>
+        <div *ngIf="statusMessage" class="mt-2 text-xs text-muted-foreground">
+            {{ statusMessage }}
+        </div>
+    </div>
+    </div>
+
+    <!-- Results Panel (Right Side) - Only show when there are results -->
+    <div *ngIf="hasResults && currentQueryResult" class="w-1/2 border-l border-border flex flex-col bg-background">
+        <!-- Header -->
+        <div class="border-b border-border px-4 py-3 flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-semibold">{{ currentQueryResult.tableName }}</h3>
+                <div class="text-xs text-muted-foreground mt-1">
+                    <span>{{ currentQueryResult.rows?.length || 0 }} rows</span>
+                    <span *ngIf="currentQueryResult.metadata?.executionTime"> • {{ currentQueryResult.metadata.executionTime }}ms</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button
+                    type="button"
+                    (click)="exportToCSV()"
+                    class="text-xs px-2 py-1 rounded hover:bg-muted transition-colors"
+                    title="Export to CSV"
+                >
+                    CSV
+                </button>
+                <button
+                    type="button"
+                    (click)="exportToJSON()"
+                    class="text-xs px-2 py-1 rounded hover:bg-muted transition-colors"
+                    title="Export to JSON"
+                >
+                    JSON
+                </button>
+                <button
+                    type="button"
+                    (click)="closeResults()"
+                    class="text-muted-foreground hover:text-foreground transition-colors ml-2"
+                    title="Close results"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 18L18 6M6 6l12 12" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Table View for SQL -->
+        <div *ngIf="currentQueryResult?.type === 'table' && currentQueryResult?.rows?.length > 0" class="flex-1 flex flex-col overflow-hidden">
+            <!-- Fixed Header -->
+            <div #tableHeaderScroll class="flex-shrink-0 bg-muted border-b border-border overflow-hidden">
+                <table class="w-full text-sm border-collapse" style="table-layout: fixed;">
+                    <colgroup>
+                        <col *ngFor="let col of currentQueryResult.columns" style="width: 200px; min-width: 150px;">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th *ngFor="let col of currentQueryResult.columns" 
+                                class="px-3 py-2 text-left font-medium text-muted-foreground border-r border-border last:border-r-0"
+                                style="width: 200px; min-width: 150px;">
+                                {{ col }}
+                            </th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+            
+            <!-- Scrollable Body -->
+            <cdk-virtual-scroll-viewport
+                #tableBodyScroll
+                [itemSize]="40"
+                class="flex-1 w-full overflow-auto scrollbar-hidden"
+                (scroll)="onTableBodyScroll($event)"
+            >
+                <table class="w-full text-sm border-collapse" style="table-layout: fixed;">
+                    <colgroup>
+                        <col *ngFor="let col of currentQueryResult.columns" style="width: 200px; min-width: 150px;">
+                    </colgroup>
+                    <tbody>
+                        <tr *cdkVirtualFor="let row of currentQueryResult.rows; trackBy: trackByIndex" 
+                            class="border-b border-border hover:bg-muted/50">
+                            <td *ngFor="let col of currentQueryResult.columns" 
+                                class="px-3 py-2 text-foreground border-r border-border last:border-r-0"
+                                style="width: 200px; min-width: 150px;">
+                                {{ row[col] }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </cdk-virtual-scroll-viewport>
+        </div>
+
+        <!-- JSON View for NoSQL -->
+        <div *ngIf="currentQueryResult.type === 'json'" class="flex-1 overflow-auto p-4 space-y-3">
+            <div *ngFor="let doc of currentQueryResult.rows; let i = index" 
+                 class="rounded-md border border-border bg-card p-3">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-muted-foreground">Document #{{ i + 1 }}</span>
+                </div>
+                <pre class="text-xs overflow-x-auto bg-muted/50 p-2 rounded">{{ doc | json }}</pre>
+            </div>
+        </div>
+
+        <!-- Query Display -->
+        <div *ngIf="currentQueryResult.query" class="border-t border-border p-4 bg-muted/20">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-medium text-muted-foreground">Query</span>
+                <button 
+                    type="button" 
+                    (click)="copyQuery()"
+                    class="text-xs px-2 py-1 rounded hover:bg-muted transition-colors"
+                    title="Copy query"
+                >
+                    Copy
+                </button>
+            </div>
+            <pre class="text-xs bg-background p-2 rounded border border-border overflow-x-auto">{{ currentQueryResult.query }}</pre>
+        </div>
+    </div>
+</div>
