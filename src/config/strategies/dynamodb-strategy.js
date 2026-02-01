@@ -17,7 +17,7 @@ class DynamoDBStrategy extends NoSQLStrategy {
     try {
       ({ DynamoDBClient } = require("@aws-sdk/client-dynamodb"));
       ({ DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb"));
-    } catch (error) {
+    } catch {
       throw new Error(
         "DynamoDB driver not installed. Add '@aws-sdk/client-dynamodb' and '@aws-sdk/lib-dynamodb' to dependencies to enable DynamoDB support.",
       );
@@ -203,7 +203,14 @@ class DynamoDBStrategy extends NoSQLStrategy {
       ScanCommand,
       BatchGetCommand,
       BatchWriteCommand,
+      TransactGetCommand,
+      TransactWriteCommand,
     } = require("@aws-sdk/lib-dynamodb");
+    const {
+      CreateTableCommand,
+      UpdateTableCommand,
+      DeleteTableCommand,
+    } = require("@aws-sdk/client-dynamodb");
 
     switch (operation) {
       case "get": {
@@ -310,6 +317,51 @@ class DynamoDBStrategy extends NoSQLStrategy {
         );
         return { unprocessed: response.UnprocessedItems || {} };
       }
+      case "transactget": {
+        if (!normalized.transactItems) {
+          throw new Error("DynamoDB transactGet requires transactItems.");
+        }
+        const response = await this.docClient.send(
+          new TransactGetCommand({ TransactItems: normalized.transactItems }),
+        );
+        return { responses: response.Responses || [] };
+      }
+      case "transactwrite": {
+        if (!normalized.transactItems) {
+          throw new Error("DynamoDB transactWrite requires transactItems.");
+        }
+        const response = await this.docClient.send(
+          new TransactWriteCommand({ TransactItems: normalized.transactItems }),
+        );
+        return { result: response || {} };
+      }
+      case "createtable": {
+        if (!this.client) throw new Error("DynamoDB connection not initialized");
+        const params = normalized.tableDefinition || normalized.requestOptions;
+        if (!params || !params.TableName) {
+          throw new Error("DynamoDB createTable requires tableDefinition with TableName.");
+        }
+        const response = await this.client.send(new CreateTableCommand(params));
+        return { table: response.TableDescription || response.Table };
+      }
+      case "updatetable": {
+        if (!this.client) throw new Error("DynamoDB connection not initialized");
+        const params = normalized.tableDefinition || normalized.requestOptions;
+        if (!params || !params.TableName) {
+          throw new Error("DynamoDB updateTable requires tableDefinition with TableName.");
+        }
+        const response = await this.client.send(new UpdateTableCommand(params));
+        return { table: response.TableDescription || response.Table };
+      }
+      case "deletetable": {
+        if (!this.client) throw new Error("DynamoDB connection not initialized");
+        const tableName = normalized.table || normalized.requestOptions?.TableName;
+        if (!tableName) {
+          throw new Error("DynamoDB deleteTable requires table name.");
+        }
+        const response = await this.client.send(new DeleteTableCommand({ TableName: tableName }));
+        return { table: response.TableDescription || response.Table || { TableName: tableName } };
+      }
       default:
         throw new Error(`Unsupported DynamoDB operation: ${operation}`);
     }
@@ -347,6 +399,8 @@ class DynamoDBStrategy extends NoSQLStrategy {
       item: query?.item || query?.document || payload.item || payload.document,
       requestOptions: query?.options || payload.options || {},
       requestItems: query?.requestItems || payload.requestItems,
+      transactItems: query?.transactItems || payload.transactItems,
+      tableDefinition: query?.tableDefinition || payload.tableDefinition,
       limit: query?.limit || payload.limit || options?.pageSize,
       exclusiveStartKey: query?.exclusiveStartKey || payload.exclusiveStartKey,
     };

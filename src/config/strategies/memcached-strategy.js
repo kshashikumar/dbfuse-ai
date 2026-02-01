@@ -14,7 +14,7 @@ class MemcachedStrategy extends CacheStrategy {
     let Memcached;
     try {
       Memcached = require("memcached");
-    } catch (error) {
+    } catch {
       throw new Error(
         "Memcached driver not installed. Add 'memcached' to dependencies to enable Memcached support.",
       );
@@ -162,10 +162,59 @@ class MemcachedStrategy extends CacheStrategy {
         await this._setValue(normalized.key, normalized.value, normalized.ttl);
         return { key: normalized.key, result: true };
       }
+      case "add": {
+        await this._addValue(normalized.key, normalized.value, normalized.ttl);
+        return { key: normalized.key, added: true };
+      }
+      case "replace": {
+        await this._replaceValue(normalized.key, normalized.value, normalized.ttl);
+        return { key: normalized.key, replaced: true };
+      }
       case "del":
       case "delete": {
         await this._deleteValue(normalized.key);
         return { deleted: true };
+      }
+      case "incr": {
+        const delta = Number.isFinite(Number(normalized.delta))
+          ? Number(normalized.delta)
+          : Number.isFinite(Number(normalized.value))
+            ? Number(normalized.value)
+            : 1;
+        const value = await this._incrementValue(
+          normalized.key,
+          delta,
+          normalized.initial,
+          normalized.ttl,
+        );
+        return { key: normalized.key, value };
+      }
+      case "decr": {
+        const delta = Number.isFinite(Number(normalized.delta))
+          ? Number(normalized.delta)
+          : Number.isFinite(Number(normalized.value))
+            ? Number(normalized.value)
+            : 1;
+        const value = await this._decrementValue(
+          normalized.key,
+          delta,
+          normalized.initial,
+          normalized.ttl,
+        );
+        return { key: normalized.key, value };
+      }
+      case "touch": {
+        const ttl = Number.isFinite(Number(normalized.ttl)) ? Number(normalized.ttl) : 0;
+        await this._touchValue(normalized.key, ttl);
+        return { key: normalized.key, touched: true };
+      }
+      case "append": {
+        await this._appendValue(normalized.key, normalized.value);
+        return { key: normalized.key, appended: true };
+      }
+      case "prepend": {
+        await this._prependValue(normalized.key, normalized.value);
+        return { key: normalized.key, prepended: true };
       }
       case "mget": {
         const values = await this._getMulti(normalized.keys);
@@ -206,6 +255,8 @@ class MemcachedStrategy extends CacheStrategy {
       key,
       keys: Array.isArray(keys) ? keys : [keys],
       value: query?.value || payload.value,
+      delta: query?.delta || payload.delta,
+      initial: query?.initial || payload.initial,
       ttl: query?.ttl || payload.ttl || options?.ttl,
     };
   }
@@ -253,9 +304,124 @@ class MemcachedStrategy extends CacheStrategy {
     });
   }
 
+  _addValue(key, value, ttl) {
+    return new Promise((resolve, reject) => {
+      const expiry = Number.isFinite(Number(ttl)) ? Number(ttl) : 0;
+      this.client.add(key, value, expiry, (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(true);
+      });
+    });
+  }
+
+  _replaceValue(key, value, ttl) {
+    return new Promise((resolve, reject) => {
+      const expiry = Number.isFinite(Number(ttl)) ? Number(ttl) : 0;
+      this.client.replace(key, value, expiry, (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(true);
+      });
+    });
+  }
+
   _deleteValue(key) {
     return new Promise((resolve, reject) => {
       this.client.del(key, (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(true);
+      });
+    });
+  }
+
+  _incrementValue(key, delta = 1, initial, ttl) {
+    return new Promise((resolve, reject) => {
+      const amount = Number.isFinite(Number(delta)) ? Number(delta) : 1;
+      const hasInitial = initial !== undefined && initial !== null;
+      const expiry = Number.isFinite(Number(ttl)) ? Number(ttl) : 0;
+      if (hasInitial) {
+        const initValue = Number.isFinite(Number(initial)) ? Number(initial) : 0;
+        this.client.incr(key, amount, initValue, expiry, (err, data) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(data);
+        });
+      } else {
+        this.client.incr(key, amount, (err, data) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(data);
+        });
+      }
+    });
+  }
+
+  _decrementValue(key, delta = 1, initial, ttl) {
+    return new Promise((resolve, reject) => {
+      const amount = Number.isFinite(Number(delta)) ? Number(delta) : 1;
+      const hasInitial = initial !== undefined && initial !== null;
+      const expiry = Number.isFinite(Number(ttl)) ? Number(ttl) : 0;
+      if (hasInitial) {
+        const initValue = Number.isFinite(Number(initial)) ? Number(initial) : 0;
+        this.client.decr(key, amount, initValue, expiry, (err, data) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(data);
+        });
+      } else {
+        this.client.decr(key, amount, (err, data) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(data);
+        });
+      }
+    });
+  }
+
+  _touchValue(key, ttl) {
+    return new Promise((resolve, reject) => {
+      const expiry = Number.isFinite(Number(ttl)) ? Number(ttl) : 0;
+      this.client.touch(key, expiry, (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(true);
+      });
+    });
+  }
+
+  _appendValue(key, value) {
+    return new Promise((resolve, reject) => {
+      this.client.append(key, value, (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(true);
+      });
+    });
+  }
+
+  _prependValue(key, value) {
+    return new Promise((resolve, reject) => {
+      this.client.prepend(key, value, (err) => {
         if (err) {
           reject(err);
           return;

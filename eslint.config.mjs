@@ -12,6 +12,8 @@ export default [
       "**/coverage/**",
       "**/node_modules/**",
       "**/.angular/**",
+      "src/public/assets/**", // Bundled client assets
+      "client/dbfuse-ai-client/dist/**",
     ],
   },
   { files: ["**/*.{js,mjs,cjs}"] },
@@ -46,6 +48,13 @@ export default [
         setInterval: "readonly",
         clearInterval: "readonly",
       },
+    },
+  },
+  {
+    files: ["eslint.config.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
     },
   },
   // Turn off rules that conflict with Prettier

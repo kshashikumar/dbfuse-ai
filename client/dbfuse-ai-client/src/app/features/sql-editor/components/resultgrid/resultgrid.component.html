@@ -62,8 +62,9 @@
         </div>
 
         <!-- Empty / Non-SELECT State with details -->
+        <!-- Empty / Non-SELECT State with details -->
         <div
-            *ngIf="!isLoading && !errorMessage && rows.length === 0 && queryResults.length > 0"
+            *ngIf="!isLoading && !errorMessage && rows.length === 0 && queryResults.length > 0 && (!dataSource || displayedColumns.length === 0)"
             class="h-full"
         >
             <div class="h-full overflow-auto p-4 scrollbar-hidden">
@@ -150,9 +151,9 @@
             </div>
         </div>
 
-        <!-- Virtual Scroll Table -->
+        <!-- Unified Virtual Scroll Table -->
         <div
-            *ngIf="!isLoading && !errorMessage && dataSource && displayedColumns.length > 0"
+            *ngIf="!isLoading && !errorMessage && (dataSource || rows.length > 0) && displayedColumns.length > 0"
             class="h-full flex flex-col overflow-hidden"
         >
             <!-- Fixed Header (scrolls horizontally with body) -->
@@ -188,7 +189,7 @@
                     </colgroup>
                     <tbody>
                         <tr
-                            *cdkVirtualFor="let row of dataSource; trackBy: trackByRow; let i = index"
+                            *cdkVirtualFor="let row of virtualData; trackBy: trackByRow; let i = index"
                             class="border-b border-border hover:bg-muted/50 transition-colors"
                         >
                             <td
@@ -230,23 +231,15 @@
             >
                 Copied!
             </div>
-        </div>
-
-        <!-- Initial State -->
-        <div
-            *ngIf="!dataSource && !isLoading && !errorMessage"
-            class="flex items-center justify-center h-full"
-        >
-            <div class="text-center">
-                <div
-                    class="w-16 h-16 mx-auto mb-4 bg-muted rounded-full flex items-center justify-center"
-                >
-                    <span class="icon-[mdi--database-search] w-8 h-8 text-primary"></span>
+            
+             <!-- Standard Pagination (only show if using standard rows and multiple pages) -->
+            <div 
+                *ngIf="!dataSource && totalPages > 1 && queryResults.length <= 1"
+                class="flex items-center justify-between p-2 border-t border-border bg-muted/50"
+            >
+                <div class="text-xs text-muted-foreground">
+                    Showing page {{ currentPage }} of {{ totalPages }} ({{ totalRows }} rows)
                 </div>
-                <h3 class="text-lg font-medium text-foreground mb-2">Ready to Execute</h3>
-                <p class="text-sm text-muted-foreground">
-                    Write your query and click Execute to see results here.
-                </p>
             </div>
         </div>
     </div>

@@ -3,7 +3,6 @@
  * Handles login, logout, and authentication verification
  */
 
-const BaseController = require("./base/BaseController");
 const logger = require("../utils/logger");
 const {
   decodeCredentials,
@@ -19,6 +18,8 @@ const {
   AUTH_STATE_KEY,
   HTTP_STATUS,
 } = require("../core/constants");
+
+const BaseController = require("./base/BaseController");
 
 class AuthController extends BaseController {
   /**

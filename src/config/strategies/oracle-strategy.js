@@ -88,7 +88,7 @@ class OracleStrategy extends SQLStrategy {
 
     try {
       this.pool = await oracledb.createPool(poolConfig);
-      this.currentSchema = username; // Default to connected user's schema
+      this.currentSchema = poolConfig.user; // Default to connected user's schema
 
       // Test connection
       const connection = await this.pool.getConnection();
@@ -97,7 +97,7 @@ class OracleStrategy extends SQLStrategy {
       logger.info("> Successfully connected to Oracle server");
     } catch (err) {
       logger.error(
-        `> Oracle connection failed to ${connectString} as ${username} (${err.errorNum || err.code || err.name || "Error"})`,
+        `> Oracle connection failed to ${poolConfig.connectString} as ${poolConfig.user} (${err.errorNum || err.code || err.name || "Error"})`,
       );
       throw err;
     }
@@ -148,7 +148,10 @@ class OracleStrategy extends SQLStrategy {
           single = single.replace(rx, "$1");
         }
 
-        const isSelect = /^SELECT\s/i.test(single);
+        const startsWithWith = /^WITH\s/i.test(single);
+        const isSelect =
+          /^SELECT\s/i.test(single) ||
+          (startsWithWith && !/\b(INSERT|UPDATE|DELETE|MERGE)\b/i.test(single));
         const isShow = /^SHOW\s/i.test(single);
         const isDescribe = /^DESCRIBE\s/i.test(single);
         const isInsert = /^INSERT\s/i.test(single);
@@ -260,9 +263,30 @@ class OracleStrategy extends SQLStrategy {
                 : "Permission command executed successfully",
             });
           } else {
+            const res = await connection.execute(single, [], {
+              outFormat: oracledb.OUT_FORMAT_OBJECT,
+            });
+            if (Array.isArray(res.rows) && res.rows.length > 0) {
+              entry.type = "query";
+              entry.rows = res.rows;
+              entry.totalRows = res.rows.length;
+              entry.pagination = {
+                page: 1,
+                pageSize: res.rows.length,
+                totalPages: 1,
+                hasMore: false,
+              };
+            } else {
+              entry.type = "command";
+              entry.stats = { affectedRows: res.rowsAffected || 0 };
+              if (!/^\s*BEGIN\b/i.test(single)) {
+                await connection.commit();
+              }
+            }
             entry.messages.push({
               query: single,
-              message: "Command not recognized or unsupported",
+              message: "Command executed successfully",
+              affectedRows: res.rowsAffected || 0,
             });
           }
         } catch (err) {
@@ -515,7 +539,7 @@ class OracleStrategy extends SQLStrategy {
    * @param {number} limit - Number of rows to fetch
    * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
    */
-  async fetchRowRange(query, offset, limit) {
+  async fetchRowRange(query, offset, limit, options = {}) {
     if (!this.connection) throw new Error("Oracle connection not initialized");
 
     // Validate inputs
@@ -526,15 +550,41 @@ class OracleStrategy extends SQLStrategy {
     // Strip trailing semicolon if present
     const cleanQuery = query.trim().replace(/;+$/, "");
 
-    // Fetch one extra row to determine if there are more results
-    const paginatedQuery = `
-      ${cleanQuery}
-      OFFSET ${offset} ROWS
-      FETCH NEXT ${limit + 1} ROWS ONLY
-    `;
-
     try {
-      const result = await this.connection.execute(paginatedQuery);
+      const useKeyset =
+        options?.paginationMode === "seek" &&
+        options?.cursor?.orderBy &&
+        options?.cursor?.lastValue !== undefined &&
+        options?.cursor?.lastValue !== null;
+
+      const safeOrderBy = useKeyset ? this.sanitizeOrderBy(options.cursor.orderBy) : "";
+      const direction = options?.cursor?.direction === "desc" ? "DESC" : "ASC";
+      const comparator = direction === "DESC" ? "<" : ">";
+
+      let result;
+      if (useKeyset && safeOrderBy) {
+        const paginatedQuery = `
+          SELECT *
+          FROM (
+            SELECT *
+            FROM (${cleanQuery}) subquery
+            WHERE ${safeOrderBy} ${comparator} :lastValue
+            ORDER BY ${safeOrderBy} ${direction}
+          )
+          FETCH FIRST ${limit + 1} ROWS ONLY
+        `;
+        result = await this.connection.execute(paginatedQuery, {
+          lastValue: options.cursor.lastValue,
+        });
+      } else {
+        // Fetch one extra row to determine if there are more results
+        const paginatedQuery = `
+          ${cleanQuery}
+          OFFSET ${offset} ROWS
+          FETCH NEXT ${limit + 1} ROWS ONLY
+        `;
+        result = await this.connection.execute(paginatedQuery);
+      }
       const rows = result.rows;
       const hasMore = rows && rows.length > limit;
 

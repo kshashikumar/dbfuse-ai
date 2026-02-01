@@ -12,7 +12,6 @@ const {
   CONNECTION_STATES,
   DB_DEFAULTS,
 } = require("./database.constants");
-
 const {
   HTTP_STATUS,
   HEADERS,
@@ -21,7 +20,6 @@ const {
   GENERAL_ERRORS,
   buildHeaderVariants,
 } = require("./http.constants");
-
 const {
   DEFAULT_MODEL_TEMPERATURE,
   FALLBACK_AI_MODEL,
@@ -30,7 +28,6 @@ const {
   SCHEMA_PROMPT_BUDGET_CHARS,
   AI_MODELS,
 } = require("./ai.constants");
-
 const {
   BASIC_AUTH_SCHEME,
   AUTH_REALM,
@@ -38,9 +35,7 @@ const {
   AUTH_STATE_KEY,
   AUTH_MESSAGES,
 } = require("./auth.constants");
-
 const { MCP_CONSTANTS, MCP_ENV_VARS, MCP_MESSAGES } = require("./mcp.constants");
-
 const { CONFIG_MESSAGES } = require("./config.constants");
 
 // Export all constants for backward compatibility

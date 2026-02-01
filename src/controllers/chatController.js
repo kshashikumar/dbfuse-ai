@@ -1,7 +1,8 @@
-const BaseController = require("./base/BaseController");
 const chatSessionStore = require("../chat/ChatSessionStore");
 const { HEADERS, HEADER_VARIANTS, HTTP_STATUS } = require("../core/constants");
 const { getHeaderValue } = require("../utils/http");
+
+const BaseController = require("./base/BaseController");
 
 class ChatController extends BaseController {
   _getConnectionId(req) {

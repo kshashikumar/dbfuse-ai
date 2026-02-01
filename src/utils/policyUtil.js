@@ -44,7 +44,7 @@ const DefaultPolicy = {
       port: updates.port ? parseInt(updates.port, 10) : current.port,
       database: typeof updates.database === "string" ? updates.database : current.database,
       socketPath: updates.socketPath ?? current.socketPath,
-      ssl: updates.hasOwnProperty("ssl") ? !!updates.ssl : current.ssl,
+      ssl: Object.prototype.hasOwnProperty.call(updates, "ssl") ? !!updates.ssl : current.ssl,
       connectionTimeout: updates.connectionTimeout
         ? parseInt(updates.connectionTimeout, 10)
         : current.connectionTimeout,
@@ -210,7 +210,7 @@ const MongoDBPolicy = {
       host: updates.host ?? current.host,
       port: updates.port ? parseInt(updates.port, 10) : current.port,
       database: typeof updates.database === "string" ? updates.database : current.database,
-      ssl: updates.hasOwnProperty("ssl") ? !!updates.ssl : current.ssl,
+      ssl: Object.prototype.hasOwnProperty.call(updates, "ssl") ? !!updates.ssl : current.ssl,
       connectionTimeout: updates.connectionTimeout
         ? parseInt(updates.connectionTimeout, 10)
         : current.connectionTimeout,
@@ -264,7 +264,7 @@ const RedisPolicy = {
       host: updates.host ?? current.host,
       port: updates.port ? parseInt(updates.port, 10) : current.port,
       database: typeof updates.database === "string" ? updates.database : current.database,
-      ssl: updates.hasOwnProperty("ssl") ? !!updates.ssl : current.ssl,
+      ssl: Object.prototype.hasOwnProperty.call(updates, "ssl") ? !!updates.ssl : current.ssl,
       connectionTimeout: updates.connectionTimeout
         ? parseInt(updates.connectionTimeout, 10)
         : current.connectionTimeout,
@@ -322,7 +322,7 @@ const GenericNoSQLPolicy = {
       host: updates.host ?? current.host,
       port: updates.port ? parseInt(updates.port, 10) : current.port,
       database: typeof updates.database === "string" ? updates.database : current.database,
-      ssl: updates.hasOwnProperty("ssl") ? !!updates.ssl : current.ssl,
+      ssl: Object.prototype.hasOwnProperty.call(updates, "ssl") ? !!updates.ssl : current.ssl,
       connectionTimeout: updates.connectionTimeout
         ? parseInt(updates.connectionTimeout, 10)
         : current.connectionTimeout,

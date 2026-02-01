@@ -1,4 +1,5 @@
 const { connectionManager } = require("../../config");
+
 const SchemaAdapter = require("./SchemaAdapter");
 
 class FirestoreSchemaAdapter extends SchemaAdapter {

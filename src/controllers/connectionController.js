@@ -3,10 +3,10 @@
  * Handles HTTP endpoints for database connection management
  */
 
-const BaseController = require("./base/BaseController");
 const connectionService = require("../services/ConnectionService");
-const logger = require("../utils/logger");
 const { HTTP_STATUS } = require("../core/constants");
+
+const BaseController = require("./base/BaseController");
 
 class ConnectionController extends BaseController {
   /**

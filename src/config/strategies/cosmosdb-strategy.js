@@ -14,7 +14,7 @@ class CosmosDBStrategy extends NoSQLStrategy {
     let CosmosClient;
     try {
       ({ CosmosClient } = require("@azure/cosmos"));
-    } catch (error) {
+    } catch {
       throw new Error(
         "Azure Cosmos DB driver not installed. Add '@azure/cosmos' to dependencies to enable Cosmos DB support.",
       );
@@ -238,6 +238,108 @@ class CosmosDBStrategy extends NoSQLStrategy {
         const result = await container.items.bulk(normalized.operations);
         return { result };
       }
+      case "createdatabase": {
+        if (!databaseId) throw new Error("Cosmos DB database is required.");
+        const result = await this.client.databases.create({ id: databaseId });
+        return { database: result.resource };
+      }
+      case "deletedatabase": {
+        if (!databaseId) throw new Error("Cosmos DB database is required.");
+        await this.client.database(databaseId).delete();
+        return { deleted: true, database: databaseId };
+      }
+      case "createcontainer": {
+        if (!databaseId) throw new Error("Cosmos DB database is required.");
+        if (!normalized.containerDefinition) {
+          throw new Error("Cosmos DB containerDefinition is required.");
+        }
+        const options = { ...(normalized.options || {}) };
+        if (Number.isFinite(Number(normalized.throughput))) {
+          options.throughput = Number(normalized.throughput);
+        }
+        const result = await this.client
+          .database(databaseId)
+          .containers.create(normalized.containerDefinition, options);
+        return { container: result.resource };
+      }
+      case "replacecontainer": {
+        if (!databaseId || !containerName) {
+          throw new Error("Cosmos DB database and container are required.");
+        }
+        if (!normalized.containerDefinition) {
+          throw new Error("Cosmos DB containerDefinition is required.");
+        }
+        const result = await this.client
+          .database(databaseId)
+          .container(containerName)
+          .replace(normalized.containerDefinition);
+        return { container: result.resource };
+      }
+      case "deletecontainer": {
+        if (!databaseId || !containerName) {
+          throw new Error("Cosmos DB database and container are required.");
+        }
+        await this.client.database(databaseId).container(containerName).delete();
+        return { deleted: true, container: containerName };
+      }
+      case "createstoredprocedure": {
+        if (!databaseId || !containerName) {
+          throw new Error("Cosmos DB database and container are required.");
+        }
+        if (!normalized.storedProcedureId || !normalized.body) {
+          throw new Error("Cosmos DB storedProcedureId and body are required.");
+        }
+        const result = await this.client
+          .database(databaseId)
+          .container(containerName)
+          .scripts.storedProcedures.create({
+            id: normalized.storedProcedureId,
+            body: normalized.body,
+          });
+        return { storedProcedure: result.resource };
+      }
+      case "replacestoredprocedure": {
+        if (!databaseId || !containerName) {
+          throw new Error("Cosmos DB database and container are required.");
+        }
+        if (!normalized.storedProcedureId || !normalized.body) {
+          throw new Error("Cosmos DB storedProcedureId and body are required.");
+        }
+        const result = await this.client
+          .database(databaseId)
+          .container(containerName)
+          .scripts.storedProcedure(normalized.storedProcedureId)
+          .replace({ id: normalized.storedProcedureId, body: normalized.body });
+        return { storedProcedure: result.resource };
+      }
+      case "deletestoredprocedure": {
+        if (!databaseId || !containerName) {
+          throw new Error("Cosmos DB database and container are required.");
+        }
+        if (!normalized.storedProcedureId) {
+          throw new Error("Cosmos DB storedProcedureId is required.");
+        }
+        await this.client
+          .database(databaseId)
+          .container(containerName)
+          .scripts.storedProcedure(normalized.storedProcedureId)
+          .delete();
+        return { deleted: true, storedProcedureId: normalized.storedProcedureId };
+      }
+      case "executestoredprocedure": {
+        if (!databaseId || !containerName) {
+          throw new Error("Cosmos DB database and container are required.");
+        }
+        if (!normalized.storedProcedureId) {
+          throw new Error("Cosmos DB storedProcedureId is required.");
+        }
+        const result = await this.client
+          .database(databaseId)
+          .container(containerName)
+          .scripts.storedProcedure(normalized.storedProcedureId)
+          .execute(normalized.partitionKey, normalized.params || []);
+        return { result: result.resource ?? result };
+      }
       default:
         throw new Error(`Unsupported Cosmos DB operation: ${operation}`);
     }
@@ -282,6 +384,12 @@ class CosmosDBStrategy extends NoSQLStrategy {
       operations: query?.operations || payload.operations,
       limit: query?.limit || payload.limit,
       continuationToken: query?.continuationToken || payload.continuationToken,
+      containerDefinition: query?.containerDefinition || payload.containerDefinition,
+      storedProcedureId:
+        query?.storedProcedureId || payload.storedProcedureId || query?.sprocId || payload.sprocId,
+      body: query?.body || payload.body,
+      params: query?.params || payload.params,
+      throughput: query?.throughput || payload.throughput,
       options,
     };
   }

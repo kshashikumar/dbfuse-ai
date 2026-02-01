@@ -1,5 +1,6 @@
-const { MCP_ENV_VARS } = require("../../core/constants");
 const { z } = require("zod");
+
+const { MCP_ENV_VARS } = require("../../core/constants");
 
 const tool = {
   name: "login",

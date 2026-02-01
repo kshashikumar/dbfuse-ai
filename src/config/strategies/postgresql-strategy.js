@@ -174,7 +174,10 @@ class PostgreSQLStrategy extends SQLStrategy {
         single = single.replace(dbRx, "$1");
       }
 
-      const isSelect = /^SELECT\s/i.test(single);
+      const startsWithWith = /^WITH\s/i.test(single);
+      const isSelect =
+        /^SELECT\s/i.test(single) ||
+        (startsWithWith && !/\b(INSERT|UPDATE|DELETE|MERGE)\b/i.test(single));
       const isShow = /^SHOW\s/i.test(single);
       const isDescribe = /^DESCRIBE\s/i.test(single);
       const isInsert = /^INSERT\s/i.test(single);
@@ -274,7 +277,26 @@ class PostgreSQLStrategy extends SQLStrategy {
               : "Permission command executed successfully",
           });
         } else {
-          entry.messages.push({ query: single, message: "Command not recognized or unsupported" });
+          const res = await this.pool.query(single);
+          const command = (res.command || "command").toLowerCase();
+          entry.type = command;
+          if (Array.isArray(res.rows) && res.rows.length > 0) {
+            entry.rows = res.rows;
+            entry.totalRows = Number.isFinite(res.rowCount) ? res.rowCount : res.rows.length;
+            entry.pagination = {
+              page: 1,
+              pageSize: res.rows.length,
+              totalPages: 1,
+              hasMore: false,
+            };
+          } else {
+            entry.stats = { affectedRows: res.rowCount || 0 };
+          }
+          entry.messages.push({
+            query: single,
+            message: "Command executed successfully",
+            affectedRows: res.rowCount || 0,
+          });
         }
       } catch (err) {
         entry.messages.push({ query: single, error: true, message: err.message });
@@ -521,7 +543,7 @@ class PostgreSQLStrategy extends SQLStrategy {
    * @param {number} limit - Number of rows to fetch
    * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
    */
-  async fetchRowRange(query, offset, limit) {
+  async fetchRowRange(query, offset, limit, options = {}) {
     if (!this.pool) throw new Error("PostgreSQL connection not initialized");
 
     // Validate inputs
@@ -532,12 +554,34 @@ class PostgreSQLStrategy extends SQLStrategy {
     // Strip trailing semicolon if present
     const cleanQuery = query.trim().replace(/;+$/, "");
 
-    // Fetch one extra row to determine if there are more results
-    const paginatedQuery = `${cleanQuery} LIMIT ${limit + 1} OFFSET ${offset}`;
-
     try {
-      const result = await this.pool.query(paginatedQuery);
-      const rows = result.rows;
+      const useKeyset =
+        options?.paginationMode === "seek" &&
+        options?.cursor?.orderBy &&
+        options?.cursor?.lastValue !== undefined &&
+        options?.cursor?.lastValue !== null;
+
+      const safeOrderBy = useKeyset ? this.sanitizeOrderBy(options.cursor.orderBy) : "";
+      const direction = options?.cursor?.direction === "desc" ? "DESC" : "ASC";
+      const comparator = direction === "DESC" ? "<" : ">";
+
+      let rows;
+      if (useKeyset && safeOrderBy) {
+        const paginatedQuery = `
+          SELECT *
+          FROM (${cleanQuery}) AS subquery
+          WHERE ${safeOrderBy} ${comparator} $1
+          ORDER BY ${safeOrderBy} ${direction}
+          LIMIT $2
+        `;
+        const result = await this.pool.query(paginatedQuery, [options.cursor.lastValue, limit + 1]);
+        rows = result.rows;
+      } else {
+        // Fetch one extra row to determine if there are more results
+        const paginatedQuery = `${cleanQuery} LIMIT $1 OFFSET $2`;
+        const result = await this.pool.query(paginatedQuery, [limit + 1, offset]);
+        rows = result.rows;
+      }
       const hasMore = rows.length > limit;
 
       // Remove extra row if present

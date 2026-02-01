@@ -35,6 +35,13 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
     mongoDropIndexName = '';
     mongoAggregatePipeline = '';
     mongoExplainPayload = '';
+    mongoFindOneFilter = '';
+    mongoFindOneUpdate = '';
+    mongoFindOneOptions = '';
+    mongoFindOneDeleteFilter = '';
+    mongoBulkWrite = '';
+    mongoCreateCollectionName = '';
+    mongoRenameTo = '';
 
     constructor(backend: BackendService, cdr: ChangeDetectorRef) {
         super(backend, cdr);
@@ -98,6 +105,52 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
+    runMongoFindOneAndUpdate(): void {
+        if (!this.supportsCrud) {
+            this.errorMessage = 'Update is not supported for this database.';
+            return;
+        }
+        if (!this.selectedCollection) {
+            this.errorMessage = 'Select a collection to update.';
+            return;
+        }
+        const filter = this.parseJsonInput(this.mongoFindOneFilter, 'Find filter');
+        const update = this.parseJsonInput(this.mongoFindOneUpdate, 'Update document');
+        if (!filter || !update) return;
+        const options = this.parseOptionalJsonInput(this.mongoFindOneOptions, 'Options');
+        if (this.mongoFindOneOptions && options === undefined && this.errorMessage) return;
+
+        this.executeAction({
+            operation: 'findOneAndUpdate',
+            collection: this.selectedCollection,
+            filter,
+            update,
+            ...(options ? { options } : {}),
+        });
+    }
+
+    runMongoFindOneAndDelete(): void {
+        if (!this.supportsCrud) {
+            this.errorMessage = 'Delete is not supported for this database.';
+            return;
+        }
+        if (!this.selectedCollection) {
+            this.errorMessage = 'Select a collection to delete from.';
+            return;
+        }
+        const filter = this.parseJsonInput(this.mongoFindOneDeleteFilter, 'Find filter');
+        if (!filter) return;
+        if (!this.confirmDestructive(`Delete one document from ${this.selectedCollection}?`)) {
+            return;
+        }
+
+        this.executeAction({
+            operation: 'findOneAndDelete',
+            collection: this.selectedCollection,
+            filter,
+        });
+    }
+
     runMongoDelete(): void {
         if (!this.supportsCrud) {
             this.errorMessage = 'Delete is not supported for this database.';
@@ -120,6 +173,32 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
             operation: this.mongoDeleteMode,
             collection: this.selectedCollection,
             filter,
+        });
+    }
+
+    runMongoBulkWrite(): void {
+        if (!this.supportsCrud) {
+            this.errorMessage = 'Bulk write is not supported for this database.';
+            return;
+        }
+        if (!this.selectedCollection) {
+            this.errorMessage = 'Select a collection to bulk write.';
+            return;
+        }
+        const operations = this.parseJsonInput(this.mongoBulkWrite, 'Bulk operations');
+        if (!operations) return;
+        if (!Array.isArray(operations)) {
+            this.errorMessage = 'Bulk operations must be a JSON array.';
+            return;
+        }
+        if (!this.confirmDestructive('Run bulk write? This may modify multiple documents.')) {
+            return;
+        }
+
+        this.executeAction({
+            operation: 'bulkWrite',
+            collection: this.selectedCollection,
+            operations,
         });
     }
 
@@ -201,6 +280,58 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
             operation: 'dropIndex',
             collection: this.selectedCollection,
             indexName: this.mongoDropIndexName,
+        });
+    }
+
+    runMongoCreateCollection(): void {
+        if (!this.supportsCrud) {
+            this.errorMessage = 'Collection creation is not supported for this database.';
+            return;
+        }
+        if (!this.mongoCreateCollectionName) {
+            this.errorMessage = 'Collection name is required.';
+            return;
+        }
+        this.executeAction({
+            operation: 'createCollection',
+            collection: this.mongoCreateCollectionName,
+        });
+    }
+
+    runMongoDropCollection(): void {
+        if (!this.supportsCrud) {
+            this.errorMessage = 'Collection deletion is not supported for this database.';
+            return;
+        }
+        const collection = this.selectedCollection;
+        if (!collection) {
+            this.errorMessage = 'Select a collection to delete.';
+            return;
+        }
+        if (!this.confirmDestructive(`Drop collection "${collection}"?`)) {
+            return;
+        }
+        this.executeAction({
+            operation: 'dropCollection',
+            collection,
+        });
+    }
+
+    runMongoRenameCollection(): void {
+        if (!this.supportsCrud) {
+            this.errorMessage = 'Collection rename is not supported for this database.';
+            return;
+        }
+        const collection = this.selectedCollection;
+        if (!collection || !this.mongoRenameTo) {
+            this.errorMessage = 'Select a collection and provide a new name.';
+            return;
+        }
+        this.executeAction({
+            operation: 'renameCollection',
+            collection,
+            newName: this.mongoRenameTo,
+            dropTarget: false,
         });
     }
 

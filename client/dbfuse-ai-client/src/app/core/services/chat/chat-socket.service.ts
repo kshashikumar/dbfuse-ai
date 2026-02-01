@@ -76,10 +76,7 @@ export class ChatSocketService {
             this.zone.run(() => {
                 try {
                     const envelope = JSON.parse(event.data) as ChatEnvelope;
-                    console.log('🌐 SOCKET SERVICE RECEIVED', {
-                        type: envelope?.type,
-                        payloadKeys: envelope?.payload ? Object.keys(envelope.payload) : [],
-                    });
+
                     if (envelope?.type === 'session_ready' && envelope.payload?.sessionId) {
                         this.sessionId = envelope.payload.sessionId;
                     }

@@ -13,11 +13,11 @@ class NoSQLStrategy extends DatabaseStrategy {
     return this.getCollections();
   }
 
-  async getCollections(dbName) {
+  async getCollections(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getCollections"));
   }
 
-  async getCollectionInfo(dbName, collectionName) {
+  async getCollectionInfo(_dbName, _collectionName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getCollectionInfo"));
   }
 

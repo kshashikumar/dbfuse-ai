@@ -21,12 +21,12 @@ import {
     newTabData,
     openAIEvent,
 } from '@core/utils/storage/storage.types';
-import { SqlResultGridComponent } from '@features/sql-editor/components/sql-result-grid/sql-result-grid.component';
+import { ResultGridComponent } from '@features/sql-editor/components/resultgrid/resultgrid.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DragDropTabDirective } from '@shared/directives/drag-drop.directive';
 import { MonacoEditorComponent } from '@app/editor/components/monaco-editor/monaco-editor.component';
 import { MonacoThemeService } from '@app/editor/services/monaco-theme.service';
-import { NosqlWorkspaceComponent } from '@features/nosql/nosql-workspace/nosql-workspace.component';
+import { NosqlExplorerShellComponent } from '@features/nosql/nosql-explorer-shell/nosql-explorer-shell.component';
 import { getSafeSessionStorage } from '@core/utils/browser-adapter';
 import { of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -45,10 +45,10 @@ type AIMeta = {
         CommonModule,
         RouterModule,
         FormsModule,
-        SqlResultGridComponent,
+        ResultGridComponent,
         DragDropTabDirective,
         MonacoEditorComponent,
-        NosqlWorkspaceComponent,
+        NosqlExplorerShellComponent,
     ],
     templateUrl: './sql-workspace.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
@@ -58,7 +58,7 @@ export class SqlWorkspaceComponent implements OnInit, OnChanges, OnDestroy {
     @Input() openAIEnabled!: openAIEvent;
     @Input() InitDBInfo!: any;
     @Input() pendingQuery?: { sql: string; dbName?: string; id?: number } | null;
-    @ViewChild(SqlResultGridComponent) resultGrid!: SqlResultGridComponent;
+    @ViewChild(ResultGridComponent) resultGrid!: ResultGridComponent;
 
     tabs: { id: string; dbName: string; tableName: string; displayName: string }[] = [];
     selectedTab = -1;
@@ -77,6 +77,7 @@ export class SqlWorkspaceComponent implements OnInit, OnChanges, OnDestroy {
 
     currentResultTabs: any[] = [];
     activeResultIndex: number = 0;
+    private activeResultIndexByTab: Record<string, number> = {};
     aiMeta: AIMeta = null;
     private aiMetaByTab: Record<string, AIMeta> = {};
     ragHistory: RAGHistoryEntry[] = [];
@@ -221,14 +222,28 @@ export class SqlWorkspaceComponent implements OnInit, OnChanges, OnDestroy {
             displayName: this.getResultTabLabel(r, idx),
         }));
 
-        this.activeResultIndex = Math.min(this.activeResultIndex, this.currentResultTabs.length - 1);
+        const tabId = this.currentTabId;
+        let nextIndex =
+            tabId && this.activeResultIndexByTab[tabId] !== undefined ? this.activeResultIndexByTab[tabId] : 0;
+        const gridIndex = this.resultGrid?.getActiveResultIndex();
+        if (typeof gridIndex === 'number') {
+            nextIndex = gridIndex;
+        }
+
+        this.activeResultIndex = Math.min(nextIndex, this.currentResultTabs.length - 1);
         if (this.activeResultIndex < 0) this.activeResultIndex = 0;
+        if (tabId) {
+            this.activeResultIndexByTab[tabId] = this.activeResultIndex;
+        }
 
         this.cdr.markForCheck();
     }
 
     onSelectResultTab(index: number) {
         this.activeResultIndex = index;
+        if (this.currentTabId) {
+            this.activeResultIndexByTab[this.currentTabId] = index;
+        }
         if (this.resultGrid) {
             this.resultGrid.setActiveResultIndex(index);
         }
@@ -501,6 +516,10 @@ export class SqlWorkspaceComponent implements OnInit, OnChanges, OnDestroy {
         this.editingTabIndex = null;
         this.activeResultIndex = 0;
         this.currentResultTabs = [];
+        const cachedResultIndex = this.activeResultIndexByTab[this.currentTabId];
+        if (cachedResultIndex !== undefined) {
+            this.activeResultIndex = cachedResultIndex;
+        }
         this.aiMeta = this.aiMetaByTab[this.currentTabId] || null;
         if (this.aiMeta) {
             this.refreshRagHistory();
@@ -542,6 +561,8 @@ export class SqlWorkspaceComponent implements OnInit, OnChanges, OnDestroy {
         this.currentResultTabs = [];
         if (removedId) {
             delete this.aiMetaByTab[removedId];
+            delete this.activeResultIndexByTab[removedId];
+            this.resultGrid?.clearTabCache(removedId);
         }
         this.cdr.markForCheck();
     }
@@ -561,6 +582,8 @@ export class SqlWorkspaceComponent implements OnInit, OnChanges, OnDestroy {
         this.currentResultTabs = [];
         this.aiMeta = null;
         this.aiMetaByTab = {};
+        this.activeResultIndexByTab = {};
+        this.resultGrid?.clearAllCache();
         this.cdr.markForCheck();
     }
 

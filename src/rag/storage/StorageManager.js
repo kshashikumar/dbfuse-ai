@@ -1,10 +1,13 @@
 const fs = require("fs");
 const path = require("path");
+
 const sqlite3 = require("sqlite3").verbose();
+
 const logger = require("../../utils/logger");
+
 const GraphStore = require("./GraphStore");
-const VectorStore = require("./VectorStore");
 const QueryHistoryStore = require("./QueryHistoryStore");
+const VectorStore = require("./VectorStore");
 
 class StorageManager {
   constructor() {

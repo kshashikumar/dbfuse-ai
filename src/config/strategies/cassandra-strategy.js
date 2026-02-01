@@ -14,7 +14,7 @@ class CassandraStrategy extends NoSQLStrategy {
     let cassandra;
     try {
       cassandra = require("cassandra-driver");
-    } catch (error) {
+    } catch {
       throw new Error(
         "Cassandra driver not installed. Add 'cassandra-driver' to dependencies to enable Cassandra support.",
       );
@@ -204,10 +204,12 @@ class CassandraStrategy extends NoSQLStrategy {
         if (columns.length === 0) throw new Error("Cassandra values are required.");
         const placeholders = columns.map(() => "?").join(", ");
         const params = columns.map((col) => values[col]);
-        const statement = `INSERT INTO ${this._quote(keyspace)}.${this._quote(table)} (${columns
+        const statementBase = `INSERT INTO ${this._quote(keyspace)}.${this._quote(table)} (${columns
           .map((col) => this._quote(col))
           .join(", ")}) VALUES (${placeholders})`;
-        await this.client.execute(statement, params, { prepare: true });
+        const { clause: ifClause, params: ifParams } = this._buildIfClause(normalized.if);
+        const statement = `${statementBase}${ifClause}`;
+        await this.client.execute(statement, [...params, ...ifParams], { prepare: true });
         return { inserted: true };
       }
       case "update": {
@@ -218,16 +220,47 @@ class CassandraStrategy extends NoSQLStrategy {
         if (!whereClause) throw new Error("Cassandra update requires a where clause.");
         const setClause = setColumns.map((col) => `${this._quote(col)} = ?`).join(", ");
         const params = [...setColumns.map((col) => values[col]), ...whereParams];
-        const statement = `UPDATE ${this._quote(keyspace)}.${this._quote(table)} SET ${setClause}${whereClause}`;
-        await this.client.execute(statement, params, { prepare: true });
+        const { clause: ifClause, params: ifParams } = this._buildIfClause(normalized.if);
+        const statement = `UPDATE ${this._quote(keyspace)}.${this._quote(table)} SET ${setClause}${whereClause}${ifClause}`;
+        await this.client.execute(statement, [...params, ...ifParams], { prepare: true });
         return { updated: true };
       }
       case "delete": {
         const { whereClause, params } = this._buildWhereClause(normalized.where);
         if (!whereClause) throw new Error("Cassandra delete requires a where clause.");
-        const statement = `DELETE FROM ${this._quote(keyspace)}.${this._quote(table)}${whereClause}`;
-        await this.client.execute(statement, params, { prepare: true });
+        const { clause: ifClause, params: ifParams } = this._buildIfClause(normalized.if);
+        const statement = `DELETE FROM ${this._quote(keyspace)}.${this._quote(table)}${whereClause}${ifClause}`;
+        await this.client.execute(statement, [...params, ...ifParams], { prepare: true });
         return { deleted: true };
+      }
+      case "batch": {
+        const statements = normalized.statements || [];
+        if (!Array.isArray(statements) || statements.length === 0) {
+          throw new Error("Cassandra batch requires statements array.");
+        }
+        const payload = statements
+          .map((item) => {
+            if (typeof item === "string") {
+              return { query: item, params: [] };
+            }
+            if (item && typeof item === "object") {
+              return {
+                query: item.query || item.statement || "",
+                params: item.params || [],
+              };
+            }
+            return null;
+          })
+          .filter((item) => item && item.query);
+        if (payload.length === 0) {
+          throw new Error("Cassandra batch statements are invalid.");
+        }
+        await this.client.batch(payload, {
+          prepare: true,
+          logged: normalized.logged !== false,
+          consistency: normalized.consistency,
+        });
+        return { batched: true, count: payload.length };
       }
       default:
         throw new Error(`Unsupported Cassandra operation: ${normalized.operation}`);
@@ -258,6 +291,14 @@ class CassandraStrategy extends NoSQLStrategy {
       table: query?.table || query?.collection || payload.table || payload.collection,
       values: query?.values || payload.values,
       where: query?.where || payload.where,
+      if:
+        query?.if ||
+        payload.if ||
+        query?.conditions ||
+        payload.conditions ||
+        (query?.ifNotExists || payload.ifNotExists ? "NOT EXISTS" : undefined),
+      statements: query?.statements || payload.statements || query?.batch || payload.batch,
+      logged: query?.logged ?? payload.logged,
       limit: query?.limit || payload.limit || options?.pageSize,
       consistency: query?.consistency || payload.consistency,
     };
@@ -293,6 +334,37 @@ class CassandraStrategy extends NoSQLStrategy {
 
   _quote(identifier) {
     return `"${String(identifier).replace(/"/g, '""')}"`;
+  }
+
+  _buildIfClause(conditions) {
+    if (!conditions) return { clause: "", params: [] };
+    if (typeof conditions === "string") {
+      return { clause: ` IF ${conditions}`, params: [] };
+    }
+    if (conditions === true) {
+      return { clause: " IF EXISTS", params: [] };
+    }
+    if (Array.isArray(conditions)) {
+      const clauses = [];
+      const params = [];
+      for (const entry of conditions) {
+        if (!entry || typeof entry !== "object") continue;
+        const op = entry.operator || entry.op || "=";
+        clauses.push(`${this._quote(entry.field)} ${op} ?`);
+        params.push(entry.value);
+      }
+      return clauses.length
+        ? { clause: ` IF ${clauses.join(" AND ")}`, params }
+        : { clause: "", params: [] };
+    }
+    if (typeof conditions === "object") {
+      const keys = Object.keys(conditions);
+      if (keys.length === 0) return { clause: "", params: [] };
+      const clauses = keys.map((key) => `${this._quote(key)} = ?`);
+      const params = keys.map((key) => conditions[key]);
+      return { clause: ` IF ${clauses.join(" AND ")}`, params };
+    }
+    return { clause: "", params: [] };
   }
 }
 

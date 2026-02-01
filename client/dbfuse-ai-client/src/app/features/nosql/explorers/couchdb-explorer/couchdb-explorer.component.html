@@ -1,0 +1,336 @@
+<div class="flex h-full flex-col bg-background">
+    <div class="border-b border-border px-6 py-4 flex items-center justify-between">
+        <div>
+            <h2 class="text-lg font-semibold text-foreground">CouchDB Explorer</h2>
+            <p class="text-sm text-muted-foreground">
+                Fauxton-inspired browsing with Mango queries and document actions.
+            </p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="text-xs text-muted-foreground">
+                <div *ngIf="selectedDatabase">Database: {{ selectedDatabase }}</div>
+            </div>
+            <button (click)="refreshDatabases()" [disabled]="loadingDatabases" class="btn btn-secondary btn-sm">
+                <span class="icon-[mdi--refresh] w-3 h-3 mr-1" [class.animate-spin]="loadingDatabases"></span>
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <div
+        *ngIf="errorMessage"
+        class="px-6 py-2 text-xs text-destructive border-b border-destructive/20 bg-destructive/10"
+    >
+        {{ errorMessage }}
+    </div>
+    <div
+        *ngIf="actionMessage"
+        class="px-6 py-2 text-xs text-emerald-700 border-b border-emerald-200 bg-emerald-50 dark:text-emerald-300 dark:border-emerald-700/60 dark:bg-emerald-900/20"
+    >
+        {{ actionMessage }}
+    </div>
+
+    <div class="flex-1 overflow-hidden p-4">
+        <div class="grid h-full grid-cols-12 gap-4">
+            <div class="col-span-12 xl:col-span-3 h-full flex flex-col gap-4">
+                <div class="ui-card flex-1 overflow-hidden flex flex-col">
+                    <div class="px-4 py-2 border-b border-border text-xs font-semibold text-muted-foreground">
+                        Databases
+                    </div>
+                    <div class="flex-1 overflow-auto p-2 space-y-1 scrollbar-hidden">
+                        <div *ngIf="loadingDatabases" class="text-xs text-muted-foreground px-2 py-1">
+                            Loading databases...
+                        </div>
+                        <button
+                            *ngFor="let db of availableDatabases"
+                            (click)="selectDatabase(db.name)"
+                            class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150"
+                            [ngClass]="{
+                                'bg-muted text-foreground': selectedDatabase === db.name,
+                                'text-muted-foreground': selectedDatabase !== db.name
+                            }"
+                        >
+                            <div class="flex items-center justify-between">
+                                <span class="truncate">{{ db.name }}</span>
+                            </div>
+                        </button>
+                        <div
+                            *ngIf="!loadingDatabases && availableDatabases.length === 0"
+                            class="text-xs text-muted-foreground px-2 py-1"
+                        >
+                            No databases found.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ui-card p-4 text-xs text-muted-foreground">
+                    Use Mango queries for document filtering, or switch to view/changes actions to access design docs.
+                </div>
+            </div>
+
+            <div class="col-span-12 xl:col-span-6 h-full overflow-hidden ui-card flex flex-col">
+                <div class="px-4 py-3 border-b border-border flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-semibold text-muted-foreground">Database details</div>
+                        <div class="text-sm text-foreground truncate">
+                            {{ selectedDatabase || 'Select a database' }}
+                        </div>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-auto p-4 space-y-4 scrollbar-hidden">
+                    <div *ngIf="loadingDetails" class="text-xs text-muted-foreground">
+                        Loading details...
+                    </div>
+                    <div *ngIf="!loadingDetails && !collectionInfo" class="text-xs text-muted-foreground">
+                        Select a database to view details.
+                    </div>
+
+                    <ng-container *ngIf="collectionInfo">
+                        <div>
+                            <div class="text-xs font-semibold text-foreground">Indexes</div>
+                            <div class="mt-2 space-y-1">
+                                <div
+                                    *ngFor="let idx of collectionInfo.indexes"
+                                    class="flex items-center justify-between text-xs text-muted-foreground border-b border-border py-1"
+                                >
+                                    <span class="truncate">{{ idx.index_name }}</span>
+                                    <span>{{ idx.type || 'index' }}</span>
+                                </div>
+                                <div *ngIf="collectionInfo.indexes?.length === 0" class="text-xs text-muted-foreground">
+                                    No indexes detected.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="text-xs font-semibold text-foreground">Sample documents</div>
+                            <div class="mt-2 space-y-2">
+                                <pre
+                                    *ngFor="let doc of collectionInfo.sampleDocuments"
+                                    class="text-xs whitespace-pre-wrap bg-muted border border-border rounded p-2 text-foreground"
+                                >{{ doc | json }}</pre>
+                                <div
+                                    *ngIf="!collectionInfo.sampleDocuments || collectionInfo.sampleDocuments.length === 0"
+                                    class="text-xs text-muted-foreground"
+                                >
+                                    No documents sampled.
+                                </div>
+                            </div>
+                        </div>
+                    </ng-container>
+                </div>
+            </div>
+
+            <div class="col-span-12 xl:col-span-3 h-full overflow-hidden ui-card flex flex-col">
+                <div class="px-4 py-3 border-b border-border">
+                    <div class="text-xs font-semibold text-muted-foreground">Actions</div>
+                </div>
+                <div class="flex-1 overflow-auto p-4 space-y-4 scrollbar-hidden">
+                    <div *ngIf="!supportsCrud" class="text-xs text-muted-foreground">
+                        Write operations are disabled for this database.
+                    </div>
+
+                    <div>
+                        <div class="text-xs font-semibold text-foreground">Mango query</div>
+                        <textarea
+                            [(ngModel)]="mangoSelector"
+                            rows="4"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Selector JSON (optional)"
+                        ></textarea>
+                        <button (click)="runMangoQuery()" class="btn btn-secondary btn-sm mt-2">
+                            Run query
+                        </button>
+                    </div>
+
+                    <div *ngIf="supportsViews">
+                        <div class="text-xs font-semibold text-foreground">View query</div>
+                        <input
+                            [(ngModel)]="viewDesignDoc"
+                            type="text"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Design doc (without _design/)"
+                        />
+                        <input
+                            [(ngModel)]="viewName"
+                            type="text"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="View name"
+                        />
+                        <textarea
+                            [(ngModel)]="viewParams"
+                            rows="2"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="View params JSON (optional)"
+                        ></textarea>
+                        <button (click)="runViewQuery()" class="btn btn-secondary btn-sm mt-2">
+                            Run view
+                        </button>
+                    </div>
+
+                    <div *ngIf="supportsChanges">
+                        <div class="text-xs font-semibold text-foreground">Changes feed</div>
+                        <textarea
+                            [(ngModel)]="changesParams"
+                            rows="2"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="_changes params JSON (since, limit, include_docs, etc.)"
+                        ></textarea>
+                        <button (click)="runChangesFeed()" class="btn btn-secondary btn-sm mt-2">
+                            Fetch changes
+                        </button>
+                    </div>
+
+                    <div>
+                        <div class="text-xs font-semibold text-foreground">Get document</div>
+                        <input
+                            [(ngModel)]="docId"
+                            type="text"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Document id"
+                        />
+                        <button (click)="runDocGet()" class="btn btn-secondary btn-sm mt-2">
+                            Get
+                        </button>
+                    </div>
+
+                    <div *ngIf="supportsAttachments">
+                        <div class="text-xs font-semibold text-foreground">Attachments</div>
+                        <input
+                            [(ngModel)]="attachmentName"
+                            type="text"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Attachment name"
+                        />
+                        <input
+                            [(ngModel)]="attachmentContentType"
+                            type="text"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Content-Type (optional)"
+                        />
+                        <select
+                            [(ngModel)]="attachmentEncoding"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground px-2 py-1"
+                        >
+                            <option value="raw">Raw text</option>
+                            <option value="base64">Base64</option>
+                        </select>
+                        <textarea
+                            [(ngModel)]="attachmentData"
+                            rows="2"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Attachment data"
+                        ></textarea>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            <button (click)="runAttachmentGet()" class="btn btn-secondary btn-sm">
+                                Get
+                            </button>
+                            <button
+                                (click)="runAttachmentInsert()"
+                                class="btn btn-primary btn-sm"
+                                [disabled]="!supportsCrud"
+                            >
+                                Insert
+                            </button>
+                            <button
+                                (click)="runAttachmentDelete()"
+                                class="btn btn-danger btn-sm"
+                                [disabled]="!supportsCrud"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-xs font-semibold text-foreground">Insert / update</div>
+                        <textarea
+                            [(ngModel)]="docPayload"
+                            rows="4"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Document JSON"
+                        ></textarea>
+                        <div class="mt-2 flex items-center gap-2">
+                            <button (click)="runDocInsert()" class="btn btn-primary btn-sm" [disabled]="!supportsCrud">
+                                Insert
+                            </button>
+                            <button (click)="runDocUpdate()" class="btn btn-secondary btn-sm" [disabled]="!supportsCrud">
+                                Update
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-xs font-semibold text-foreground">Delete document</div>
+                        <input
+                            [(ngModel)]="docRev"
+                            type="text"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Document _rev"
+                        />
+                        <button (click)="runDocDelete()" class="btn btn-danger btn-sm mt-2" [disabled]="!supportsCrud">
+                            Delete
+                        </button>
+                    </div>
+
+                    <div *ngIf="supportsIndexes">
+                        <div class="text-xs font-semibold text-foreground">Index management</div>
+                        <textarea
+                            [(ngModel)]="indexDefinition"
+                            rows="2"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Index definition JSON"
+                        ></textarea>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            <button (click)="runCreateIndex()" class="btn btn-secondary btn-sm" [disabled]="!supportsCrud">
+                                Create index
+                            </button>
+                            <button (click)="runListIndexes()" class="btn btn-secondary btn-sm">
+                                List indexes
+                            </button>
+                        </div>
+                        <div class="mt-2 grid gap-2">
+                            <input
+                                [(ngModel)]="indexDesignDoc"
+                                type="text"
+                                class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                placeholder="Design doc"
+                            />
+                            <input
+                                [(ngModel)]="indexName"
+                                type="text"
+                                class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                placeholder="Index name"
+                            />
+                            <button
+                                (click)="runDeleteIndex()"
+                                class="btn btn-danger btn-sm"
+                                [disabled]="!supportsCrud"
+                            >
+                                Delete index
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-xs font-semibold text-foreground">Bulk docs</div>
+                        <textarea
+                            [(ngModel)]="bulkPayload"
+                            rows="3"
+                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                            placeholder="Documents array JSON"
+                        ></textarea>
+                        <button (click)="runBulk()" class="btn btn-danger btn-sm mt-2" [disabled]="!supportsCrud">
+                            Run bulk
+                        </button>
+                    </div>
+
+                    <div *ngIf="actionResult">
+                        <div class="text-xs font-semibold text-foreground">Last action result</div>
+                        <pre class="mt-2 text-xs whitespace-pre-wrap bg-muted border border-border rounded p-2 text-foreground">{{ actionResult | json }}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

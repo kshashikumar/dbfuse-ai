@@ -1,8 +1,9 @@
 // sqlite-test-suite.js
 // SQLite Strategy Integration Tests
 
-const BaseTester = require("./base-tester");
 const { DB_TYPES } = require("../../../src/core/constants");
+
+const BaseTester = require("./base-tester");
 
 class SQLiteTester extends BaseTester {
   constructor() {

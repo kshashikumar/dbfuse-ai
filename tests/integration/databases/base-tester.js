@@ -3,11 +3,8 @@
 
 require("dotenv").config();
 const axios = require("axios");
-const {
-  SERVER_CONSTANTS,
-  buildLocalhostBaseUrl,
-  LOCALHOST_HOSTNAME,
-} = require("../../../src/core/app");
+
+const { SERVER_CONSTANTS, buildLocalhostBaseUrl } = require("../../../src/core/app");
 const { DEFAULT_CONFIG, HEADERS } = require("../../../src/core/constants");
 
 /**

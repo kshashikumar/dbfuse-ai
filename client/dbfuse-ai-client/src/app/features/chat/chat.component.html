@@ -104,9 +104,9 @@
                                     'text-muted-foreground': step.status !== 'running'
                                 }"
                             >
-                                <span class="font-normal">{{ step.label }}</span>
-                                <span *ngIf="step.note" class="text-muted-foreground/80 ml-1">
-                                    - {{ step.note }}
+                                <span class="font-normal">{{ getStepLabel(step) }}</span>
+                                <span *ngIf="getStepNote(step.note)" class="text-muted-foreground/80 ml-1">
+                                    - {{ getStepNote(step.note) }}
                                 </span>
                             </div>
                         </div>
@@ -143,7 +143,7 @@
                             {{ message.enrichedContext.complexity }}
                         </span>
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded">
-                            {{ message.enrichedContext.selectedStrategy }}
+                            {{ getStrategyLabel(message.enrichedContext.selectedStrategy) }}
                         </span>
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded">
                             {{ (message.enrichedContext.confidence * 100).toFixed(0) }}% confidence
@@ -180,7 +180,7 @@
                                 <div *ngFor="let step of message.enrichedContext.plannedSteps; let i = index" class="flex items-start gap-2">
                                     <span class="shrink-0 text-muted-foreground">{{ i + 1 }}.</span>
                                     <div class="flex-1">
-                                        <span class="text-foreground">{{ step.label }}</span>
+                                    <span class="text-foreground">{{ getStepLabel(step) }}</span>
                                         <span *ngIf="step.reasoning" class="text-muted-foreground ml-1"> - {{ step.reasoning }}</span>
                                     </div>
                                 </div>
@@ -193,7 +193,7 @@
                             <div class="flex flex-wrap gap-1.5">
                                 <span *ngFor="let alt of message.enrichedContext.alternativeStrategies" 
                                     class="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded">
-                                    {{ alt.name }}
+                                    {{ getStrategyLabel(alt.name) }}
                                     <span *ngIf="alt.description" class="text-[10px] opacity-75 ml-0.5" [title]="alt.description">ⓘ</span>
                                 </span>
                             </div>
@@ -264,116 +264,62 @@
     </div>
 
     <!-- Results Panel (Right Side) - Only show when there are results -->
-    <div *ngIf="hasResults && currentQueryResult" class="w-1/2 border-l border-border flex flex-col bg-background">
-        <!-- Header -->
-        <div class="border-b border-border px-4 py-3 flex items-center justify-between">
-            <div>
-                <h3 class="text-sm font-semibold">{{ currentQueryResult.tableName }}</h3>
-                <div class="text-xs text-muted-foreground mt-1">
-                    <span>{{ currentQueryResult.rows?.length || 0 }} rows</span>
-                    <span *ngIf="currentQueryResult.metadata?.executionTime"> • {{ currentQueryResult.metadata.executionTime }}ms</span>
-                </div>
-            </div>
-            <div class="flex items-center gap-2">
+    <div *ngIf="hasResults && queryResults.length > 0" class="w-1/2 border-l border-border flex flex-col bg-background">
+        <!-- Tab Bar -->
+        <div class="flex items-center border-b border-border bg-muted/30 px-2 pt-2">
+            <div class="flex items-center overflow-x-auto scrollbar-hidden space-x-1 flex-1">
                 <button
-                    type="button"
-                    (click)="exportToCSV()"
-                    class="text-xs px-2 py-1 rounded hover:bg-muted transition-colors"
-                    title="Export to CSV"
+                    *ngFor="let res of queryResults; let i = index"
+                    (click)="setActiveResultTab(i)"
+                    class="group relative flex items-center min-w-[120px] max-w-[200px] h-9 px-3 text-xs font-medium border-t border-l border-r rounded-t-lg transition-colors"
+                    [ngClass]="{
+                        'bg-background border-border text-foreground': activeResultIndex === i,
+                        'bg-muted/50 border-transparent text-muted-foreground hover:bg-muted hover:text-foreground': activeResultIndex !== i
+                    }"
+                    [title]="res.tableName || 'Result ' + (i + 1)"
                 >
-                    CSV
+                    <span class="truncate flex-1 text-left mr-2">
+                        {{ res.tableName || 'Result ' + (i + 1) }}
+                    </span>
+                    <span 
+                        class="px-1.5 py-0.5 rounded-full bg-muted text-[10px] text-muted-foreground group-hover:bg-background"
+                        *ngIf="res.rows?.length !== undefined"
+                    >
+                        {{ res.rows.length }}
+                    </span>
+                    <button
+                        (click)="closeResultTab(i, $event)"
+                        class="ml-2 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Close tab"
+                    >
+                        <span class="icon-[mdi--close] w-3 h-3"></span>
+                    </button>
+                    
+                    <!-- Active Indicator Line -->
+                    <div 
+                        *ngIf="activeResultIndex === i"
+                        class="absolute bottom-[-1px] left-0 right-0 h-[1px] bg-background z-10"
+                    ></div>
                 </button>
-                <button
-                    type="button"
-                    (click)="exportToJSON()"
-                    class="text-xs px-2 py-1 rounded hover:bg-muted transition-colors"
-                    title="Export to JSON"
-                >
-                    JSON
-                </button>
-                <button
-                    type="button"
-                    (click)="closeResults()"
-                    class="text-muted-foreground hover:text-foreground transition-colors ml-2"
-                    title="Close results"
-                >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path d="M6 18L18 6M6 6l12 12" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                </button>
-            </div>
-        </div>
-
-        <!-- Table View for SQL -->
-        <div *ngIf="currentQueryResult?.type === 'table' && currentQueryResult?.rows?.length > 0" class="flex-1 flex flex-col overflow-hidden">
-            <!-- Fixed Header -->
-            <div #tableHeaderScroll class="flex-shrink-0 bg-muted border-b border-border overflow-hidden">
-                <table class="w-full text-sm border-collapse" style="table-layout: fixed;">
-                    <colgroup>
-                        <col *ngFor="let col of currentQueryResult.columns" style="width: 200px; min-width: 150px;">
-                    </colgroup>
-                    <thead>
-                        <tr>
-                            <th *ngFor="let col of currentQueryResult.columns" 
-                                class="px-3 py-2 text-left font-medium text-muted-foreground border-r border-border last:border-r-0"
-                                style="width: 200px; min-width: 150px;">
-                                {{ col }}
-                            </th>
-                        </tr>
-                    </thead>
-                </table>
             </div>
             
-            <!-- Scrollable Body -->
-            <cdk-virtual-scroll-viewport
-                #tableBodyScroll
-                [itemSize]="40"
-                class="flex-1 w-full overflow-auto scrollbar-hidden"
-                (scroll)="onTableBodyScroll($event)"
+            <!-- Global Utils -->
+            <button
+                (click)="closeResults()"
+                class="ml-2 mb-1 p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
+                title="Close all results"
             >
-                <table class="w-full text-sm border-collapse" style="table-layout: fixed;">
-                    <colgroup>
-                        <col *ngFor="let col of currentQueryResult.columns" style="width: 200px; min-width: 150px;">
-                    </colgroup>
-                    <tbody>
-                        <tr *cdkVirtualFor="let row of currentQueryResult.rows; trackBy: trackByIndex" 
-                            class="border-b border-border hover:bg-muted/50">
-                            <td *ngFor="let col of currentQueryResult.columns" 
-                                class="px-3 py-2 text-foreground border-r border-border last:border-r-0"
-                                style="width: 200px; min-width: 150px;">
-                                {{ row[col] }}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </cdk-virtual-scroll-viewport>
+                <span class="icon-[mdi--close-box-multiple] w-4 h-4"></span>
+            </button>
         </div>
 
-        <!-- JSON View for NoSQL -->
-        <div *ngIf="currentQueryResult.type === 'json'" class="flex-1 overflow-auto p-4 space-y-3">
-            <div *ngFor="let doc of currentQueryResult.rows; let i = index" 
-                 class="rounded-md border border-border bg-card p-3">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-xs font-medium text-muted-foreground">Document #{{ i + 1 }}</span>
-                </div>
-                <pre class="text-xs overflow-x-auto bg-muted/50 p-2 rounded">{{ doc | json }}</pre>
-            </div>
-        </div>
-
-        <!-- Query Display -->
-        <div *ngIf="currentQueryResult.query" class="border-t border-border p-4 bg-muted/20">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-medium text-muted-foreground">Query</span>
-                <button 
-                    type="button" 
-                    (click)="copyQuery()"
-                    class="text-xs px-2 py-1 rounded hover:bg-muted transition-colors"
-                    title="Copy query"
-                >
-                    Copy
-                </button>
-            </div>
-            <pre class="text-xs bg-background p-2 rounded border border-border overflow-x-auto">{{ currentQueryResult.query }}</pre>
+        <!-- Result Grid Content -->
+        <div class="flex-1 min-h-0 bg-background relative">
+            <app-resultgrid
+                *ngIf="queryResults[activeResultIndex]"
+                [externalResult]="queryResults[activeResultIndex]"
+                class="h-full block"
+            ></app-resultgrid>
         </div>
     </div>
 </div>

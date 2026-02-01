@@ -1,13 +1,36 @@
 const crypto = require("crypto");
+
 const { connectionManager } = require("../config");
 const llmService = require("../services/LLMService");
 const logger = require("../utils/logger");
 const QueryAnalyzer = require("../rag/orchestrator/QueryAnalyzer");
 const QueryOrchestrator = require("../rag/orchestrator/QueryOrchestrator");
 const EmbeddingService = require("../rag/services/EmbeddingService");
+const RAGService = require("../rag/services/RAGService");
 const storageManager = require("../rag/storage/StorageManager");
+
 const ChatStepTracker = require("./ChatStepTracker");
 const McpToolRunner = require("./McpToolRunner");
+
+const CHAT_DEFAULT_PAGE_SIZE = Number(process.env.CHAT_DEFAULT_PAGE_SIZE) || 50;
+const CHAT_MAX_ROWS = Number(process.env.CHAT_MAX_ROWS) || 1000;
+const CHAT_LLM_BUDGET_MS = Number(process.env.CHAT_LLM_BUDGET_MS) || 25000;
+const CHAT_INTENT_TIMEOUT_MS = Number(process.env.CHAT_INTENT_TIMEOUT_MS) || 5000;
+const CHAT_PLAN_TIMEOUT_MS = Number(process.env.CHAT_PLAN_TIMEOUT_MS) || 8000;
+const CHAT_MIN_LLM_TIMEOUT_MS = Number(process.env.CHAT_MIN_LLM_TIMEOUT_MS) || 1200;
+const CHAT_DUMMY_ROW_COUNT = Number(process.env.CHAT_DUMMY_ROW_COUNT) || 5;
+const CHAT_DUMMY_MAX_ROWS = Number(process.env.CHAT_DUMMY_MAX_ROWS) || 100;
+const CHAT_SCHEMA_CACHE_TTL_MS = Number(process.env.CHAT_SCHEMA_CACHE_TTL_MS) || 300000;
+const CHAT_SCHEMA_CACHE_MAX_SIZE = Number(process.env.CHAT_SCHEMA_CACHE_MAX_SIZE) || 100;
+const CHAT_TABLE_INFO_CACHE_TTL_MS = Number(process.env.CHAT_TABLE_INFO_CACHE_TTL_MS) || 300000;
+const CHAT_TABLE_INFO_CACHE_MAX_SIZE = Number(process.env.CHAT_TABLE_INFO_CACHE_MAX_SIZE) || 200;
+const CHAT_CONTEXT_MAX_TABLES = Number(process.env.CHAT_CONTEXT_MAX_TABLES) || 8;
+const CHAT_CONTEXT_MAX_COLUMNS = Number(process.env.CHAT_CONTEXT_MAX_COLUMNS) || 24;
+const CHAT_SAMPLE_ROWS_PER_TABLE = Number(process.env.CHAT_SAMPLE_ROWS_PER_TABLE) || 0;
+const CHAT_SAMPLE_MAX_TABLES = Number(process.env.CHAT_SAMPLE_MAX_TABLES) || 3;
+const CHAT_SAMPLE_CACHE_TTL_MS = Number(process.env.CHAT_SAMPLE_CACHE_TTL_MS) || 120000;
+const CHAT_FOLLOWUP_ENABLED = process.env.CHAT_FOLLOWUP_ENABLED !== "false";
+const CHAT_FOLLOWUP_MAX = Number(process.env.CHAT_FOLLOWUP_MAX) || 3;
 
 const DEFAULT_STEP_DEFS = [
   { id: "plan", label: "Plan request" },
@@ -24,6 +47,13 @@ const STEP_TEMPLATES = {
     { id: "plan", label: "Identify request", confidence: 0.95 },
     { id: "schema", label: "Fetch table list", confidence: 0.95 },
     { id: "summarize", label: "Format response", confidence: 0.95 },
+  ],
+  ddl_query: [
+    { id: "plan", label: "Interpret request", confidence: 0.9 },
+    { id: "schema", label: "Check schema context", confidence: 0.85 },
+    { id: "generate", label: "Draft DDL", confidence: 0.8 },
+    { id: "execute", label: "Execute change", confidence: 0.8 },
+    { id: "summarize", label: "Summarize results", confidence: 0.85 },
   ],
   simple_select: [
     { id: "plan", label: "Analyze simple query", confidence: 0.9 },
@@ -91,10 +121,14 @@ class ChatService {
     this.analyzer = options.analyzer || new QueryAnalyzer();
     this.orchestrator = options.orchestrator || new QueryOrchestrator();
     this.embeddingService = options.embeddingService || new EmbeddingService();
+    this.ragService = options.ragService || new RAGService();
     this.mcpRunner = options.mcpRunner || new McpToolRunner();
     this.storageManager = options.storageManager || storageManager;
     this.enrichmentCache = new Map();
     this.cacheTTL = 5 * 60 * 1000; // 5 minutes
+    this.schemaCache = new Map();
+    this.tableInfoCache = new Map();
+    this.sampleRowCache = new Map();
   }
 
   async enrichQuery({ connectionId, dbType, dbName, prompt, options = {} } = {}) {
@@ -132,13 +166,14 @@ class ChatService {
 
     // Phase 1: AI-powered intent detection with timeout
     let queryIntent;
+    const intentTimeoutMs = Number.isFinite(options.intentTimeoutMs)
+      ? options.intentTimeoutMs
+      : CHAT_INTENT_TIMEOUT_MS;
     try {
-      queryIntent = await Promise.race([
-        this._detectQueryIntent(prompt, normalizedDbType),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Intent detection timeout")), 5000),
-        ),
-      ]);
+      if (intentTimeoutMs <= CHAT_MIN_LLM_TIMEOUT_MS) {
+        throw new Error("Intent detection skipped due to timeout budget");
+      }
+      queryIntent = await this._detectQueryIntent(prompt, normalizedDbType, intentTimeoutMs);
       logger.debug("Query intent detected", {
         intent: queryIntent.type,
         confidence: queryIntent.confidence,
@@ -149,7 +184,14 @@ class ChatService {
       warnings.push("Using simplified query analysis");
       // Fallback to basic pattern matching
       const lowerPrompt = prompt.toLowerCase();
-      if (lowerPrompt.includes("show tables") || lowerPrompt.includes("list tables")) {
+      if (this._detectWriteIntent(lowerPrompt)) {
+        queryIntent = {
+          type: "ddl_query",
+          confidence: 0.75,
+          template: "ddl_query",
+          recommendedStrategy: "DirectSQLStrategy",
+        };
+      } else if (lowerPrompt.includes("show tables") || lowerPrompt.includes("list tables")) {
         queryIntent = {
           type: "list_tables",
           confidence: 0.8,
@@ -173,17 +215,31 @@ class ChatService {
       }
     }
 
+    const isWriteIntent = this._detectWriteIntent(prompt);
+    if (isWriteIntent) {
+      queryIntent = {
+        type: "ddl_query",
+        confidence: Math.max(queryIntent?.confidence || 0.6, 0.75),
+        template: "ddl_query",
+        recommendedStrategy: "DirectSQLStrategy",
+        tableName: queryIntent?.tableName || null,
+        reasoning: queryIntent?.reasoning || "Write operation detected",
+      };
+    }
+
     // Use template steps if high confidence intent
-    if (
+    const isQuickIntent =
       queryIntent.confidence >= 0.85 &&
       queryIntent.template &&
-      STEP_TEMPLATES[queryIntent.template]
-    ) {
+      STEP_TEMPLATES[queryIntent.template];
+    const isListTables = queryIntent.type === "list_tables";
+    const isQuickDdl = queryIntent.type === "ddl_query";
+    if (isQuickIntent && (isListTables || isQuickDdl)) {
       const enrichedContext = {
         queryIntent: queryIntent.type,
         confidence: queryIntent.confidence,
         complexity: "simple",
-        selectedStrategy: "DirectSQLStrategy",
+        selectedStrategy: queryIntent.recommendedStrategy || "DirectSQLStrategy",
         plannedSteps: STEP_TEMPLATES[queryIntent.template],
         availableEntities: [],
         relevantEntities: [],
@@ -208,15 +264,18 @@ class ChatService {
     // Phase 2: Fetch available entities
     logger.info("🔬 PHASE 2: Fetching available entities");
     const connectionInfo = connectionManager.getConnectionInfo(connectionId);
-    const currentDb = dbName || connectionInfo?.currentDatabase || connectionInfo?.config?.database;
+    const currentDb = this._resolveDatabaseName({
+      dbType: normalizedDbType,
+      dbName,
+      connectionInfo,
+    });
 
     let availableEntities = [];
     try {
-      const entitiesResult = await this.mcpRunner.run("get_tables", {
+      availableEntities = await this._getTablesCached({
         connectionId,
         dbName: currentDb,
       });
-      availableEntities = this._normalizeTableNames(entitiesResult?.tables || []);
       logger.info("✅ PHASE 2 Complete: Entities fetched", {
         tableCount: availableEntities.length,
         tables: availableEntities,
@@ -230,13 +289,49 @@ class ChatService {
     // Phase 3: Run query analysis
     const analysis = this.analyzer.analyze(prompt);
 
-    // Phase 4: Select relevant entities using embeddings with scores
+    // Phase 4: Retrieve vector context (RAG) and rank relevant entities
+    let ragContext = null;
+    try {
+      ragContext = await this.ragService.retrieveContext({
+        connectionId,
+        dbName: currentDb,
+        query: prompt,
+        options: {
+          limit: 8,
+          minScore: 0.2,
+          useCache: true,
+          backgroundIndex: false,
+          indexTimeoutMs: 8000,
+        },
+      });
+    } catch (error) {
+      logger.warn("RAG context retrieval failed", { error: error?.message });
+    }
+
     const rankedTables = this._rankTablesByEmbedding(prompt, availableEntities);
-    const relevantEntities = rankedTables.slice(0, 5).map((entry) => ({
-      name: entry.name,
-      type: this._getEntityType(normalizedDbType),
-      score: entry.score,
-    }));
+    const ragTables = Array.isArray(ragContext?.tables) ? ragContext.tables : [];
+    const mergedScores = new Map();
+
+    for (const entry of ragTables) {
+      const name = entry?.name;
+      if (!name || (availableEntities.length && !availableEntities.includes(name))) continue;
+      mergedScores.set(name, (mergedScores.get(name) || 0) + (entry.score || 0) * 10);
+    }
+
+    for (const entry of rankedTables) {
+      if (!entry?.name) continue;
+      const score = (mergedScores.get(entry.name) || 0) + entry.score;
+      mergedScores.set(entry.name, score);
+    }
+
+    const relevantEntities = Array.from(mergedScores.entries())
+      .map(([name, score]) => ({
+        name,
+        type: this._getEntityType(normalizedDbType),
+        score,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
 
     logger.info("🔍 Entity ranking results", {
       prompt: prompt.substring(0, 80),
@@ -248,16 +343,22 @@ class ChatService {
     });
 
     // Phase 5: Get strategy capabilities with error handling
-    let strategyMetadata = null;
-    let capabilities = { type: "unknown", operations: [], features: [] };
+    let capabilities = { type: "unknown", operations: [], features: [], limits: {} };
     try {
-      const { getStrategyMetadata } = require("../config/create-strategy");
-      strategyMetadata = getStrategyMetadata ? getStrategyMetadata(normalizedDbType) : null;
-      if (strategyMetadata) {
+      const { getStrategyMetadata, getCapabilityModel } = require("../config/create-strategy");
+      const capabilityModel = getCapabilityModel ? getCapabilityModel(normalizedDbType) : null;
+      const strategyMetadata = getStrategyMetadata ? getStrategyMetadata(normalizedDbType) : null;
+      if (capabilityModel) {
+        capabilities = {
+          ...capabilityModel,
+          type: capabilityModel.type || strategyMetadata?.type || "sql",
+        };
+      } else if (strategyMetadata) {
         capabilities = {
           type: strategyMetadata.type || "sql",
           operations: strategyMetadata.capabilities || [],
           features: strategyMetadata.supportedFeatures || [],
+          limits: { supportsWrite: true },
         };
       }
     } catch (error) {
@@ -267,14 +368,23 @@ class ChatService {
       if (this.sqlDbTypes.has(normalizedDbType)) {
         capabilities = {
           type: "sql",
-          operations: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+          operations: ["query", "crud", "indexes", "explain"],
           features: ["transactions"],
+          limits: { supportsWrite: true },
         };
       } else if (this.noSqlDbTypes.has(normalizedDbType)) {
         capabilities = {
           type: "nosql",
-          operations: ["find", "insert", "update", "delete"],
+          operations: ["query", "crud", "indexes"],
           features: ["aggregation"],
+          limits: { supportsWrite: true },
+        };
+      } else if (this.cacheDbTypes.has(normalizedDbType)) {
+        capabilities = {
+          type: "cache",
+          operations: ["query", "crud", "command"],
+          features: ["ttl"],
+          limits: { supportsWrite: true },
         };
       }
     }
@@ -287,19 +397,24 @@ class ChatService {
       const StrategySelector = require("../rag/orchestrator/StrategySelector");
       const selector = new StrategySelector();
 
-      // Validate AI recommendation against available strategies
+      const selectorPick = selector.select({
+        analysis,
+        context: { tables: relevantEntities.map((t) => ({ name: t.name || t })) },
+        queryIntent,
+        capabilities,
+        dbType: normalizedDbType,
+      });
+
+      selectedStrategy = selectorPick || selectedStrategy;
+      selectionSource = "StrategySelector";
+
       if (!selector.isStrategyAvailable(selectedStrategy)) {
-        logger.debug("AI recommended unavailable strategy", {
-          recommended: selectedStrategy,
+        logger.debug("Selected unavailable strategy, falling back", {
+          selected: selectedStrategy,
           available: selector.getAvailableStrategies(),
         });
-
-        selectedStrategy = selector.select({
-          analysis,
-          context: { tables: relevantEntities.map((t) => ({ name: t })) },
-          queryIntent,
-        });
-        selectionSource = "StrategySelector";
+        selectedStrategy = "DirectSQLStrategy";
+        selectionSource = "Fallback";
       }
 
       logger.debug("Strategy selected", {
@@ -310,7 +425,6 @@ class ChatService {
     } catch (error) {
       logger.warn("Strategy selection failed, using default", { error: error?.message });
       warnings.push("Using default query strategy");
-      // Fallback to safe default
       selectedStrategy = "DirectSQLStrategy";
       selectionSource = "Fallback";
     }
@@ -414,6 +528,124 @@ class ChatService {
     });
   }
 
+  _getCachedValue(cache, cacheKey, ttlMs) {
+    if (!cache) return null;
+    const entry = cache.get(cacheKey);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > ttlMs) {
+      cache.delete(cacheKey);
+      return null;
+    }
+    return entry.value;
+  }
+
+  _setCachedValue(cache, cacheKey, value, maxSize) {
+    if (!cache) return;
+    if (cache.size >= maxSize) {
+      const firstKey = cache.keys().next().value;
+      cache.delete(firstKey);
+    }
+    cache.set(cacheKey, { value, timestamp: Date.now() });
+  }
+
+  async _getTablesCached({ connectionId, dbName } = {}) {
+    const cacheKey = `${connectionId}|${dbName || ""}|tables`;
+    const cached = this._getCachedValue(this.schemaCache, cacheKey, CHAT_SCHEMA_CACHE_TTL_MS);
+    if (cached) {
+      return cached;
+    }
+    const tablesPayload = await this.mcpRunner.run("get_tables", { connectionId, dbName });
+    const tableNames = this._normalizeTableNames(tablesPayload?.tables || []);
+    this._setCachedValue(this.schemaCache, cacheKey, tableNames, CHAT_SCHEMA_CACHE_MAX_SIZE);
+    return tableNames;
+  }
+
+  async _getTableInfoCached({ connectionId, dbName, tableName } = {}) {
+    const cacheKey = `${connectionId}|${dbName || ""}|${tableName || ""}|tableInfo`;
+    const cached = this._getCachedValue(
+      this.tableInfoCache,
+      cacheKey,
+      CHAT_TABLE_INFO_CACHE_TTL_MS,
+    );
+    if (cached) {
+      return cached;
+    }
+    const tableInfo = await this.mcpRunner.run("get_table_info", {
+      connectionId,
+      dbName,
+      tableName,
+    });
+    this._setCachedValue(this.tableInfoCache, cacheKey, tableInfo, CHAT_TABLE_INFO_CACHE_MAX_SIZE);
+    return tableInfo;
+  }
+
+  async _getSampleRowsCached({ connectionId, dbName, dbType, tableName, limit } = {}) {
+    const safeTable = this._sanitizeTableName(tableName);
+    if (!safeTable || !limit || limit <= 0) return [];
+    const cacheKey = `${connectionId}|${dbName || ""}|${safeTable}|samples|${limit}`;
+    const cached = this._getCachedValue(this.sampleRowCache, cacheKey, CHAT_SAMPLE_CACHE_TTL_MS);
+    if (cached) {
+      return cached;
+    }
+    try {
+      const query = this._buildSimpleSelectQuery(dbType, safeTable, limit);
+      const execResult = await this.mcpRunner.run("execute_query", { connectionId, query });
+      const rows = this._extractRowsFromResult(execResult?.result || execResult);
+      const trimmed = rows.slice(0, limit);
+      this._setCachedValue(this.sampleRowCache, cacheKey, trimmed, CHAT_TABLE_INFO_CACHE_MAX_SIZE);
+      return trimmed;
+    } catch (error) {
+      logger.debug("Sample row fetch failed", {
+        tableName: safeTable,
+        error: error?.message,
+      });
+      return [];
+    }
+  }
+
+  _attachSampleRows(tableInfoList, tableName, rows) {
+    if (!Array.isArray(tableInfoList) || !tableName) return;
+    const target = String(tableName || "").toLowerCase();
+    for (const entry of tableInfoList) {
+      const info = entry?.tableInfo || entry;
+      const name = String(
+        info?.table_name || info?.tableName || info?.name || info?.table || "",
+      ).toLowerCase();
+      if (!name || name !== target) continue;
+      if (entry?.tableInfo) {
+        entry.tableInfo.sampleRows = rows;
+      } else {
+        entry.sampleRows = rows;
+      }
+      return;
+    }
+  }
+
+  _packTableInfoList(tableInfoList, maxTables, maxColumns) {
+    if (!Array.isArray(tableInfoList)) return [];
+    const limited =
+      Number.isFinite(maxTables) && maxTables > 0
+        ? tableInfoList.slice(0, maxTables)
+        : tableInfoList;
+    return limited.map((entry) => {
+      const info = entry?.tableInfo || entry;
+      const columns = Array.isArray(info?.columns) ? info.columns : [];
+      const packedColumns =
+        Number.isFinite(maxColumns) && maxColumns > 0 ? columns.slice(0, maxColumns) : columns;
+      const packedInfo = {
+        ...info,
+        columns: packedColumns,
+      };
+      if (entry?.tableInfo) {
+        return {
+          ...entry,
+          tableInfo: packedInfo,
+        };
+      }
+      return packedInfo;
+    });
+  }
+
   _getAlternativeStrategies(selectedStrategy) {
     const StrategySelector = require("../rag/orchestrator/StrategySelector");
     const selector = new StrategySelector();
@@ -423,12 +655,11 @@ class ChatService {
       DirectSQLStrategy: "Simple direct query execution",
       RAGEnhancedStrategy: "Context-enriched query with RAG",
       DecompositionStrategy: "Break down complex queries",
-      ExplanationStrategy: "Explain query or results",
-      SuggestionStrategy: "Suggest alternative approaches",
     };
+    const allowed = new Set(["DirectSQLStrategy", "RAGEnhancedStrategy", "DecompositionStrategy"]);
 
     return available
-      .filter((name) => name !== selectedStrategy)
+      .filter((name) => name !== selectedStrategy && allowed.has(name))
       .map((name) => ({
         name,
         description: descriptions[name] || "Query execution strategy",
@@ -477,7 +708,7 @@ class ChatService {
     return "table";
   }
 
-  async _findSimilarQueries(prompt, history, dbType) {
+  async _findSimilarQueries(prompt, history, _dbType) {
     if (!history || history.length === 0) return [];
 
     const promptLower = prompt.toLowerCase();
@@ -577,7 +808,13 @@ class ChatService {
     };
   }
 
-  _calculateStepConfidence({ queryIntent, complexity, entityMatch, historicalSuccess, steps }) {
+  _calculateStepConfidence({
+    queryIntent: _queryIntent,
+    complexity,
+    entityMatch,
+    historicalSuccess,
+    steps,
+  }) {
     // Base confidence factors
     let entityScore = 0.5; // Default
     if (entityMatch === true) {
@@ -644,6 +881,7 @@ class ChatService {
     requestId,
     onStep,
     clarificationContext,
+    conversationContext,
   } = {}) {
     const startedAt = Date.now();
     if (!connectionId) {
@@ -657,22 +895,15 @@ class ChatService {
     }
 
     const normalizedDbType = String(dbType).toLowerCase();
-
-    if (!this.sqlDbTypes.has(normalizedDbType)) {
-      return {
-        queryId: null,
-        query: "",
-        responseText:
-          "Chat to DB is currently available for SQL databases only. Switch to a SQL connection to continue.",
-        queryAnalysis: null,
-        resultSummary: null,
-        executionError: null,
-        steps: [],
-      };
-    }
+    const isSql = this.sqlDbTypes.has(normalizedDbType);
+    const llmBudget = this._createLlmBudget(CHAT_LLM_BUDGET_MS);
 
     const connectionInfo = connectionManager.getConnectionInfo(connectionId);
-    const currentDb = dbName || connectionInfo?.currentDatabase || connectionInfo?.config?.database;
+    const currentDb = this._resolveDatabaseName({
+      dbType: normalizedDbType,
+      dbName,
+      connectionInfo,
+    });
     if (!currentDb) {
       throw new Error("Unable to determine target database");
     }
@@ -687,7 +918,92 @@ class ChatService {
 
     llmService.initialize(model, apiKey);
 
-    const tracker = new ChatStepTracker(onStep);
+    const tracker = new ChatStepTracker((steps) => {
+      if (typeof onStep === "function") {
+        onStep(this._sanitizeSteps(steps));
+      }
+    });
+
+    if (!isSql) {
+      const parsed = this._tryParseJsonPrompt(prompt);
+      if (!parsed) {
+        return {
+          queryId: null,
+          query: "",
+          responseText:
+            'For NoSQL/Cache databases, provide a JSON query payload (e.g., {"operation":"find","collection":"name"}).',
+          queryAnalysis: null,
+          resultSummary: null,
+          executionError: null,
+          steps: [],
+        };
+      }
+
+      tracker.addStep({ id: "execute", label: "Execute query", status: "running" });
+      let execResult;
+      try {
+        execResult = await this.mcpRunner.run("execute_query", {
+          connectionId,
+          query: parsed,
+        });
+        const resultSummary = this._summarizeResult(execResult?.result || execResult);
+        tracker.setStatus(
+          "execute",
+          "done",
+          resultSummary?.rowCount != null ? `Rows: ${resultSummary.rowCount}` : null,
+        );
+
+        tracker.addStep({ id: "summarize", label: "Summarize results", status: "running" });
+        const tableData = this._buildTableDataResponse({
+          tableName: parsed?.collection || parsed?.table || parsed?.key || "result",
+          resultSummary,
+          execResult,
+          query: parsed,
+          hasMore: false,
+          approximateTotal: null,
+          exactTotal: resultSummary?.rowCount,
+        });
+
+        const responseText = this._buildDeterministicResponse({
+          tableName: parsed?.collection || parsed?.table || parsed?.key || "result",
+          resultSummary,
+          executionError: null,
+          query: null,
+        });
+        const followUps = this._buildFollowUpSuggestions({
+          intentType: "collection_query",
+          tableName: parsed?.collection || parsed?.table || parsed?.key || "result",
+          resultSummary,
+          dbType: normalizedDbType,
+          query: null,
+        });
+        const finalResponse = this._appendFollowUps(responseText, followUps);
+        tracker.setStatus("summarize", "done");
+
+        return {
+          queryId: this._createId(),
+          query: JSON.stringify(parsed),
+          responseText: finalResponse,
+          queryAnalysis: null,
+          resultSummary,
+          executionError: null,
+          steps: this._sanitizeSteps(tracker.list()),
+          tableData,
+        };
+      } catch (error) {
+        const errorMessage = this._resolveExecutionError(error);
+        tracker.setStatus("execute", "failed", errorMessage);
+        return {
+          queryId: null,
+          query: JSON.stringify(parsed),
+          responseText: errorMessage,
+          queryAnalysis: null,
+          resultSummary: null,
+          executionError: errorMessage,
+          steps: this._sanitizeSteps(tracker.list()),
+        };
+      }
+    }
 
     // Phase 1: Enrich query context (optional but recommended)
     let enrichedContext = null;
@@ -698,12 +1014,11 @@ class ChatService {
         dbType: normalizedDbType,
         dbName: currentDb,
         prompt,
+        options: {
+          intentTimeoutMs: llmBudget.nextTimeout(CHAT_INTENT_TIMEOUT_MS, CHAT_MIN_LLM_TIMEOUT_MS),
+        },
       });
-      tracker.setStatus(
-        "enrich",
-        "done",
-        `Intent: ${enrichedContext.queryIntent}, Strategy: ${enrichedContext.selectedStrategy}`,
-      );
+      tracker.setStatus("enrich", "done", `Intent: ${enrichedContext.queryIntent}`);
       logger.info("✅ Query enriched successfully", {
         intent: enrichedContext.queryIntent,
         strategy: enrichedContext.selectedStrategy,
@@ -726,6 +1041,7 @@ class ChatService {
       dbName: currentDb,
       clarificationContext,
       enrichedContext,
+      timeoutMs: llmBudget.nextTimeout(CHAT_PLAN_TIMEOUT_MS, CHAT_MIN_LLM_TIMEOUT_MS),
     });
     this._applyPlanSteps(tracker, plan.steps);
     tracker.setStatus("plan", "done");
@@ -745,15 +1061,16 @@ class ChatService {
         queryAnalysis: null,
         resultSummary: null,
         executionError: null,
-        steps: tracker.list(),
+        steps: this._sanitizeSteps(tracker.list()),
       };
     }
 
     // Use AI-determined intent from enrichedContext
     // If enrichment failed, the AI already has regex fallback built-in via _fallbackIntentDetection
+    const shouldForceWrite = this._detectWriteIntent(prompt);
     const intent = enrichedContext?.queryIntent
       ? {
-          type: enrichedContext.queryIntent,
+          type: shouldForceWrite ? "ddl_query" : enrichedContext.queryIntent,
           tableName: enrichedContext.relevantEntities?.[0]?.name || null,
         }
       : { type: "general" }; // This should rarely happen since enrichQuery has robust fallbacks
@@ -764,47 +1081,107 @@ class ChatService {
       fromEnrichment: !!enrichedContext,
     });
 
+    const capabilityCheck = this._validateIntentCapabilities({
+      intentType: intent.type,
+      prompt,
+      dbType: normalizedDbType,
+      capabilities: enrichedContext?.capabilities,
+    });
+    if (!capabilityCheck.allowed) {
+      tracker.addStep({ id: "summarize", label: "Summarize results", status: "running" });
+      tracker.setStatus("summarize", "done");
+      return {
+        queryId: null,
+        query: "",
+        responseText: capabilityCheck.reason,
+        queryAnalysis: null,
+        resultSummary: null,
+        executionError: capabilityCheck.reason,
+        steps: this._sanitizeSteps(tracker.list()),
+      };
+    }
+
     const analysis = this.analyzer.analyze(prompt);
 
+    if (this._isRawSqlPrompt(prompt)) {
+      tracker.addStep({ id: "generate", label: "Use provided SQL", status: "done" });
+      const direct = await this._executeDeterministicSql({
+        connectionId,
+        dbName: currentDb,
+        dbType: normalizedDbType,
+        query: prompt,
+        tableName: this._extractFirstTableFromSql(prompt) || intent.tableName || "result",
+        analysis,
+        tracker,
+      });
+      this._markSkippedSteps(tracker, ["schema", "rag"]);
+      return direct;
+    }
+
     tracker.addStep({ id: "schema", label: "Retrieve schema context", status: "running" });
-    const tablesPayload = await this.mcpRunner.run("get_tables", {
+    const tableNames = await this._getTablesCached({
       connectionId,
       dbName: currentDb,
     });
-    const tableNames = this._normalizeTableNames(tablesPayload?.tables || []);
     tracker.setStatus(
       "schema",
       "done",
       tableNames.length ? `Found ${tableNames.length} tables.` : "No tables found.",
     );
 
+    const explicitTable = this._extractTableMention(prompt, tableNames);
+    const fallbackTable =
+      !explicitTable &&
+      conversationContext?.tableName &&
+      tableNames.includes(conversationContext.tableName)
+        ? conversationContext.tableName
+        : null;
+    const shouldReuseTable = fallbackTable && this._shouldUseLastTable(prompt);
+
     if (intent.type === "list_tables") {
       tracker.addStep({ id: "summarize", label: "Summarize results", status: "running" });
       const responseText = this._formatTableListResponse(tableNames);
+      const followUps = this._buildFollowUpSuggestions({
+        intentType: "list_tables",
+        tableName: null,
+        resultSummary: null,
+        dbType: normalizedDbType,
+        query: null,
+        availableTables: tableNames,
+      });
+      const finalResponse = this._appendFollowUps(responseText, followUps);
       tracker.setStatus("summarize", "done");
       this._markSkippedSteps(tracker, ["rag", "generate", "execute"]);
       return {
         queryId: null,
         query: "",
-        responseText,
+        responseText: finalResponse,
         queryAnalysis: analysis,
         resultSummary: null,
         executionError: null,
-        steps: tracker.list(),
+        steps: this._sanitizeSteps(tracker.list()),
       };
     }
 
     tracker.addStep({ id: "rag", label: "Enrich request context", status: "running" });
 
     // CRITICAL FIX: Prioritize AI-detected entities over embedding similarity
-    const selectedTables =
-      enrichedContext?.relevantEntities?.length > 0
-        ? enrichedContext.relevantEntities.map((e) => e.name).slice(0, 8)
-        : this._selectRelevantTables({
-            prompt,
-            tableNames,
-            limit: 8,
-          });
+    let selectedTables;
+    if (explicitTable) {
+      selectedTables = [explicitTable];
+    } else if (shouldReuseTable) {
+      selectedTables = [fallbackTable];
+      intent.tableName = fallbackTable;
+    } else {
+      selectedTables =
+        enrichedContext?.relevantEntities?.length > 0
+          ? enrichedContext.relevantEntities.map((e) => e.name).slice(0, 8)
+          : this._selectRelevantTables({
+              prompt,
+              tableNames,
+              limit: 8,
+            });
+    }
 
     logger.info("📊 Tables selected", {
       prompt: prompt.substring(0, 50),
@@ -831,7 +1208,7 @@ class ChatService {
         queryAnalysis: analysis,
         resultSummary: null,
         executionError: null,
-        steps: tracker.list(),
+        steps: this._sanitizeSteps(tracker.list()),
       };
     }
 
@@ -844,7 +1221,7 @@ class ChatService {
       tableInfoList.push(
         ...(await Promise.all(
           selectedTables.map((tableName) =>
-            this.mcpRunner.run("get_table_info", {
+            this._getTableInfoCached({
               connectionId,
               dbName: currentDb,
               tableName,
@@ -862,9 +1239,100 @@ class ChatService {
       tracker.setStatus("schema", "done", `Loaded ${tableInfoList.length} tables.`);
     }
 
+    if (CHAT_SAMPLE_ROWS_PER_TABLE > 0 && isSql && selectedTables.length > 0) {
+      const sampleTables = selectedTables.slice(0, CHAT_SAMPLE_MAX_TABLES);
+      await Promise.all(
+        sampleTables.map(async (tableName) => {
+          const rows = await this._getSampleRowsCached({
+            connectionId,
+            dbName: currentDb,
+            dbType: normalizedDbType,
+            tableName,
+            limit: CHAT_SAMPLE_ROWS_PER_TABLE,
+          });
+          if (rows.length) {
+            this._attachSampleRows(tableInfoList, tableName, rows);
+          }
+        }),
+      );
+    }
+
+    const isDummyDataRequest = this._isDummyDataRequest(prompt);
+    if (intent.type === "ddl_query" && isDummyDataRequest) {
+      const targetTable = intent.tableName || selectedTables[0] || null;
+      const dummyRowCount = this._extractRowCountFromPrompt(prompt, CHAT_DUMMY_ROW_COUNT);
+      const dummyPlan = await this._buildDummyDataInsert({
+        connectionId,
+        dbName: currentDb,
+        dbType: normalizedDbType,
+        tableName: targetTable,
+        tableInfoList,
+        rowCount: dummyRowCount,
+      });
+
+      if (!dummyPlan?.query && dummyPlan?.reason) {
+        return {
+          queryId: null,
+          query: "",
+          responseText: dummyPlan.reason,
+          queryAnalysis: analysis,
+          resultSummary: null,
+          executionError: dummyPlan.reason,
+          steps: this._sanitizeSteps(tracker.list()),
+        };
+      }
+
+      if (dummyPlan?.query) {
+        tracker.addStep({ id: "generate", label: "Draft dummy data insert", status: "done" });
+        if (!clarificationContext?.answer) {
+          tracker.addStep({ id: "clarify", label: "Confirm write", status: "pending" });
+          tracker.setStatus("clarify", "pending", "Awaiting confirmation to insert data.");
+          return {
+            queryId: null,
+            query: "",
+            responseText: null,
+            clarificationQuestion: this._formatDummyDataConfirmation(dummyPlan),
+            queryAnalysis: analysis,
+            resultSummary: null,
+            executionError: null,
+            steps: this._sanitizeSteps(tracker.list()),
+          };
+        }
+
+        if (!this._isAffirmativeAnswer(clarificationContext.answer)) {
+          return {
+            queryId: null,
+            query: "",
+            responseText:
+              "Okay, I won't insert any dummy data. Tell me if you'd like a different row count or columns.",
+            queryAnalysis: analysis,
+            resultSummary: null,
+            executionError: null,
+            steps: this._sanitizeSteps(tracker.list()),
+          };
+        }
+
+        const direct = await this._executeDeterministicSql({
+          connectionId,
+          dbName: currentDb,
+          dbType: normalizedDbType,
+          query: dummyPlan.query,
+          tableName: targetTable || "result",
+          analysis,
+          tracker,
+        });
+        return direct;
+      }
+    }
+
     if (intent.type === "simple_select") {
       tracker.addStep({ id: "generate", label: "Generate query draft", status: "done" });
-      const limit = Number.isFinite(Number(pageSize)) ? Number(pageSize) : 10;
+      const baseLimit = Number.isFinite(Number(pageSize))
+        ? Number(pageSize)
+        : CHAT_DEFAULT_PAGE_SIZE;
+      const limitOverride = this._extractLimitFromPrompt(prompt);
+      const shouldFetchAll = this._shouldFetchAllRows(prompt);
+      const effectiveLimit = shouldFetchAll ? CHAT_MAX_ROWS : limitOverride || baseLimit;
 
       // CRITICAL FIX: Fallback to first selected table if intent.tableName is null
       const targetTable = intent.tableName || selectedTables[0];
@@ -878,137 +1346,288 @@ class ChatService {
 
       // Use LIMIT + 1 pattern: query for limit+1 rows to detect if there are more
       // This is efficient even for tables with millions of rows
-      const queryLimit = limit + 1;
+      const queryLimit = effectiveLimit + 1;
       const query = this._buildSimpleSelectQuery(normalizedDbType, targetTable, queryLimit);
 
       logger.info("🔍 EXECUTING QUERY", {
         selectQuery: query,
         targetTable,
-        requestedLimit: limit,
+        requestedLimit: effectiveLimit,
         actualLimit: queryLimit,
         prompt: prompt.substring(0, 60),
       });
 
       tracker.addStep({ id: "execute", label: "Execute query", status: "running" });
-      await this.mcpRunner.run("switch_database", { connectionId, dbName: currentDb });
+      try {
+        await this.mcpRunner.run("switch_database", { connectionId, dbName: currentDb });
 
-      // Execute SELECT query with LIMIT + 1
-      const execResult = await this.mcpRunner.run("execute_query", { connectionId, query });
-
-      logger.info("🔍 EXEC RESULT STRUCTURE", {
-        hasResult: !!execResult?.result,
-        hasRows: !!execResult?.rows,
-        hasResultRows: !!execResult?.result?.rows,
-        rowCountDirect: execResult?.rows?.length,
-        rowCountNested: execResult?.result?.rows?.length,
-        keys: Object.keys(execResult || {}),
-        resultKeys: execResult?.result ? Object.keys(execResult.result) : [],
-      });
-
-      const resultSummary = this._summarizeResult(execResult?.result || execResult);
-
-      // Detect pagination using LIMIT + 1 pattern
-      const hasMoreRows = resultSummary.rowCount > limit;
-
-      logger.info("📊 Pagination Detection", {
-        rowCountReturned: resultSummary.rowCount,
-        requestedLimit: limit,
-        queryLimit,
-        hasMoreRows,
-      });
-
-      if (hasMoreRows) {
-        // Trim extra row and mark that more rows exist
-        resultSummary.rowCount = limit;
-        resultSummary.sampleRows = resultSummary.sampleRows?.slice(0, limit);
-        resultSummary.hasMore = true;
-
-        // Try to get approximate count for better UX (fast metadata query)
-        resultSummary.approximateTotal = await this._getApproximateRowCount(
+        // Execute SELECT query with LIMIT + 1
+        const execResult = await this.mcpRunner.run("execute_query", {
           connectionId,
-          normalizedDbType,
-          currentDb,
-          targetTable,
-        );
-
-        logger.info("📈 Pagination Result (More Rows)", {
-          trimmedRowCount: resultSummary.rowCount,
-          hasMore: resultSummary.hasMore,
-          approximateTotal: resultSummary.approximateTotal,
+          query: this._normalizeMySqlQuery(normalizedDbType, query),
         });
-      } else {
-        resultSummary.hasMore = false;
-        resultSummary.exactTotal = resultSummary.rowCount;
 
-        logger.info("✅ Pagination Result (All Rows)", {
-          exactTotal: resultSummary.exactTotal,
-          hasMore: resultSummary.hasMore,
+        logger.info("🔍 EXEC RESULT STRUCTURE", {
+          hasResult: !!execResult?.result,
+          hasRows: !!execResult?.rows,
+          hasResultRows: !!execResult?.result?.rows,
+          rowCountDirect: execResult?.rows?.length,
+          rowCountNested: execResult?.result?.rows?.length,
+          keys: Object.keys(execResult || {}),
+          resultKeys: execResult?.result ? Object.keys(execResult.result) : [],
         });
+
+        const resultSummary = this._summarizeResult(execResult?.result || execResult);
+        const fetchedRows = this._extractRowsFromResult(execResult?.result || execResult);
+        const totalRows = Number.isFinite(resultSummary?.totalRows)
+          ? resultSummary.totalRows
+          : null;
+
+        // Detect pagination using LIMIT + 1 pattern or totalRows metadata
+        const hasMoreRows =
+          fetchedRows.length > effectiveLimit || (totalRows !== null && totalRows > effectiveLimit);
+        const displayRows = hasMoreRows ? fetchedRows.slice(0, effectiveLimit) : fetchedRows;
+        const responseSummary = {
+          rowCount: displayRows.length,
+          totalRows,
+          columns:
+            resultSummary?.columns?.length > 0
+              ? resultSummary.columns
+              : displayRows.length > 0
+                ? Object.keys(displayRows[0])
+                : [],
+          sampleRows: displayRows.slice(0, Math.min(displayRows.length, 5)),
+          hasMore: hasMoreRows,
+          approximateTotal: null,
+          exactTotal: null,
+        };
+
+        logger.info("📊 Pagination Detection", {
+          rowCountReturned: fetchedRows.length,
+          requestedLimit: effectiveLimit,
+          queryLimit,
+          hasMoreRows,
+        });
+
+        if (hasMoreRows) {
+          if (totalRows !== null && totalRows > fetchedRows.length) {
+            responseSummary.exactTotal = totalRows;
+          } else {
+            // Try to get approximate count for better UX (fast metadata query)
+            responseSummary.approximateTotal = await this._getApproximateRowCount(
+              connectionId,
+              normalizedDbType,
+              currentDb,
+              targetTable,
+            );
+          }
+
+          logger.info("???? Pagination Result (More Rows)", {
+            trimmedRowCount: responseSummary.rowCount,
+            hasMore: responseSummary.hasMore,
+            approximateTotal: responseSummary.approximateTotal,
+            exactTotal: responseSummary.exactTotal,
+          });
+        } else {
+          responseSummary.exactTotal = totalRows || displayRows.length;
+
+          logger.info("??? Pagination Result (All Rows)", {
+            exactTotal: responseSummary.exactTotal,
+            hasMore: responseSummary.hasMore,
+          });
+        }
+
+        tracker.setStatus("execute", "done");
+        tracker.addStep({ id: "summarize", label: "Summarize results", status: "running" });
+
+        // Build structured table data for side panel display
+        const tableData = this._buildTableDataResponse({
+          tableName: targetTable,
+          resultSummary: responseSummary,
+          execResult: { rows: displayRows, dbType: normalizedDbType },
+          query,
+          hasMore: responseSummary.hasMore,
+          approximateTotal: responseSummary.approximateTotal,
+          exactTotal: responseSummary.exactTotal,
+          columnsOverride: this._getColumnsForTable(tableInfoList, targetTable),
+          allowEmpty: true,
+        });
+
+        logger.info("📦 TABLE DATA CREATED (simple_select)", {
+          hasTableData: !!tableData,
+          tableName: tableData?.tableName,
+          rowCount: tableData?.rows?.length,
+          columnCount: tableData?.columns?.length,
+        });
+
+        const responseText = this._buildDeterministicResponse({
+          tableName: targetTable,
+          resultSummary: responseSummary,
+          executionError: null,
+          query,
+        });
+        const followUps = this._buildFollowUpSuggestions({
+          intentType: intent.type,
+          tableName: targetTable,
+          resultSummary: responseSummary,
+          dbType: normalizedDbType,
+          query,
+        });
+        const finalResponse = this._appendFollowUps(responseText, followUps);
+        tracker.setStatus("summarize", "done");
+
+        const totalTime = Date.now() - startedAt;
+        logger.info(`✅ Chat generate used simple select (${totalTime}ms)`, {
+          requestId,
+          durationMs: totalTime,
+          query,
+          table: targetTable,
+        });
+
+        logger.info("🚀 RETURNING FROM ENRICH QUERY", {
+          hasTableData: !!tableData,
+          tableName: tableData?.tableName,
+          rowCount: tableData?.rows?.length,
+          columnCount: tableData?.columns?.length,
+        });
+
+        return {
+          queryId: null,
+          query,
+          responseText: finalResponse,
+          queryAnalysis: analysis,
+          resultSummary: responseSummary,
+          executionError: null,
+          steps: this._sanitizeSteps(tracker.list()),
+          tableData, // NEW: Structured data for side panel display
+        };
+      } catch (error) {
+        const errorMessage = this._resolveExecutionError(error);
+        tracker.setStatus("execute", "failed", errorMessage);
+        logger.error("Simple select execution failed", {
+          requestId,
+          query,
+          error: errorMessage,
+        });
+        return {
+          queryId: null,
+          query,
+          responseText: errorMessage,
+          queryAnalysis: analysis,
+          resultSummary: null,
+          executionError: errorMessage,
+          steps: this._sanitizeSteps(tracker.list()),
+        };
       }
-
-      tracker.setStatus("execute", "done");
-      tracker.addStep({ id: "summarize", label: "Summarize results", status: "running" });
-
-      // Build structured table data for side panel display
-      const tableData = this._buildTableDataResponse({
-        tableName: targetTable,
-        resultSummary,
-        execResult: execResult?.result || execResult,
-        query,
-        hasMore: resultSummary.hasMore,
-        approximateTotal: resultSummary.approximateTotal,
-        exactTotal: resultSummary.exactTotal,
-      });
-
-      logger.info("📦 TABLE DATA CREATED (simple_select)", {
-        hasTableData: !!tableData,
-        tableName: tableData?.tableName,
-        rowCount: tableData?.rows?.length,
-        columnCount: tableData?.columns?.length,
-      });
-
-      const responseText = this._buildDeterministicResponse({
-        tableName: targetTable,
-        resultSummary,
-        executionError: null,
-      });
-      tracker.setStatus("summarize", "done");
-
-      const totalTime = Date.now() - startedAt;
-      logger.info(`✅ Chat generate used simple select (${totalTime}ms)`, {
-        requestId,
-        durationMs: totalTime,
-        query,
-        table: targetTable,
-      });
-
-      logger.info("🚀 RETURNING FROM ENRICH QUERY", {
-        hasTableData: !!tableData,
-        tableName: tableData?.tableName,
-        rowCount: tableData?.rows?.length,
-        columnCount: tableData?.columns?.length,
-      });
-
-      return {
-        queryId: null,
-        query,
-        responseText,
-        queryAnalysis: analysis,
-        resultSummary,
-        executionError: null,
-        steps: tracker.list(),
-        tableData, // NEW: Structured data for side panel display
-      };
     }
 
-    const dbMeta = this._buildDbMeta(currentDb, tableInfoList);
+    const fallbackLimit = Number.isFinite(Number(pageSize))
+      ? Number(pageSize)
+      : CHAT_DEFAULT_PAGE_SIZE;
+    const targetTable = intent.tableName || selectedTables[0] || null;
+
+    if ((intent.type === "aggregation_query" || this._looksLikeCount(prompt)) && targetTable) {
+      tracker.addStep({ id: "generate", label: "Generate aggregation query", status: "done" });
+      const countQuery = this._buildCountQuery(normalizedDbType, targetTable);
+
+      const direct = await this._executeDeterministicSql({
+        connectionId,
+        dbName: currentDb,
+        dbType: normalizedDbType,
+        query: countQuery,
+        tableName: targetTable,
+        analysis,
+        tracker,
+      });
+      return direct;
+    }
+
+    if (intent.type === "join_query") {
+      const joinQuery = this._buildJoinQuery({
+        dbType: normalizedDbType,
+        tables: selectedTables,
+        tableInfoList,
+        limit: this._extractLimitFromPrompt(prompt) || fallbackLimit,
+      });
+      if (joinQuery) {
+        tracker.addStep({ id: "generate", label: "Generate JOIN query", status: "done" });
+        const direct = await this._executeDeterministicSql({
+          connectionId,
+          dbName: currentDb,
+          dbType: normalizedDbType,
+          query: joinQuery,
+          tableName: targetTable || "result",
+          analysis,
+          tracker,
+        });
+        return direct;
+      }
+    }
+
+    if (intent.type === "ddl_query") {
+      const writeQuery = this._buildSimpleWriteQuery(prompt);
+      if (writeQuery) {
+        tracker.addStep({ id: "generate", label: "Generate write query", status: "done" });
+        const writeTable = this._extractFirstTableFromSql(writeQuery);
+        if (!clarificationContext?.answer) {
+          tracker.addStep({ id: "clarify", label: "Confirm write", status: "pending" });
+          tracker.setStatus("clarify", "pending", "Awaiting confirmation to execute write.");
+          return {
+            queryId: null,
+            query: "",
+            responseText: null,
+            clarificationQuestion:
+              'This request will modify data. Reply "yes" to proceed or specify changes.',
+            queryAnalysis: analysis,
+            resultSummary: null,
+            executionError: null,
+            steps: this._sanitizeSteps(tracker.list()),
+          };
+        }
+
+        if (!this._isAffirmativeAnswer(clarificationContext.answer)) {
+          return {
+            queryId: null,
+            query: "",
+            responseText:
+              "Okay, I won't run that write operation. Tell me what changes you'd like.",
+            queryAnalysis: analysis,
+            resultSummary: null,
+            executionError: null,
+            steps: this._sanitizeSteps(tracker.list()),
+          };
+        }
+
+        const direct = await this._executeDeterministicSql({
+          connectionId,
+          dbName: currentDb,
+          dbType: normalizedDbType,
+          query: writeQuery,
+          tableName: writeTable || targetTable || "result",
+          analysis,
+          tracker,
+        });
+        return direct;
+      }
+    }
+
+    const packedTableInfoList = this._packTableInfoList(
+      tableInfoList,
+      CHAT_CONTEXT_MAX_TABLES,
+      CHAT_CONTEXT_MAX_COLUMNS,
+    );
+    const dbMeta = this._buildDbMeta(currentDb, packedTableInfoList);
 
     tracker.addStep({ id: "generate", label: "Generate query draft", status: "running" });
     let query;
-    let strategyUsed = null;
     try {
-      // Use QueryOrchestrator for strategy-based execution if enrichment context available
-      if (enrichedContext && enrichedContext.complexity !== "simple") {
+      // Use QueryOrchestrator for strategy-based execution when RAG or decomposition is selected
+      const shouldUseOrchestrator =
+        enrichedContext &&
+        (enrichedContext.complexity !== "simple" ||
+          enrichedContext.selectedStrategy === "RAGEnhancedStrategy" ||
+          enrichedContext.selectedStrategy === "DecompositionStrategy");
+      if (shouldUseOrchestrator) {
         logger.debug("Using QueryOrchestrator for query generation", {
           strategy: enrichedContext.selectedStrategy,
           complexity: enrichedContext.complexity,
@@ -1029,10 +1648,8 @@ class ChatService {
         });
 
         query = orchestratorResult.query;
-        strategyUsed = orchestratorResult.strategy;
-
         // Add strategy info to tracker
-        tracker.setStatus("generate", "done", `Strategy: ${strategyUsed}`);
+        tracker.setStatus("generate", "done", "Query draft ready");
       } else {
         // Fallback to direct LLM call for simple queries
         query = await llmService.generateSQLQuery(
@@ -1041,6 +1658,12 @@ class ChatService {
           this._buildPromptWithClarification(prompt, clarificationContext),
           normalizedDbType,
           selectedTables,
+          {
+            timeoutMs: llmBudget.nextTimeout(llmService.requestTimeoutMs || CHAT_LLM_BUDGET_MS),
+            retryOnTimeout: true,
+            maxRetries: 1,
+            promptCharLimit: 800,
+          },
         );
         tracker.setStatus("generate", "done");
       }
@@ -1051,14 +1674,58 @@ class ChatService {
     } catch (error) {
       tracker.setStatus("generate", "failed", error?.message || "Query generation failed");
       logger.error("Query generation failed", { requestId, error: error?.message || error });
-      throw error;
+      return {
+        queryId: null,
+        query: "",
+        responseText:
+          "I couldn't generate a valid query for that request. Please provide the exact SQL or clarify the columns and table.",
+        queryAnalysis: analysis,
+        resultSummary: null,
+        executionError: error?.message || "Query generation failed",
+        steps: this._sanitizeSteps(tracker.list()),
+      };
+    }
+
+    if (this._isWriteSql(query)) {
+      if (!clarificationContext?.answer) {
+        tracker.addStep({ id: "clarify", label: "Confirm write", status: "pending" });
+        tracker.setStatus("clarify", "pending", "Awaiting confirmation to execute write.");
+        return {
+          queryId: null,
+          query,
+          responseText: null,
+          clarificationQuestion:
+            'This query will modify data. Reply "yes" to proceed or provide changes.',
+          queryAnalysis: analysis,
+          resultSummary: null,
+          executionError: null,
+          steps: this._sanitizeSteps(tracker.list()),
+        };
+      }
+
+      if (!this._isAffirmativeAnswer(clarificationContext.answer)) {
+        return {
+          queryId: null,
+          query: "",
+          responseText:
+            "Okay, I won't run that write operation. Let me know what you'd like instead.",
+          queryAnalysis: analysis,
+          resultSummary: null,
+          executionError: null,
+          steps: this._sanitizeSteps(tracker.list()),
+        };
+      }
     }
 
     tracker.addStep({ id: "execute", label: "Execute query", status: "running" });
     let execResult;
     try {
       await this.mcpRunner.run("switch_database", { connectionId, dbName: currentDb });
-      execResult = await this.mcpRunner.run("execute_query", { connectionId, query });
+      const normalizedQuery = this._normalizeMySqlQuery(normalizedDbType, query);
+      execResult = await this.mcpRunner.run("execute_query", {
+        connectionId,
+        query: normalizedQuery,
+      });
       const resultSummary = this._summarizeResult(execResult?.result || execResult);
       tracker.setStatus(
         "execute",
@@ -1077,6 +1744,14 @@ class ChatService {
         executionError: null,
         requestId,
       });
+      const followUps = this._buildFollowUpSuggestions({
+        intentType: intent.type,
+        tableName: intent.tableName || selectedTables[0] || "result",
+        resultSummary,
+        dbType: normalizedDbType,
+        query,
+      });
+      const finalResponse = this._appendFollowUps(responseText, followUps);
       tracker.setStatus("summarize", "done");
 
       logger.info("Chat generate completed", {
@@ -1098,26 +1773,42 @@ class ChatService {
       return {
         queryId: this._createId(),
         query,
-        responseText,
+        responseText: finalResponse,
         queryAnalysis: analysis,
         resultSummary,
         executionError: null,
-        steps: tracker.list(),
+        steps: this._sanitizeSteps(tracker.list()),
         tableData, // NEW: Structured data for side panel display
       };
     } catch (error) {
-      tracker.setStatus("execute", "failed", error?.message || "Query execution failed");
+      const errorMessage = this._resolveExecutionError(error);
+      tracker.setStatus("execute", "failed", errorMessage);
       logger.error("Query execution failed", {
         requestId,
         query,
-        error: error?.message || error,
+        error: errorMessage,
         stack: error?.stack,
       });
-      throw error;
+      return {
+        queryId: null,
+        query,
+        responseText: errorMessage,
+        queryAnalysis: analysis,
+        resultSummary: null,
+        executionError: errorMessage,
+        steps: this._sanitizeSteps(tracker.list()),
+      };
     }
   }
 
-  async _planSteps({ prompt, dbType, dbName, clarificationContext, enrichedContext } = {}) {
+  async _planSteps({
+    prompt,
+    dbType,
+    dbName,
+    clarificationContext,
+    enrichedContext,
+    timeoutMs,
+  } = {}) {
     const normalized = String(dbType || "").toLowerCase();
     const dbCategory = this.sqlDbTypes.has(normalized)
       ? "SQL"
@@ -1192,6 +1883,22 @@ class ChatService {
         : null,
     };
 
+    const effectiveTimeout = Number.isFinite(timeoutMs) ? timeoutMs : CHAT_PLAN_TIMEOUT_MS;
+    if (effectiveTimeout <= CHAT_MIN_LLM_TIMEOUT_MS) {
+      logger.warn("Planning skipped due to timeout budget");
+      return {
+        needsClarification: false,
+        clarificationQuestion: null,
+        steps: enrichedContext?.plannedSteps?.length
+          ? enrichedContext.plannedSteps.map((s) => ({
+              id: s.id,
+              label: s.label,
+              reasoning: `Confidence: ${s.confidence || 0.5}`,
+            }))
+          : DEFAULT_STEP_DEFS,
+      };
+    }
+
     try {
       const response = await llmService.callWithTimeout(
         [
@@ -1201,7 +1908,7 @@ class ChatService {
             content: `Plan steps for this database query:\n${JSON.stringify(payload, null, 2)}`,
           },
         ],
-        8000,
+        effectiveTimeout,
         "Planning timed out.",
       );
 
@@ -1354,7 +2061,48 @@ class ChatService {
     return {
       name: tableName,
       columns: this._normalizeColumns(columns),
+      sampleRows: Array.isArray(info?.sampleRows) ? info.sampleRows : [],
     };
+  }
+
+  _getColumnsForTable(tableInfoList, tableName) {
+    if (!tableName || !Array.isArray(tableInfoList)) {
+      return [];
+    }
+    const target = String(tableName).toLowerCase();
+    for (const entry of tableInfoList) {
+      const info = entry?.tableInfo || entry;
+      const name = String(
+        info?.table_name || info?.tableName || info?.name || info?.table || "",
+      ).toLowerCase();
+      if (!name || name !== target) continue;
+      const cols = Array.isArray(info?.columns) ? info.columns : [];
+      return cols
+        .map((col) => col.column_name ?? col.name ?? null)
+        .filter((col) => typeof col === "string" && col.length > 0);
+    }
+    return [];
+  }
+
+  _extractTableMention(prompt, tableNames) {
+    if (!prompt || !Array.isArray(tableNames) || tableNames.length === 0) {
+      return null;
+    }
+    const text = String(prompt).toLowerCase();
+    for (const name of tableNames) {
+      if (!name) continue;
+      const table = String(name).toLowerCase();
+      const pattern = new RegExp(`\\b${table}\\b`, "i");
+      if (pattern.test(text)) {
+        return name;
+      }
+    }
+    return null;
+  }
+
+  _shouldUseLastTable(prompt) {
+    const text = String(prompt || "").toLowerCase();
+    return /\b(now|again|same|it|that|those|all data|all rows|get all|show all)\b/.test(text);
   }
 
   _normalizeColumns(columns) {
@@ -1371,6 +2119,63 @@ class ChatService {
     }));
   }
 
+  _extractRowsFromResult(result) {
+    if (!result || typeof result !== "object") {
+      return [];
+    }
+
+    if (Array.isArray(result.rows)) {
+      return result.rows;
+    }
+    if (Array.isArray(result.result?.rows)) {
+      return result.result.rows;
+    }
+    if (Array.isArray(result.documents)) {
+      return result.documents;
+    }
+    if (Array.isArray(result.result?.documents)) {
+      return result.result.documents;
+    }
+    if (Array.isArray(result.keys)) {
+      const values = Array.isArray(result.values) ? result.values : [];
+      return result.keys.map((key, idx) => ({
+        key,
+        value: values[idx],
+      }));
+    }
+    if (result.key !== undefined) {
+      return [
+        {
+          key: result.key,
+          value: result.value,
+        },
+      ];
+    }
+    if (result.value !== undefined) {
+      return [{ value: result.value }];
+    }
+
+    const queries = Array.isArray(result.queries)
+      ? result.queries
+      : Array.isArray(result.result?.queries)
+        ? result.result.queries
+        : null;
+    if (Array.isArray(queries) && queries.length > 0) {
+      const firstWithRows =
+        queries.find((entry) => Array.isArray(entry?.rows)) ||
+        queries.find((entry) => Array.isArray(entry?.results?.rows)) ||
+        queries[0];
+      if (Array.isArray(firstWithRows?.rows)) {
+        return firstWithRows.rows;
+      }
+      if (Array.isArray(firstWithRows?.results?.rows)) {
+        return firstWithRows.results.rows;
+      }
+    }
+
+    return [];
+  }
+
   _summarizeResult(result) {
     if (!result || typeof result !== "object") {
       return null;
@@ -1378,22 +2183,52 @@ class ChatService {
 
     let rows = [];
     let totalRows = null;
+    let affectedRows = null;
+    if (typeof result.affectedRows === "number") {
+      affectedRows = result.affectedRows;
+    } else if (typeof result.rowCount === "number") {
+      affectedRows = result.rowCount;
+    } else if (typeof result.rowsAffected === "number") {
+      affectedRows = result.rowsAffected;
+    } else if (typeof result?.stats?.affectedRows === "number") {
+      affectedRows = result.stats.affectedRows;
+    }
     if (Array.isArray(result.rows)) {
       rows = result.rows;
       totalRows = typeof result.totalRows === "number" ? result.totalRows : null;
+    } else if (Array.isArray(result.documents)) {
+      rows = result.documents;
+      totalRows = typeof result.totalRows === "number" ? result.totalRows : null;
+    } else if (Array.isArray(result.keys)) {
+      const values = Array.isArray(result.values) ? result.values : [];
+      rows = result.keys.map((key, idx) => ({
+        key,
+        value: values[idx],
+      }));
+      totalRows = rows.length;
     } else if (Array.isArray(result.queries)) {
       const firstWithRows =
-        result.queries.find((entry) => Array.isArray(entry?.rows)) || result.queries[0];
-      rows = Array.isArray(firstWithRows?.rows) ? firstWithRows.rows : [];
+        result.queries.find((entry) => Array.isArray(entry?.rows)) ||
+        result.queries.find((entry) => Array.isArray(entry?.documents)) ||
+        result.queries[0];
+      if (Array.isArray(firstWithRows?.rows)) {
+        rows = firstWithRows.rows;
+      } else if (Array.isArray(firstWithRows?.documents)) {
+        rows = firstWithRows.documents;
+      } else {
+        rows = [];
+      }
       totalRows = typeof firstWithRows?.totalRows === "number" ? firstWithRows.totalRows : null;
     }
     const sampleRows = rows.slice(0, Math.min(rows.length, 5));
     const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
     return {
-      rowCount: typeof totalRows === "number" ? totalRows : rows.length,
+      rowCount: rows.length,
+      totalRows,
       columns,
       sampleRows,
+      affectedRows,
     };
   }
 
@@ -1409,6 +2244,9 @@ class ChatService {
     hasMore,
     approximateTotal,
     exactTotal,
+    rowsOverride,
+    columnsOverride,
+    allowEmpty,
   }) {
     logger.info("🔧 BUILD TABLE DATA RESPONSE", {
       hasResultSummary: !!resultSummary,
@@ -1418,35 +2256,42 @@ class ChatService {
       sampleRowsLength: resultSummary?.sampleRows?.length,
     });
 
-    if (!resultSummary || !resultSummary.rowCount) {
+    if (!resultSummary || (!resultSummary.rowCount && !allowEmpty)) {
       logger.warn("⚠️ NO DATA TO DISPLAY - returning null", { resultSummary });
       return null; // No data to display
     }
 
     // Extract raw rows from execution result
-    // Try multiple possible locations for row data
-    // execResult structure: { connectionId, result: { queries: [{ results: { rows } }] } }
-    const rowsFromQuery = execResult?.result?.queries?.[0]?.results?.rows;
     const rows =
-      execResult?.rows ||
-      execResult?.result?.rows ||
-      rowsFromQuery ||
+      (Array.isArray(rowsOverride) ? rowsOverride : null) ||
+      this._extractRowsFromResult(execResult) ||
       resultSummary.sampleRows ||
       [];
 
+    const usedOverride = Array.isArray(rowsOverride);
+    const usedSampleRows = rows === resultSummary.sampleRows;
+    const usedExecResult = !usedOverride && !usedSampleRows;
+
     logger.info("📊 EXTRACTED ROWS", {
       rowCount: rows.length,
-      fromExecResult: !!(execResult?.rows || execResult?.result?.rows),
-      fromQueryResults: !!rowsFromQuery,
-      fromSampleRows: rows === resultSummary.sampleRows,
+      fromExecResult: usedExecResult,
+      fromOverride: usedOverride,
+      fromSampleRows: usedSampleRows,
       firstRowKeys: rows[0] ? Object.keys(rows[0]) : [],
     });
 
     // Get column information
-    const columns = resultSummary.columns || [];
+    const columns =
+      Array.isArray(columnsOverride) && columnsOverride.length > 0
+        ? columnsOverride
+        : resultSummary?.columns?.length > 0
+          ? resultSummary.columns
+          : rows.length > 0
+            ? Object.keys(rows[0])
+            : [];
 
     // Detect database type to determine display format
-    const dbType = execResult?.dbType || "sql";
+    const dbType = execResult?.dbType || execResult?.result?.dbType || "sql";
     const nosqlDatabases = ["mongodb", "redis", "cassandra", "dynamodb", "couchdb", "cosmosdb"];
     const isNoSQL = nosqlDatabases.some((db) => dbType.toLowerCase().includes(db));
     const displayType = isNoSQL ? "json" : "table";
@@ -1476,14 +2321,14 @@ class ChatService {
     // Build pagination info
     const paginationInfo = {
       currentPage: 1,
-      pageSize: resultSummary.rowCount,
-      totalRows: exactTotal || approximateTotal || null,
+      pageSize: rows.length,
+      totalRows: exactTotal || approximateTotal || resultSummary?.totalRows || null,
       hasMore,
       isApproximate: approximateTotal !== null && exactTotal === null,
     };
 
     // If no rows were extracted, return null
-    if (rows.length === 0) {
+    if (rows.length === 0 && !allowEmpty) {
       logger.warn("⚠️ NO ROWS EXTRACTED - returning null", {
         hadExecResult: !!execResult,
         hadSampleRows: !!resultSummary.sampleRows,
@@ -1506,6 +2351,7 @@ class ChatService {
         _index: index,
         ...row,
       })),
+      totalRows: exactTotal || approximateTotal || resultSummary?.totalRows || rows.length,
       pagination: paginationInfo,
       metadata: {
         rowCount: resultSummary.rowCount,
@@ -1613,19 +2459,42 @@ class ChatService {
     }
   }
 
-  _buildDeterministicResponse({ tableName, resultSummary, executionError }) {
+  _buildDeterministicResponse({ tableName, resultSummary, executionError, query }) {
     if (executionError) {
       return executionError;
     }
     if (!resultSummary) {
       return `I ran the query for ${tableName}, but couldn't summarize the results.`;
     }
+
+    const isWrite =
+      typeof query === "string" &&
+      /^\s*(insert|update|delete|create|alter|drop|truncate)\b/i.test(query);
+    if (isWrite) {
+      const affected =
+        typeof resultSummary.affectedRows === "number"
+          ? resultSummary.affectedRows
+          : typeof resultSummary.rowCount === "number"
+            ? resultSummary.rowCount
+            : null;
+      if (typeof affected === "number" && affected > 0) {
+        return `Query executed successfully (${affected} rows affected).`;
+      }
+      return `Query executed successfully${tableName ? ` on ${tableName}` : ""}.`;
+    }
+
     if (!resultSummary.rowCount) {
       return `No rows found in ${tableName}.`;
     }
 
     // Build pagination-aware count message using LIMIT+1 detection
     const fetchedCount = resultSummary.rowCount;
+    const exactTotal =
+      typeof resultSummary.exactTotal === "number"
+        ? resultSummary.exactTotal
+        : typeof resultSummary.totalRows === "number"
+          ? resultSummary.totalRows
+          : null;
     let countMessage;
 
     logger.info("💬 Building Response Message", {
@@ -1636,17 +2505,16 @@ class ChatService {
     });
 
     if (resultSummary.hasMore) {
-      // More rows available - show approximate total if available
-      if (resultSummary.approximateTotal && resultSummary.approximateTotal > fetchedCount) {
+      if (exactTotal && exactTotal > fetchedCount) {
+        countMessage = `I fetched ${fetchedCount} rows from ${tableName} (${exactTotal} total rows).`;
+      } else if (resultSummary.approximateTotal && resultSummary.approximateTotal > fetchedCount) {
         countMessage = `I fetched ${fetchedCount} rows from ${tableName} (~${resultSummary.approximateTotal} total rows available).`;
       } else {
         countMessage = `I fetched ${fetchedCount} rows from ${tableName} (more rows available).`;
       }
-    } else if (resultSummary.exactTotal !== undefined) {
-      // All rows fetched
-      countMessage = `I fetched all ${fetchedCount} rows from ${tableName}.`;
+    } else if (exactTotal !== null) {
+      countMessage = `I fetched all ${exactTotal} rows from ${tableName}.`;
     } else {
-      // No pagination detection (shouldn't happen with new logic)
       countMessage = `I fetched ${fetchedCount} rows from ${tableName}.`;
     }
 
@@ -1654,10 +2522,65 @@ class ChatService {
       resultSummary.columns && resultSummary.columns.length
         ? ` Columns: ${resultSummary.columns.join(", ")}.`
         : "";
-    const samples = resultSummary.sampleRows || [];
-    const preview = this._formatRowPreview(samples);
-    const previewLine = preview ? ` Showing ${samples.length} sample rows: ${preview}.` : "";
-    return `${countMessage}${columns}${previewLine}`;
+    return `${countMessage}${columns}`;
+  }
+
+  _buildFollowUpSuggestions({
+    intentType,
+    tableName,
+    resultSummary,
+    dbType,
+    query,
+    availableTables,
+  }) {
+    if (!CHAT_FOLLOWUP_ENABLED) return [];
+    const suggestions = [];
+    const safeTable = tableName || "the table";
+    const rowCount = Number.isFinite(resultSummary?.rowCount) ? resultSummary.rowCount : null;
+    const isWrite = intentType === "ddl_query" || this._isWriteSql(query);
+    const normalizedDbType = String(dbType || "").toLowerCase();
+
+    if (intentType === "list_tables") {
+      if (Array.isArray(availableTables) && availableTables.length) {
+        suggestions.push("Pick a table to preview columns.");
+      }
+      suggestions.push("Ask for a sample row from a specific table.");
+      return suggestions.slice(0, CHAT_FOLLOWUP_MAX);
+    }
+
+    if (isWrite) {
+      suggestions.push(`Verify changes by selecting recent rows in ${safeTable}.`);
+      suggestions.push("Check how many rows were affected.");
+      suggestions.push("I can help update or delete specific records.");
+      return suggestions.slice(0, CHAT_FOLLOWUP_MAX);
+    }
+
+    if (rowCount === 0) {
+      suggestions.push(`Check filters or try a smaller sample from ${safeTable}.`);
+      suggestions.push(`List columns for ${safeTable} to refine the query.`);
+      return suggestions.slice(0, CHAT_FOLLOWUP_MAX);
+    }
+
+    if (rowCount !== null) {
+      suggestions.push(`Get a total count for ${safeTable}.`);
+      if (this.sqlDbTypes.has(normalizedDbType)) {
+        suggestions.push("Add filters (date, status) to narrow results.");
+        suggestions.push("Sort by a column to see top results.");
+      } else {
+        suggestions.push("Filter by a field value to narrow results.");
+      }
+    }
+
+    return suggestions.slice(0, CHAT_FOLLOWUP_MAX);
+  }
+
+  _appendFollowUps(responseText, suggestions) {
+    if (!CHAT_FOLLOWUP_ENABLED) return responseText;
+    if (!responseText) return responseText;
+    if (!Array.isArray(suggestions) || suggestions.length === 0) return responseText;
+    const suffix = suggestions.join(" ");
+    const spacer = responseText.endsWith(".") ? " " : ". ";
+    return `${responseText}${spacer}Next steps: ${suffix}`;
   }
 
   _formatTableListResponse(tableNames) {
@@ -1679,6 +2602,885 @@ class ChatService {
     const maxRows = 3;
     const previewRows = rows.slice(0, maxRows).map((row) => this._safeRowToString(row));
     return previewRows.join(" | ");
+  }
+
+  _shouldFetchAllRows(prompt) {
+    const text = String(prompt || "").toLowerCase();
+    return /\b(all|entire|everything|every|full|complete)\b/.test(text);
+  }
+
+  _formatStrategyLabel(strategyName) {
+    const map = {
+      DirectSQLStrategy: "Direct SQL",
+      RAGEnhancedStrategy: "RAG Enhanced",
+      DecompositionStrategy: "Decompose & Query",
+      ExplanationStrategy: "Explain",
+      SuggestionStrategy: "Suggest alternatives",
+    };
+    return map[strategyName] || strategyName || "Strategy";
+  }
+
+  _formatStepLabel(step) {
+    const map = {
+      enrich: "Analyze request",
+      plan: "Plan steps",
+      schema: "Fetch schema",
+      rag: "Find relevant tables",
+      generate: "Write query",
+      execute: "Run query",
+      summarize: "Summarize results",
+      clarify: "Clarify question",
+      explain: "Explain response",
+      suggest: "Suggest options",
+      analyze: "Analyze request",
+    };
+    if (step?.label && step.label !== step.id) {
+      return step.label;
+    }
+    if (step?.id && map[step.id]) {
+      return map[step.id];
+    }
+    return step?.label || step?.id || "Step";
+  }
+
+  _resolveDatabaseName({ dbType, dbName, connectionInfo } = {}) {
+    let currentDb =
+      dbName || connectionInfo?.currentDatabase || connectionInfo?.config?.database || null;
+    const normalized = String(dbType || "").toLowerCase();
+    if (normalized !== "oracledb") {
+      return currentDb;
+    }
+    const serviceName = connectionInfo?.config?.database || null;
+    const username = connectionInfo?.config?.username || null;
+    if (!currentDb || (serviceName && currentDb === serviceName)) {
+      currentDb = username || currentDb;
+    }
+    return currentDb;
+  }
+
+  _resolveExecutionError(error) {
+    if (!error) return "Query execution failed.";
+    if (typeof error === "string") return error;
+    return (
+      error?.response?.data?.error ||
+      error?.response?.data?.message ||
+      error?.cause?.message ||
+      error?.message ||
+      "Query execution failed."
+    );
+  }
+
+  _tryParseJsonPrompt(prompt) {
+    if (!prompt || typeof prompt !== "string") return null;
+    const trimmed = prompt.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+
+  _isRawSqlPrompt(prompt) {
+    if (!prompt || typeof prompt !== "string") return false;
+    const text = prompt.trim();
+    if (!text) return false;
+    const lower = text.toLowerCase();
+
+    if (/^(select|with)\b/.test(lower)) return true;
+
+    if (/^insert\b/.test(lower)) {
+      return (
+        /\binsert\s+into\b/.test(lower) && (/\bvalues\b/.test(lower) || /\bselect\b/.test(lower))
+      );
+    }
+
+    if (/^update\b/.test(lower)) {
+      return /\bupdate\s+[\w.]+\s+set\b/.test(lower);
+    }
+
+    if (/^delete\b/.test(lower)) {
+      return /\bdelete\s+from\b/.test(lower);
+    }
+
+    if (/^create\b/.test(lower)) {
+      if (/\bcreate\s+table\b/.test(lower)) {
+        return /\(/.test(lower) || /\bas\s+select\b/.test(lower);
+      }
+      if (/\bcreate\s+index\b/.test(lower)) {
+        return /\bon\b/.test(lower);
+      }
+      if (/\bcreate\s+(view|schema|database)\b/.test(lower)) {
+        return true;
+      }
+      return false;
+    }
+
+    if (/^alter\b/.test(lower)) {
+      return /\balter\s+table\b/.test(lower);
+    }
+
+    if (/^drop\b/.test(lower)) {
+      return /\bdrop\s+(table|index|view|schema|database)\b/.test(lower);
+    }
+
+    if (/^truncate\b/.test(lower)) {
+      return /\btruncate\s+table\b/.test(lower);
+    }
+
+    if (/^show\b/.test(lower)) {
+      return /^(show\s+(tables|databases|columns|index|indexes|create))\b/.test(lower);
+    }
+
+    if (/^describe\b/.test(lower)) {
+      return /^describe\s+\w+/.test(lower);
+    }
+
+    if (/^explain\b/.test(lower)) {
+      return /^explain\s+\w+/.test(lower);
+    }
+
+    return false;
+  }
+
+  _extractFirstTableFromSql(sql) {
+    if (!sql || typeof sql !== "string") return null;
+    const m = sql.match(/\b(from|join|into|update|table)\s+([`"'[\]]?[\w.]+[`"'[\]]?)/i);
+    if (!m || !m[2]) return null;
+    return m[2].replace(/^[`"'[\]]+|[`"'[\]]+$/g, "");
+  }
+
+  _extractLimitFromPrompt(prompt) {
+    if (!prompt || typeof prompt !== "string") return null;
+    const text = prompt.toLowerCase();
+    const match =
+      text.match(/\b(?:limit|top|first)\s+(\d+)\b/) ||
+      text.match(/\b(?:show|list|get|fetch|display)\s+(\d+)\s+(?:rows|items|records)?\b/) ||
+      text.match(/\b(\d+)\s+(?:rows|items|records)\b/);
+    if (!match) return null;
+    const value = parseInt(match[1], 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  _extractRowCountFromPrompt(prompt, fallback = CHAT_DUMMY_ROW_COUNT) {
+    if (!prompt || typeof prompt !== "string") return fallback;
+    const text = prompt.toLowerCase();
+    const match =
+      text.match(/\b(?:add|insert|seed|populate)\s+(\d+)\s+(?:rows|records|items)\b/) ||
+      text.match(/\b(\d+)\s+(?:rows|records|items)\b/);
+    if (!match) return fallback;
+    const value = parseInt(match[1], 10);
+    if (!Number.isFinite(value) || value <= 0) return fallback;
+    return Math.min(value, CHAT_DUMMY_MAX_ROWS);
+  }
+
+  _isDummyDataRequest(prompt) {
+    const text = String(prompt || "").toLowerCase();
+    return (
+      /\b(dummy|sample|fake|test)\s+data\b/.test(text) ||
+      /\b(seed|populate|bootstrap)\b/.test(text) ||
+      /\b(add|insert)\s+dummy\s+data\b/.test(text)
+    );
+  }
+
+  _isAffirmativeAnswer(answer) {
+    const text = String(answer || "")
+      .trim()
+      .toLowerCase();
+    return /^(y|yes|ok|okay|sure|confirm|proceed|do it)\b/.test(text);
+  }
+
+  _isNegativeAnswer(answer) {
+    const text = String(answer || "")
+      .trim()
+      .toLowerCase();
+    return /^(n|no|nope|stop|cancel|dont|don't)\b/.test(text);
+  }
+
+  _sanitizeIdentifier(identifier) {
+    return String(identifier || "").replace(/[^\w_]/g, "");
+  }
+
+  _sanitizeTableName(name) {
+    return String(name || "")
+      .split(".")
+      .map((part) => this._sanitizeIdentifier(part))
+      .filter(Boolean)
+      .join(".");
+  }
+
+  _applyLimit(dbType, baseQuery, limit) {
+    if (!limit || !baseQuery) return baseQuery;
+    const normalized = String(dbType || "").toLowerCase();
+    if (normalized === "mssql") {
+      return baseQuery.replace(/^\s*select\s+/i, `SELECT TOP (${limit}) `);
+    }
+    if (normalized === "oracledb") {
+      return `${baseQuery} FETCH FIRST ${limit} ROWS ONLY`;
+    }
+    return `${baseQuery} LIMIT ${limit}`;
+  }
+
+  _buildCountQuery(dbType, tableName) {
+    const safeTable = this._sanitizeTableName(tableName);
+    if (!safeTable) return null;
+    return `SELECT COUNT(*) AS count FROM ${safeTable}`;
+  }
+
+  _looksLikeCount(prompt) {
+    const text = String(prompt || "").toLowerCase();
+    return /\b(count|how many|number of|total)\b/.test(text);
+  }
+
+  _buildJoinQuery({ dbType, tables, tableInfoList, limit } = {}) {
+    if (!Array.isArray(tables) || tables.length < 2) return null;
+    const infoByName = new Map();
+    for (const info of tableInfoList || []) {
+      if (info?.table_name) {
+        infoByName.set(String(info.table_name).toLowerCase(), info);
+      }
+    }
+
+    const normalizeName = (name) => String(name || "").toLowerCase();
+
+    const findFkJoin = () => {
+      for (const info of tableInfoList || []) {
+        const tableName = info?.table_name;
+        const foreignKeys = Array.isArray(info?.foreign_keys) ? info.foreign_keys : [];
+        for (const fk of foreignKeys) {
+          if (fk?.column_name && fk?.referenced_table && fk?.referenced_column) {
+            return {
+              leftTable: tableName,
+              leftColumn: fk.column_name,
+              rightTable: fk.referenced_table,
+              rightColumn: fk.referenced_column,
+            };
+          }
+          if (fk?.definition) {
+            const def = String(fk.definition);
+            const m = def.match(
+              /FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+([^\s(]+)\s*\(([^)]+)\)/i,
+            );
+            if (m && m[1] && m[2] && m[3]) {
+              return {
+                leftTable: tableName,
+                leftColumn: m[1].split(",")[0].trim(),
+                rightTable: m[2].replace(/["'`]/g, ""),
+                rightColumn: m[3].split(",")[0].trim(),
+              };
+            }
+          }
+        }
+      }
+      return null;
+    };
+
+    const fkJoin = findFkJoin();
+    if (fkJoin) {
+      const leftTable = this._sanitizeTableName(fkJoin.leftTable);
+      const rightTable = this._sanitizeTableName(fkJoin.rightTable);
+      const leftColumn = this._sanitizeIdentifier(fkJoin.leftColumn);
+      const rightColumn = this._sanitizeIdentifier(fkJoin.rightColumn);
+      if (leftTable && rightTable && leftColumn && rightColumn) {
+        const base = `SELECT * FROM ${leftTable} JOIN ${rightTable} ON ${leftTable}.${leftColumn} = ${rightTable}.${rightColumn}`;
+        return this._applyLimit(dbType, base, limit);
+      }
+    }
+
+    const tableA = tables[0];
+    const tableB = tables[1];
+    const infoA = infoByName.get(normalizeName(tableA));
+    const infoB = infoByName.get(normalizeName(tableB));
+    const colsA = (infoA?.columns || []).map((c) =>
+      String(c.column_name || c.name || "").toLowerCase(),
+    );
+    const colsB = (infoB?.columns || []).map((c) =>
+      String(c.column_name || c.name || "").toLowerCase(),
+    );
+
+    const nameA = normalizeName(tableA);
+    const nameB = normalizeName(tableB);
+    const candidateA = `${nameB}_id`;
+    const candidateB = `${nameA}_id`;
+
+    if (colsA.includes(candidateA) && colsB.includes("id")) {
+      const base = `SELECT * FROM ${this._sanitizeTableName(tableA)} JOIN ${this._sanitizeTableName(tableB)} ON ${this._sanitizeTableName(tableA)}.${this._sanitizeIdentifier(candidateA)} = ${this._sanitizeTableName(tableB)}.id`;
+      return this._applyLimit(dbType, base, limit);
+    }
+
+    if (colsB.includes(candidateB) && colsA.includes("id")) {
+      const base = `SELECT * FROM ${this._sanitizeTableName(tableB)} JOIN ${this._sanitizeTableName(tableA)} ON ${this._sanitizeTableName(tableB)}.${this._sanitizeIdentifier(candidateB)} = ${this._sanitizeTableName(tableA)}.id`;
+      return this._applyLimit(dbType, base, limit);
+    }
+
+    const common = colsA.find((col) => colsB.includes(col) && col.endsWith("_id"));
+    if (common) {
+      const base = `SELECT * FROM ${this._sanitizeTableName(tableA)} JOIN ${this._sanitizeTableName(tableB)} ON ${this._sanitizeTableName(tableA)}.${this._sanitizeIdentifier(common)} = ${this._sanitizeTableName(tableB)}.${this._sanitizeIdentifier(common)}`;
+      return this._applyLimit(dbType, base, limit);
+    }
+
+    return null;
+  }
+
+  _createLlmBudget(totalMs) {
+    const total = Number.isFinite(totalMs) ? totalMs : CHAT_LLM_BUDGET_MS;
+    const startedAt = Date.now();
+    const remainingMs = () => Math.max(0, total - (Date.now() - startedAt));
+    const nextTimeout = (preferredMs) => {
+      const remaining = remainingMs();
+      if (!Number.isFinite(preferredMs)) {
+        return remaining;
+      }
+      return Math.min(preferredMs, remaining);
+    };
+    return { totalMs: total, remainingMs, nextTimeout };
+  }
+
+  async _buildDummyDataInsert({
+    connectionId,
+    dbName,
+    dbType,
+    tableName,
+    tableInfoList,
+    rowCount,
+  } = {}) {
+    const safeTable = this._sanitizeTableName(tableName);
+    if (!safeTable) return null;
+
+    const normalizeName = (name) => String(name || "").toLowerCase();
+    const targetName = normalizeName(safeTable);
+    const infoEntry =
+      (tableInfoList || []).find((entry) => {
+        const info = entry?.tableInfo || entry;
+        const name = info?.table_name || info?.tableName || info?.name || info?.table;
+        return normalizeName(name) === targetName;
+      }) || null;
+
+    const info = infoEntry?.tableInfo || infoEntry;
+    const columnsRaw = Array.isArray(info?.columns) ? info.columns : [];
+    if (columnsRaw.length === 0) return null;
+
+    const columns = columnsRaw
+      .map((col) => ({
+        name: col.column_name ?? col.name ?? null,
+        dataType: col.data_type ?? col.dataType ?? col.type ?? "",
+        isNullable: col.is_nullable ?? col.isNullable ?? null,
+        defaultValue: col.column_default ?? col.default_value ?? col.defaultValue ?? null,
+        extra: col.extra ?? "",
+        isPrimaryKey: col.is_primary_key ?? col.isPrimaryKey ?? col.column_key === "PRI",
+      }))
+      .filter((col) => col.name);
+
+    const insertable = columns.filter((col) => !this._isAutoIncrementColumn(col));
+    const required = insertable.filter((col) => this._isRequiredColumn(col));
+    const selected =
+      required.length > 0 ? required : insertable.slice(0, Math.min(insertable.length, 8));
+
+    if (!selected.length) return null;
+
+    const count = Math.min(
+      Math.max(1, Number.isFinite(rowCount) ? rowCount : CHAT_DUMMY_ROW_COUNT),
+      CHAT_DUMMY_MAX_ROWS,
+    );
+    const fkMap = new Map();
+    const foreignKeys = Array.isArray(info?.foreign_keys) ? info.foreign_keys : [];
+    foreignKeys.forEach((fk) => {
+      if (fk?.column_name && fk?.referenced_table && fk?.referenced_column) {
+        fkMap.set(String(fk.column_name), {
+          table: fk.referenced_table,
+          column: fk.referenced_column,
+        });
+      }
+    });
+
+    const fkValues = {};
+    for (const col of selected) {
+      const fk = fkMap.get(col.name);
+      if (!fk) continue;
+      const value = await this._resolveForeignKeyValue({
+        connectionId,
+        dbName,
+        dbType,
+        referencedTable: fk.table,
+        referencedColumn: fk.column,
+      });
+      if (value === null || value === undefined) {
+        return {
+          reason: `The ${safeTable}.${col.name} column references ${fk.table}.${fk.column}, but no matching rows were found. Please seed ${fk.table} first or provide a valid ${col.name}.`,
+        };
+      }
+      fkValues[col.name] = value;
+    }
+
+    const rows = [];
+    let previewRow = null;
+    for (let i = 0; i < count; i += 1) {
+      const values = selected.map((col) => {
+        if (Object.prototype.hasOwnProperty.call(fkValues, col.name)) {
+          return fkValues[col.name];
+        }
+        return this._dummyValueForColumn(col, i);
+      });
+      if (i === 0) {
+        previewRow = selected.reduce((acc, col, idx) => {
+          acc[col.name] = values[idx];
+          return acc;
+        }, {});
+      }
+      rows.push(`(${values.map((val, idx) => this._sqlValue(val, selected[idx])).join(", ")})`);
+    }
+
+    const columnsSql = selected.map((col) => this._sanitizeIdentifier(col.name)).join(", ");
+    const query = `INSERT INTO ${safeTable} (${columnsSql}) VALUES ${rows.join(", ")}`;
+
+    return {
+      query,
+      tableName: safeTable,
+      columns: selected.map((col) => col.name),
+      rowCount: count,
+      previewRow,
+    };
+  }
+
+  _formatDummyDataConfirmation(dummyPlan) {
+    const tableName = dummyPlan?.tableName || "the table";
+    const count = dummyPlan?.rowCount || CHAT_DUMMY_ROW_COUNT;
+    const columns = Array.isArray(dummyPlan?.columns) ? dummyPlan.columns : [];
+    const preview = dummyPlan?.previewRow ? this._safeRowToString(dummyPlan.previewRow) : null;
+    const columnText = columns.length ? ` Columns: ${columns.join(", ")}.` : "";
+    const previewText = preview ? ` Preview row: ${preview}.` : "";
+    return `I can insert ${count} dummy rows into ${tableName}.${columnText}${previewText} Reply "yes" to proceed or specify a different row count.`;
+  }
+
+  _isAutoIncrementColumn(column) {
+    const extra = String(column?.extra || "").toLowerCase();
+    return extra.includes("auto_increment");
+  }
+
+  _isRequiredColumn(column) {
+    const isNullable = column?.isNullable;
+    const nullable =
+      isNullable === true || isNullable === "YES" || isNullable === "yes" || isNullable === 1;
+    const hasDefault = column?.defaultValue !== null && column?.defaultValue !== undefined;
+    return !nullable && !hasDefault && !this._isAutoIncrementColumn(column);
+  }
+
+  _dummyValueForColumn(column, index) {
+    const name = String(column?.name || "").toLowerCase();
+    const type = String(column?.dataType || "").toLowerCase();
+    const seq = index + 1;
+
+    if (name.includes("email")) {
+      return `user${seq}@example.com`;
+    }
+    if (name.includes("phone")) {
+      return `555-010${seq.toString().padStart(2, "0")}`;
+    }
+    if (name.includes("zip") || name.includes("postal")) {
+      return `1000${seq}`;
+    }
+    if (name.includes("city")) {
+      return "Springfield";
+    }
+    if (name.includes("state")) {
+      return "CA";
+    }
+    if (name.includes("country")) {
+      return "USA";
+    }
+    if (name.includes("street") || name.includes("address")) {
+      return `${100 + seq} Main St`;
+    }
+    if (name.includes("name")) {
+      return `Sample ${name.replace(/_/g, " ")} ${seq}`;
+    }
+    if (name.includes("status")) {
+      return "active";
+    }
+
+    if (type.includes("bool")) {
+      return seq % 2 === 0;
+    }
+    if (type.includes("int") || type.includes("decimal") || type.includes("numeric")) {
+      return seq;
+    }
+    if (type.includes("float") || type.includes("double")) {
+      return Number((seq * 10.5).toFixed(2));
+    }
+    if (type.includes("date") && !type.includes("time")) {
+      return this._formatDate(new Date(Date.now() - index * 86400000));
+    }
+    if (type.includes("timestamp") || type.includes("datetime")) {
+      return this._formatDateTime(new Date(Date.now() - index * 3600000));
+    }
+    if (type.includes("time")) {
+      return "12:00:00";
+    }
+    if (type.includes("json")) {
+      return JSON.stringify({ sample: seq });
+    }
+
+    return `sample_${name || "value"}_${seq}`;
+  }
+
+  async _resolveForeignKeyValue({
+    connectionId,
+    dbName,
+    dbType,
+    referencedTable,
+    referencedColumn,
+  } = {}) {
+    if (!connectionId || !referencedTable || !referencedColumn) {
+      return null;
+    }
+    const rows = await this._getSampleRowsCached({
+      connectionId,
+      dbName,
+      dbType,
+      tableName: referencedTable,
+      limit: 1,
+    });
+    if (!rows.length) {
+      return null;
+    }
+    const row = rows[0];
+    return this._pickColumnValue(row, referencedColumn);
+  }
+
+  _pickColumnValue(row, columnName) {
+    if (!row || !columnName) return null;
+    if (Object.prototype.hasOwnProperty.call(row, columnName)) {
+      return row[columnName];
+    }
+    const lower = String(columnName).toLowerCase();
+    const key = Object.keys(row).find((k) => String(k).toLowerCase() === lower);
+    return key ? row[key] : null;
+  }
+
+  _formatDate(date) {
+    const iso = new Date(date).toISOString();
+    return iso.slice(0, 10);
+  }
+
+  _formatDateTime(date) {
+    const iso = new Date(date).toISOString();
+    return `${iso.slice(0, 10)} ${iso.slice(11, 19)}`;
+  }
+
+  _sqlValue(value, column) {
+    if (value === null || value === undefined) {
+      return "NULL";
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+    if (typeof value === "boolean") {
+      return value ? "1" : "0";
+    }
+    const type = String(column?.dataType || "").toLowerCase();
+    if (type.includes("int") || type.includes("decimal") || type.includes("numeric")) {
+      const num = Number(value);
+      return Number.isFinite(num) ? String(num) : "NULL";
+    }
+    const text = String(value).replace(/'/g, "''");
+    return `'${text}'`;
+  }
+
+  _buildSimpleWriteQuery(prompt) {
+    const rawText = String(prompt || "");
+    const text = rawText.toLowerCase();
+    const createMatch = text.match(
+      /\bcreate\s+(?:a\s+new\s+)?table\s+["'`]?([a-zA-Z0-9_]+)["'`]?\b/,
+    );
+    if (createMatch) {
+      const table = this._sanitizeTableName(createMatch[1]);
+      if (!table) return null;
+      const wantsCustomerLink =
+        /\bcustomer(s)?\b/.test(text) || /\bforeign\s+key\b/.test(text) || /\blink\b/.test(text);
+      const columns = [];
+
+      if (table === "address" || text.includes("address")) {
+        columns.push("id INT PRIMARY KEY");
+        if (wantsCustomerLink) {
+          columns.push("customer_id INT NOT NULL");
+        }
+        columns.push("street VARCHAR(250)");
+        columns.push("city VARCHAR(120)");
+        columns.push("state VARCHAR(80)");
+        columns.push("zip_code VARCHAR(20)");
+        columns.push("country VARCHAR(80)");
+        columns.push("created_at TIMESTAMP");
+        let ddl = `CREATE TABLE ${table} (${columns.join(", ")}`;
+        if (wantsCustomerLink) {
+          ddl += ", FOREIGN KEY (customer_id) REFERENCES customers(id)";
+        }
+        ddl += ")";
+        return ddl;
+      }
+
+      columns.push("id INT PRIMARY KEY");
+      if (wantsCustomerLink) {
+        columns.push("customer_id INT");
+      }
+      columns.push("created_at TIMESTAMP");
+      let ddl = `CREATE TABLE ${table} (${columns.join(", ")}`;
+      if (wantsCustomerLink) {
+        ddl += ", FOREIGN KEY (customer_id) REFERENCES customers(id)";
+      }
+      ddl += ")";
+      return ddl;
+    }
+
+    const dropMatch = text.match(/\bdrop\s+table\s+([a-zA-Z0-9_]+)\b/);
+    if (dropMatch) {
+      const table = this._sanitizeTableName(dropMatch[1]);
+      return table ? `DROP TABLE ${table}` : null;
+    }
+
+    const insertMatch = text.match(
+      /\binsert\s+(?:a\s+row\s+)?into\s+([a-zA-Z0-9_]+).*?\bid\s*(?:=|is)?\s*(\d+)/,
+    );
+    if (insertMatch) {
+      const table = this._sanitizeTableName(insertMatch[1]);
+      const id = parseInt(insertMatch[2], 10);
+      if (!table || !Number.isFinite(id)) return null;
+      return `INSERT INTO ${table} (id) VALUES (${id})`;
+    }
+
+    return null;
+  }
+
+  async _executeDeterministicSql({
+    connectionId,
+    dbName,
+    dbType,
+    query,
+    tableName,
+    analysis,
+    tracker,
+  }) {
+    tracker.addStep({ id: "execute", label: "Execute query", status: "running" });
+    try {
+      await this.mcpRunner.run("switch_database", { connectionId, dbName });
+      const normalizedQuery = this._normalizeMySqlQuery(dbType, query);
+      const execResult = await this.mcpRunner.run("execute_query", {
+        connectionId,
+        query: normalizedQuery,
+      });
+      const resultSummary = this._summarizeResult(execResult?.result || execResult);
+      tracker.setStatus(
+        "execute",
+        "done",
+        resultSummary?.rowCount != null ? `Rows: ${resultSummary.rowCount}` : null,
+      );
+
+      tracker.addStep({ id: "summarize", label: "Summarize results", status: "running" });
+      const safeTable = tableName || this._extractFirstTableFromSql(query) || "result";
+      const tableData = this._buildTableDataResponse({
+        tableName: safeTable,
+        resultSummary,
+        execResult,
+        query,
+        hasMore: false,
+        approximateTotal: null,
+        exactTotal: resultSummary?.rowCount,
+      });
+      const responseText = this._buildDeterministicResponse({
+        tableName: safeTable,
+        resultSummary,
+        executionError: null,
+        query,
+      });
+      const followUps = this._buildFollowUpSuggestions({
+        intentType: analysis?.intent || "simple_select",
+        tableName: safeTable,
+        resultSummary,
+        dbType,
+        query,
+      });
+      const finalResponse = this._appendFollowUps(responseText, followUps);
+      tracker.setStatus("summarize", "done");
+
+      return {
+        queryId: this._createId(),
+        query: normalizedQuery,
+        responseText: finalResponse,
+        queryAnalysis: analysis,
+        resultSummary,
+        executionError: null,
+        steps: this._sanitizeSteps(tracker.list()),
+        tableData,
+      };
+    } catch (error) {
+      const errorMessage = this._resolveExecutionError(error);
+      tracker.setStatus("execute", "failed", errorMessage);
+      return {
+        queryId: null,
+        query,
+        responseText: errorMessage,
+        queryAnalysis: analysis,
+        resultSummary: null,
+        executionError: errorMessage,
+        steps: this._sanitizeSteps(tracker.list()),
+      };
+    }
+  }
+
+  _detectWriteIntent(prompt) {
+    const text = String(prompt || "").toLowerCase();
+    return (
+      /\bcreate\b\s+(?:a\s+new\s+)?table\b/.test(text) ||
+      /\b(alter|drop|truncate)\b\s+table\b/.test(text) ||
+      /\binsert\b\s+(?:a\s+row\s+)?into\b/.test(text) ||
+      /\bupdate\b\s+\w+/.test(text) ||
+      /\bdelete\b\s+from\b/.test(text) ||
+      /\bcreate\b\s+index\b/.test(text) ||
+      /\badd\b\s+column\b/.test(text) ||
+      this._isDummyDataRequest(text)
+    );
+  }
+
+  _isWriteSql(query) {
+    if (!query || typeof query !== "string") return false;
+    return /^\s*(insert|update|delete|create|alter|drop|truncate)\b/i.test(query);
+  }
+
+  _getCapabilitiesForDbType(dbType) {
+    try {
+      const { getCapabilityModel } = require("../config/create-strategy");
+      return getCapabilityModel ? getCapabilityModel(String(dbType || "").toLowerCase()) : null;
+    } catch (error) {
+      logger.debug("Capability lookup failed", { error: error?.message });
+      return null;
+    }
+  }
+
+  _validateIntentCapabilities({ intentType, prompt, dbType, capabilities } = {}) {
+    const caps = capabilities ||
+      this._getCapabilitiesForDbType(dbType) || {
+        type: this.sqlDbTypes.has(String(dbType || "").toLowerCase()) ? "sql" : "unknown",
+        operations: [],
+        features: [],
+        limits: {},
+      };
+    const ops = Array.isArray(caps.operations)
+      ? caps.operations.map((op) => String(op).toLowerCase())
+      : [];
+    const features = Array.isArray(caps.features)
+      ? caps.features.map((feature) => String(feature).toLowerCase())
+      : [];
+    const type = String(caps.type || "").toLowerCase();
+
+    const isWrite = intentType === "ddl_query" || this._detectWriteIntent(prompt);
+    if (isWrite) {
+      const supportsWrite = caps?.limits?.supportsWrite !== false;
+      const canWrite = supportsWrite && (ops.includes("crud") || type === "sql");
+      if (!canWrite) {
+        return {
+          allowed: false,
+          reason: `Write operations are not supported for ${dbType || "this database"}.`,
+        };
+      }
+    }
+
+    if (intentType === "explain_query" && !ops.includes("explain") && type !== "sql") {
+      return {
+        allowed: false,
+        reason: `Explain plans are not supported for ${dbType || "this database"}.`,
+      };
+    }
+
+    if (intentType === "aggregation_query" && type !== "sql" && !features.includes("aggregation")) {
+      return {
+        allowed: false,
+        reason: `Aggregation queries are not supported for ${dbType || "this database"}.`,
+      };
+    }
+
+    if (intentType === "join_query" && type !== "sql") {
+      return {
+        allowed: false,
+        reason: `Join queries are not supported for ${dbType || "this database"}.`,
+      };
+    }
+
+    if (ops.length > 0 && intentType === "simple_select" && !ops.includes("query")) {
+      return {
+        allowed: false,
+        reason: `Read queries are not supported for ${dbType || "this database"}.`,
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  _normalizeMySqlQuery(dbType, query) {
+    if (!query || typeof query !== "string") {
+      return query;
+    }
+    const normalized = String(dbType || "").toLowerCase();
+    if (normalized !== "mysql2" && normalized !== "mysql") {
+      return query;
+    }
+
+    // Fix invalid numeric precision like INT(10,0) from cross-dialect generation
+    let cleaned = query.replace(
+      /\b(INT|BIGINT|SMALLINT|TINYINT|MEDIUMINT)\s*\(\s*\d+\s*,\s*0\s*\)/gi,
+      "$1",
+    );
+    // Normalize NUMBER(x,0) to INT, NUMBER(x,y) to DECIMAL(x,y)
+    cleaned = cleaned.replace(/\bNUMBER\s*\(\s*(\d+)\s*,\s*0\s*\)/gi, "INT");
+    cleaned = cleaned.replace(/\bNUMBER\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)/gi, "DECIMAL($1,$2)");
+    return cleaned;
+  }
+
+  _sanitizeStepNote(note) {
+    if (!note) {
+      return null;
+    }
+    let clean = String(note);
+    const strategies = [
+      "DirectSQLStrategy",
+      "RAGEnhancedStrategy",
+      "DecompositionStrategy",
+      "ExplanationStrategy",
+      "SuggestionStrategy",
+    ];
+    for (const name of strategies) {
+      if (clean.includes(name)) {
+        clean = clean.replace(name, this._formatStrategyLabel(name));
+      }
+    }
+    if (/^Strategy:\s*/i.test(clean)) {
+      clean = clean.replace(/^Strategy:\s*/i, "Approach: ");
+    }
+    return clean.trim() || null;
+  }
+
+  _sanitizeSteps(steps) {
+    if (!Array.isArray(steps)) {
+      return [];
+    }
+    const allowed = new Set([
+      "enrich",
+      "plan",
+      "schema",
+      "rag",
+      "generate",
+      "execute",
+      "summarize",
+      "clarify",
+      "explain",
+      "suggest",
+      "analyze",
+    ]);
+    return steps
+      .filter((step) => step && step.id && allowed.has(step.id) && step.status !== "skipped")
+      .map((step) => ({
+        ...step,
+        label: this._formatStepLabel(step),
+        note: this._sanitizeStepNote(step.note),
+      }));
   }
 
   _safeRowToString(row) {
@@ -1711,8 +3513,8 @@ class ChatService {
 
   _markSkippedSteps(tracker, stepIds) {
     stepIds.forEach((id) => {
-      tracker.addStep({ id, label: id, status: "done", note: "Skipped." });
-      tracker.setStatus(id, "done", "Skipped.");
+      tracker.addStep({ id, label: id, status: "skipped" });
+      tracker.setStatus(id, "skipped");
     });
   }
 
@@ -1732,7 +3534,7 @@ class ChatService {
     return `${prompt}\nClarification: ${clarificationContext.answer}`;
   }
 
-  async _detectQueryIntent(prompt, dbType) {
+  async _detectQueryIntent(prompt, dbType, timeoutMs) {
     const normalized = String(dbType || "").toLowerCase();
 
     // Get available strategies dynamically
@@ -1745,7 +3547,7 @@ class ChatService {
       "Analyze the user's query and determine the intent.",
       "Return STRICT JSON with schema:",
       "{",
-      '  "intent": "list_tables|simple_select|time_filter_query|join_query|aggregation_query|key_scan|partition_query|collection_query|complex_query|explain_query|suggest_alternatives",',
+      '  "intent": "list_tables|simple_select|ddl_query|time_filter_query|join_query|aggregation_query|key_scan|partition_query|collection_query|complex_query|explain_query|suggest_alternatives",',
       '  "confidence": 0.0-1.0,',
       '  "reasoning": "brief explanation",',
       `  "recommendedStrategy": "${availableStrategies}",`,
@@ -1771,7 +3573,7 @@ class ChatService {
             content: `Classify this query:\n${JSON.stringify(payload, null, 2)}`,
           },
         ],
-        5000,
+        Number.isFinite(timeoutMs) ? timeoutMs : CHAT_INTENT_TIMEOUT_MS,
         "Intent detection timed out.",
       );
 
@@ -1829,6 +3631,7 @@ class ChatService {
   _mapIntentToTemplate(intent, dbType) {
     const templateMap = {
       list_tables: "list_tables",
+      ddl_query: "ddl_query",
       simple_select: "simple_select",
       time_filter_query: "time_filter",
       join_query: "join_query",
@@ -1842,7 +3645,7 @@ class ChatService {
     return templateMap[intent] || null;
   }
 
-  _fallbackIntentDetection(prompt, dbType) {
+  _fallbackIntentDetection(prompt, _dbType) {
     const text = String(prompt || "")
       .toLowerCase()
       .trim();
@@ -1865,7 +3668,7 @@ class ChatService {
       };
     }
 
-    if (/\b(explain|describe|how)\b/.test(text)) {
+    if (/\b(explain|describe|how)\b/.test(text) && !this._detectWriteIntent(text)) {
       return {
         type: "explain_query",
         confidence: 0.8,
@@ -1874,7 +3677,7 @@ class ChatService {
       };
     }
 
-    if (/\b(suggest|recommend|alternative|better)\b/.test(text)) {
+    if (/\b(suggest|recommend|alternative|better)\b/.test(text) && !this._detectWriteIntent(text)) {
       return {
         type: "suggest_alternatives",
         confidence: 0.8,
@@ -1905,6 +3708,7 @@ class ChatService {
       "You are DBFuse AI, a database assistant.",
       "Answer the user in natural language.",
       "Use query results when provided; do not invent data.",
+      "Do not list raw rows; summarize findings and refer to the results panel.",
       "If results are missing or execution requires confirmation, say so clearly.",
       "Do not include SQL unless the user asks for it.",
     ].join(" ");

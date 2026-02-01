@@ -83,7 +83,7 @@ class VectorStore {
     try {
       const parsed = JSON.parse(value);
       return this._normalizeVector(parsed);
-    } catch (err) {
+    } catch {
       return null;
     }
   }
@@ -123,7 +123,7 @@ class VectorStore {
     }
     try {
       return JSON.parse(value);
-    } catch (err) {
+    } catch {
       return null;
     }
   }

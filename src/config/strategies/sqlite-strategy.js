@@ -26,7 +26,6 @@ class SQLiteStrategy extends SQLStrategy {
     const {
       database,
       mode,
-      verbose,
       busyTimeout,
       cacheSize,
       pageSize,
@@ -178,7 +177,10 @@ class SQLiteStrategy extends SQLStrategy {
 
     for (const single of statements) {
       const started = Date.now();
-      const isSelect = /^SELECT\s/i.test(single);
+      const startsWithWith = /^WITH\s/i.test(single);
+      const isSelect =
+        /^SELECT\s/i.test(single) ||
+        (startsWithWith && !/\b(INSERT|UPDATE|DELETE|MERGE)\b/i.test(single));
       const isShow = /^SHOW\s/i.test(single);
       const isDescribe = /^DESCRIBE\s/i.test(single);
       const isInsert = /^INSERT\s/i.test(single);
@@ -288,7 +290,14 @@ class SQLiteStrategy extends SQLStrategy {
             message: "Transaction command executed successfully",
           });
         } else {
-          entry.messages.push({ query: single, message: "Command not recognized or unsupported" });
+          const r = await runExec(single);
+          entry.type = "command";
+          entry.messages.push({
+            query: single,
+            message: "Command executed successfully",
+            affectedRows: r.changes || 0,
+          });
+          entry.stats = { affectedRows: r.changes || 0, lastInsertId: r.lastID || null };
         }
       } catch (err) {
         entry.messages.push({ query: single, error: true, message: err.message });
@@ -527,7 +536,7 @@ class SQLiteStrategy extends SQLStrategy {
     return rows.map((r) => ({ name: r.view_name }));
   }
 
-  async getProcedures(dbName) {
+  async getProcedures(_dbName) {
     if (!this.db) throw new Error("SQLite connection not initialized");
     // SQLite does not support stored procedures
     return [];
@@ -540,7 +549,7 @@ class SQLiteStrategy extends SQLStrategy {
    * @param {number} limit - Number of rows to fetch
    * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
    */
-  async fetchRowRange(query, offset, limit) {
+  async fetchRowRange(query, offset, limit, options = {}) {
     if (!this.db) throw new Error("SQLite connection not initialized");
 
     // Validate inputs
@@ -551,11 +560,32 @@ class SQLiteStrategy extends SQLStrategy {
     // Strip trailing semicolon if present
     const cleanQuery = query.trim().replace(/;+$/, "");
 
+    const useKeyset =
+      options?.paginationMode === "seek" &&
+      options?.cursor?.orderBy &&
+      options?.cursor?.lastValue !== undefined &&
+      options?.cursor?.lastValue !== null;
+
+    const safeOrderBy = useKeyset ? this.sanitizeOrderBy(options.cursor.orderBy) : "";
+    const direction = options?.cursor?.direction === "desc" ? "DESC" : "ASC";
+    const comparator = direction === "DESC" ? "<" : ">";
+
     // Fetch one extra row to determine if there are more results
-    const paginatedQuery = `${cleanQuery} LIMIT ${limit + 1} OFFSET ${offset}`;
+    const paginatedQuery =
+      useKeyset && safeOrderBy
+        ? `
+          SELECT *
+          FROM (${cleanQuery}) AS subquery
+          WHERE ${safeOrderBy} ${comparator} ?
+          ORDER BY ${safeOrderBy} ${direction}
+          LIMIT ?
+        `
+        : `${cleanQuery} LIMIT ? OFFSET ?`;
 
     return new Promise((resolve, reject) => {
-      this.db.all(paginatedQuery, [], (err, rows) => {
+      const params =
+        useKeyset && safeOrderBy ? [options.cursor.lastValue, limit + 1] : [limit + 1, offset];
+      this.db.all(paginatedQuery, params, (err, rows) => {
         if (err) {
           logger.error(`SQLite fetchRowRange error: ${err.message}`);
           reject(err);

@@ -75,7 +75,7 @@ class DatabaseStrategy {
   }
 
   // Circuit breaker management
-  recordQueryFailure(error) {
+  recordQueryFailure(_error) {
     this.circuitBreaker.failures++;
     this.circuitBreaker.lastFailure = Date.now();
     this.metrics.errors++;
@@ -119,7 +119,7 @@ class DatabaseStrategy {
   }
 
   // Retry logic with exponential backoff
-  async executeWithRetry(fn, context = {}) {
+  async executeWithRetry(fn, _context = {}) {
     let lastError;
     let delay = this.retryConfig.initialDelay;
 
@@ -216,7 +216,7 @@ class DatabaseStrategy {
   }
 
   // Core connection methods
-  async connect(config) {
+  async connect(_config) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("connect"));
   }
 
@@ -229,7 +229,7 @@ class DatabaseStrategy {
   }
 
   // Database navigation methods
-  async switchDatabase(dbName) {
+  async switchDatabase(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("switchDatabase"));
   }
 
@@ -243,41 +243,41 @@ class DatabaseStrategy {
   }
 
   // SQL specific (kept for backward compatibility and SQL implementations)
-  async getTables(dbName) {
+  async getTables(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getTables"));
   }
 
-  async getTableInfo(dbName, tableName) {
+  async getTableInfo(_dbName, _tableName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getTableInfo"));
   }
 
-  async getMultipleTablesInfo(dbName, tableNames) {
+  async getMultipleTablesInfo(_dbName, _tableNames) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getMultipleTablesInfo"));
   }
 
-  async getViews(dbName) {
+  async getViews(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getViews"));
   }
 
-  async getProcedures(dbName) {
+  async getProcedures(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getProcedures"));
   }
 
-  async getFunctions(dbName) {
+  async getFunctions(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getFunctions"));
   }
 
   // NoSQL specific stubs
-  async getCollections(dbName) {
+  async getCollections(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getCollections"));
   }
 
-  async getCollectionInfo(dbName, collectionName) {
+  async getCollectionInfo(_dbName, _collectionName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getCollectionInfo"));
   }
 
   // Cache specific stubs
-  async getKeys(pattern) {
+  async getKeys(_pattern) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getKeys"));
   }
 
@@ -290,7 +290,12 @@ class DatabaseStrategy {
     try {
       await this.executeHooks("query.pre", { query, options, analysis: queryAnalysis });
 
-      const result = await this._executeQueryImpl(query, options);
+      const hasOptions =
+        options &&
+        typeof options === "object" &&
+        !Array.isArray(options) &&
+        Object.keys(options).length > 0;
+      const result = await this._executeQueryImpl(query, hasOptions ? options : undefined);
 
       const queryTime = Date.now() - startTime;
       this.metrics.queries++;
@@ -318,15 +323,15 @@ class DatabaseStrategy {
   }
 
   // Override this in subclasses
-  async _executeQueryImpl(query, options = {}) {
+  async _executeQueryImpl(_query, _options = {}) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeQuery"));
   }
 
-  async executeBatch(queries, options = {}) {
+  async executeBatch(_queries, _options = {}) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeBatch"));
   }
 
-  async executeTransaction(queries, options = {}) {
+  async executeTransaction(_queries, _options = {}) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeTransaction"));
   }
 
@@ -381,6 +386,16 @@ class DatabaseStrategy {
     return identifier.replace(/[^\w_]/g, "");
   }
 
+  // Allow dotted identifiers for ORDER BY (e.g., schema.table.column)
+  sanitizeOrderBy(identifier) {
+    if (!identifier || typeof identifier !== "string") return "";
+    return identifier
+      .split(".")
+      .map((part) => this.sanitizeIdentifier(part))
+      .filter(Boolean)
+      .join(".");
+  }
+
   // Detect if running inside a container
   isRunningInContainer() {
     try {
@@ -404,7 +419,7 @@ class DatabaseStrategy {
     return host;
   }
 
-  buildPaginationQuery(baseQuery, page, pageSize) {
+  buildPaginationQuery(_baseQuery, _page, _pageSize) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("buildPaginationQuery"));
   }
 
@@ -419,7 +434,7 @@ class DatabaseStrategy {
    * @param {number} limit - Number of rows to fetch
    * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
    */
-  async fetchRowRange(query, offset, limit) {
+  async fetchRowRange(_query, _offset, _limit) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("fetchRowRange"));
   }
 
@@ -454,7 +469,7 @@ class DatabaseStrategy {
   }
 
   // Security and permissions
-  async checkPermissions(operation, resource) {
+  async checkPermissions(_operation, _resource) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("checkPermissions"));
   }
 }

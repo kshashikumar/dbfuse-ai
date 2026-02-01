@@ -241,7 +241,7 @@ class ConnectionManager {
         isValid ? CONNECTION_STATES.CONNECTED : CONNECTION_STATES.ERROR,
       );
       return isValid;
-    } catch (error) {
+    } catch {
       this.setConnectionState(connectionId, CONNECTION_STATES.ERROR);
       return false;
     }

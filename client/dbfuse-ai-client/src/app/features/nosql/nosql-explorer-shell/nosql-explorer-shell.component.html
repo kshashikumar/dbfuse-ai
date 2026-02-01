@@ -9,6 +9,41 @@
         [dbType]="dbType"
         [databases]="databases"
     ></app-redis-explorer>
+    <app-dynamodb-explorer
+        *ngSwitchCase="'dynamodb'"
+        [dbType]="dbType"
+        [databases]="databases"
+    ></app-dynamodb-explorer>
+    <app-cassandra-explorer
+        *ngSwitchCase="'cassandra'"
+        [dbType]="dbType"
+        [databases]="databases"
+    ></app-cassandra-explorer>
+    <app-couchdb-explorer
+        *ngSwitchCase="'couchdb'"
+        [dbType]="dbType"
+        [databases]="databases"
+    ></app-couchdb-explorer>
+    <app-cosmosdb-explorer
+        *ngSwitchCase="'cosmosdb'"
+        [dbType]="dbType"
+        [databases]="databases"
+    ></app-cosmosdb-explorer>
+    <app-firestore-explorer
+        *ngSwitchCase="'firestore'"
+        [dbType]="dbType"
+        [databases]="databases"
+    ></app-firestore-explorer>
+    <app-hbase-explorer
+        *ngSwitchCase="'hbase'"
+        [dbType]="dbType"
+        [databases]="databases"
+    ></app-hbase-explorer>
+    <app-memcached-explorer
+        *ngSwitchCase="'memcached'"
+        [dbType]="dbType"
+        [databases]="databases"
+    ></app-memcached-explorer>
     <app-nosql-explorer
         *ngSwitchDefault
         [dbType]="dbType"

@@ -1,7 +1,8 @@
-const BaseController = require("./base/BaseController");
 const { RAGService, QueryOrchestrator, storageManager } = require("../rag");
 const { HEADERS, HEADER_VARIANTS, HTTP_STATUS } = require("../core/constants");
 const { getHeaderValue } = require("../utils/http");
+
+const BaseController = require("./base/BaseController");
 
 class RAGController extends BaseController {
   constructor() {

@@ -19,19 +19,19 @@ class SQLStrategy extends DatabaseStrategy {
   }
 
   // Abstract methods specific to SQL
-  async getTables(dbName) {
+  async getTables(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getTables"));
   }
 
-  async getViews(dbName) {
+  async getViews(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getViews"));
   }
 
-  async getProcedures(dbName) {
+  async getProcedures(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getProcedures"));
   }
 
-  async getFunctions(dbName) {
+  async getFunctions(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getFunctions"));
   }
 }

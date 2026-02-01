@@ -19,7 +19,17 @@ const DatabaseService = require("../services/DatabaseService");
  */
 router.post("/range", async (req, res) => {
   try {
-    const { connectionId, query, offset, limit, collectionName, filter, options } = req.body;
+    const {
+      connectionId,
+      query,
+      offset,
+      limit,
+      collectionName,
+      filter,
+      options,
+      paginationMode,
+      cursor,
+    } = req.body;
 
     // Validate required fields
     if (!connectionId) {
@@ -56,6 +66,12 @@ router.post("/range", async (req, res) => {
     const databaseService = DatabaseService;
 
     // Fetch the range
+    const rangeOptions = {
+      ...(options || {}),
+      paginationMode,
+      cursor,
+    };
+
     const result = await databaseService.fetchQueryRange(
       connectionId,
       query,
@@ -63,7 +79,7 @@ router.post("/range", async (req, res) => {
       limit,
       collectionName,
       filter,
-      options,
+      rangeOptions,
     );
 
     res.json({

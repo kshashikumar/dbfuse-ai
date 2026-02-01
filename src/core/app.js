@@ -1,6 +1,6 @@
 const path = require("path");
 
-const { HEADERS, HEADER_VARIANTS } = require("./constants");
+const { HEADER_VARIANTS } = require("./constants");
 const { SERVER_DEFAULT_PORT, PORT_RANGE, ENV_KEYS, ENV_SYNC_EXIT_DELAY_MS } = require("./env");
 
 const STATIC_ASSET_DIRECTORY = path.resolve(__dirname, "..", "public");
@@ -56,6 +56,7 @@ const ROUTE_PATHS = Object.freeze({
   AUTH_STATUS: `${API_BASE}/auth/isAuthenticated`,
   SQL: `${API_BASE}/sql`,
   SQL_HEALTH: `${API_BASE}/sql/health`,
+  DB: `${API_BASE}/db`,
   CONNECTIONS: `${API_BASE}/connections`,
   CONFIG: `${API_BASE}/config`,
   RAG: `${API_BASE}/rag`,

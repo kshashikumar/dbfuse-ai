@@ -16,6 +16,7 @@ class ChatSessionStore {
       messages: [],
       feedback: [],
       pendingClarification: null,
+      lastContext: null,
     };
     this.sessions.set(id, session);
     return session;
@@ -79,6 +80,13 @@ class ChatSessionStore {
     if (!session) return null;
     session.pendingClarification = null;
     return true;
+  }
+
+  setLastContext(sessionId, context) {
+    const session = this.getSession(sessionId);
+    if (!session) return null;
+    session.lastContext = context;
+    return context;
   }
 
   _createId() {

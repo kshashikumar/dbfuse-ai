@@ -1,13 +1,14 @@
-const express = require("express");
-const cors = require("cors");
-const bodyParser = require("body-parser");
+/* eslint-disable import/order */
 const fs = require("fs");
 const path = require("path");
+
+const bodyParser = require("body-parser");
 const compression = require("compression");
+const cors = require("cors");
+const express = require("express");
 
-// Load .env with override to ensure we pick up changes even if parent process set env vars
-require("dotenv").config({ override: true });
-
+const { loadEnv } = require("./utils/loadEnv");
+loadEnv({ override: true });
 const authMiddleware = require("./middleware/authentication");
 const dbRouter = require("./routes/dbRoutes");
 const ragRouter = require("./routes/ragRoutes");
@@ -26,6 +27,7 @@ const {
   ROUTE_PATHS,
 } = require("./core/app");
 const { GENERAL_ERRORS } = require("./core/constants");
+/* eslint-enable import/order */
 // Start live .env sync so manual edits take effect without a restart (except port changes)
 try {
   const { startEnvSync } = require("./utils/envWatcher");
@@ -92,6 +94,7 @@ app.use(authMiddleware.authentication);
 
 app.use(ROUTE_PATHS.AUTH, authRouter);
 app.use(ROUTE_PATHS.SQL, dbRouter);
+app.use(ROUTE_PATHS.DB, dbRouter);
 app.use(ROUTE_PATHS.CONNECTIONS, connectionRouter);
 app.use(ROUTE_PATHS.RAG, ragRouter);
 app.use(ROUTE_PATHS.CHAT, chatRouter);
@@ -133,7 +136,7 @@ if (!mcpOnly) {
 }
 
 // error handler
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   logger.error("Unhandled error:", err);
   const error = {
     errmsg: err?.errmsg || err?.message || GENERAL_ERRORS.INTERNAL_SERVER_ERROR,

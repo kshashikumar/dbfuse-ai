@@ -85,6 +85,18 @@ export abstract class NosqlExplorerBase {
         return caps.includes('ttl');
     }
 
+    protected hasCapability(name: string): boolean {
+        const caps = this.strategyMetadata?.capabilities;
+        if (!Array.isArray(caps) || caps.length === 0) return true;
+        return caps.map((cap) => String(cap).toLowerCase()).includes(name.toLowerCase());
+    }
+
+    protected hasFeature(name: string): boolean {
+        const features = this.strategyMetadata?.supportedFeatures;
+        if (!Array.isArray(features) || features.length === 0) return true;
+        return features.map((feature) => String(feature).toLowerCase()).includes(name.toLowerCase());
+    }
+
     refreshDatabases(): void {
         this.loadingDatabases = true;
         this.errorMessage = '';
@@ -144,6 +156,12 @@ export abstract class NosqlExplorerBase {
             this.errorMessage = `${label} must be valid JSON.`;
             return null;
         }
+    }
+
+    protected parseOptionalJsonInput(value: string, label: string): any | undefined {
+        if (!value || !value.trim()) return undefined;
+        const parsed = this.parseJsonInput(value, label);
+        return parsed === null ? undefined : parsed;
     }
 
     protected parseArgsInput(value: string): string[] {

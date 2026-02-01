@@ -4,6 +4,7 @@
  */
 
 const { ENCODING, BASIC_AUTH_SCHEME } = require("../core/constants");
+
 const logger = require("./logger");
 
 /**
@@ -28,7 +29,7 @@ function decodeCredentials(header) {
     }
 
     return [username, password];
-  } catch (err) {
+  } catch {
     logger.warn("Failed to decode basic auth credentials");
     return [];
   }

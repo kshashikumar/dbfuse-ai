@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-const path = require("path");
-const fs = require("fs");
-const readline = require("readline");
 const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const readline = require("readline");
+
+const chalk = require("chalk");
 const nodemon = require("nodemon");
 const argv = require("minimist")(process.argv.slice(2));
-const chalk = require("chalk");
 
 const connectionStore = require("./src/config/connection-store");
 const { AI_MODELS } = require("./src/core/constants/ai.constants");
@@ -244,7 +245,7 @@ async function canDecryptConnectionStoreWithKey(testKey) {
     process.env.DBFUSE_CONNECTIONS_KEY = testKey || "";
     await connectionStore.readConnections();
     return true;
-  } catch (err) {
+  } catch {
     return false;
   } finally {
     process.env.DBFUSE_CONNECTIONS_KEY = previous;
@@ -297,7 +298,6 @@ async function promptForExistingKeyOrDeletion() {
 
 async function ensureConnectionStoreCompatibility(config) {
   const metadata = connectionStore.inspectConnectionStore();
-  const filePath = metadata.filePath;
   if (!metadata.exists || !metadata.encrypted) {
     return;
   }
@@ -480,7 +480,7 @@ function validateEnvironment() {
       process.exit(1);
     }
     displaySuccess(`npm ${npmVersion}`);
-  } catch (error) {
+  } catch {
     console.error(
       chalk.red("Failed to check npm version. Ensure npm is installed and accessible."),
     );

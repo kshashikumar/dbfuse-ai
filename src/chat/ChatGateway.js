@@ -1,10 +1,13 @@
-const { WebSocketServer, WebSocket } = require("ws");
 const url = require("url");
-const chatService = require("./ChatService");
+
+const { WebSocketServer, WebSocket } = require("ws");
+
 const { connectionManager } = require("../config");
-const chatSessionStore = require("./ChatSessionStore");
-const logger = require("../utils/logger");
 const { decodeCredentials, verifyCredentials, isAuthRequired } = require("../utils/authUtil");
+const logger = require("../utils/logger");
+
+const chatService = require("./ChatService");
+const chatSessionStore = require("./ChatSessionStore");
 
 const CHAT_PATH = "/api/chat/ws";
 const CHAT_RESPONSE_TIMEOUT_MS = Number(process.env.CHAT_RESPONSE_TIMEOUT_MS) || 45000;
@@ -70,6 +73,13 @@ const withTimeout = (promise, timeoutMs, message) =>
         reject(error);
       });
   });
+
+const extractTableNameFromQuery = (query) => {
+  if (!query || typeof query !== "string") return null;
+  const match = query.match(/\b(from|join|into|update|table)\s+([`"'[\]]?[\w.]+[`"'[\]]?)/i);
+  if (!match || !match[2]) return null;
+  return match[2].replace(/^[`"'[\]]+|[`"'[\]]+$/g, "");
+};
 
 const initializeChatGateway = (server) => {
   const wss = new WebSocketServer({ server, path: CHAT_PATH });
@@ -312,6 +322,7 @@ const initializeChatGateway = (server) => {
           pageSize,
           requestId,
           clarificationContext,
+          conversationContext: session.lastContext || null,
           onStep: (steps) => {
             sendEnvelope(socket, {
               v: 1,
@@ -351,6 +362,15 @@ const initializeChatGateway = (server) => {
         }
 
         const assistantMessageId = createMessageId();
+        const tableName = result?.tableData?.tableName || extractTableNameFromQuery(result?.query);
+        if (tableName) {
+          chatSessionStore.setLastContext(session.id, {
+            tableName,
+            query: result?.query || null,
+            intent: result?.queryAnalysis?.intent || null,
+            updatedAt: new Date().toISOString(),
+          });
+        }
         chatSessionStore.addMessage(session.id, {
           id: assistantMessageId,
           role: "assistant",

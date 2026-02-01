@@ -82,7 +82,7 @@ class DatabaseContext {
         this.isConnected = false;
       }
       return isValid;
-    } catch (error) {
+    } catch {
       this.isConnected = false;
       return false;
     }

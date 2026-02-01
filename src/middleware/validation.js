@@ -3,11 +3,12 @@
  * Provides reusable middleware functions for header, body, and parameter validation
  */
 
-const logger = require("../utils/logger");
+const sanitizeHtml = require("sanitize-html");
+
 const { HTTP_STATUS, HEADERS, HEADER_VARIANTS } = require("../core/constants");
 const { PORT_RANGE } = require("../core/env");
 const { getHeaderValue } = require("../utils/http");
-const sanitizeHtml = require("sanitize-html");
+const logger = require("../utils/logger");
 
 /**
  * Validate that connection ID header is present

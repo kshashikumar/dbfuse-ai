@@ -124,7 +124,10 @@ class MySQLStrategy extends SQLStrategy {
       .filter((q) => q);
 
     for (const singleQuery of statements) {
-      const isSelectQuery = /^SELECT\s/i.test(singleQuery);
+      const startsWithWith = /^WITH\s/i.test(singleQuery);
+      const isSelectQuery =
+        /^SELECT\s/i.test(singleQuery) ||
+        (startsWithWith && !/\b(INSERT|UPDATE|DELETE|MERGE)\b/i.test(singleQuery));
       const isShowCommand = /^SHOW\s/i.test(singleQuery);
       const isDescribeCommand = /^DESCRIBE\s/i.test(singleQuery);
       const isExplainCommand = /^EXPLAIN\s/i.test(singleQuery);
@@ -288,19 +291,31 @@ class MySQLStrategy extends SQLStrategy {
           throw new Error("Invalid USE statement: database name not found");
         }
       } else {
+        const [raw] = await this.pool.query(singleQuery);
+        const isResultSet = Array.isArray(raw);
+        const affectedRows = !isResultSet && raw?.affectedRows ? raw.affectedRows : 0;
+        const insertId = !isResultSet && raw?.insertId ? raw.insertId : null;
+        const rows = isResultSet ? raw : [];
         queries.push({
-          type: "UNKNOWN",
+          type: isResultSet ? "QUERY" : "COMMAND",
           query: singleQuery,
-          rows: [],
-          totalRows: 0,
+          rows,
+          totalRows: isResultSet ? rows.length : 0,
           messages: [
             {
               query: singleQuery,
-              message: "Command not recognized or unsupported",
-              type: "UNKNOWN",
+              message: "Command executed successfully",
+              type: isResultSet ? "QUERY" : "COMMAND",
+              affectedRows,
+              insertId,
             },
           ],
-          pagination: { page: 1, pageSize: 0, totalPages: 1, hasMore: false },
+          pagination: {
+            page: 1,
+            pageSize: isResultSet ? rows.length : 0,
+            totalPages: 1,
+            hasMore: false,
+          },
         });
       }
     }
@@ -595,7 +610,7 @@ class MySQLStrategy extends SQLStrategy {
    * @param {number} limit - Number of rows to fetch
    * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
    */
-  async fetchRowRange(query, offset, limit) {
+  async fetchRowRange(query, offset, limit, options = {}) {
     if (!this.pool) throw new Error("MySQL connection not initialized");
 
     // Validate inputs
@@ -606,11 +621,32 @@ class MySQLStrategy extends SQLStrategy {
     // Strip trailing semicolon if present
     const cleanQuery = query.trim().replace(/;+$/, "");
 
-    // Fetch one extra row to determine if there are more results
-    const paginatedQuery = `${cleanQuery} LIMIT ${limit + 1} OFFSET ${offset}`;
+    const useKeyset =
+      options?.paginationMode === "seek" &&
+      options?.cursor?.orderBy &&
+      options?.cursor?.lastValue !== undefined &&
+      options?.cursor?.lastValue !== null;
+
+    const safeOrderBy = useKeyset ? this.sanitizeOrderBy(options.cursor.orderBy) : "";
+    const direction = options?.cursor?.direction === "desc" ? "DESC" : "ASC";
+    const comparator = direction === "DESC" ? "<" : ">";
 
     try {
-      const [rows] = await this.pool.query(paginatedQuery);
+      let rows;
+      if (useKeyset && safeOrderBy) {
+        const paginatedQuery = `
+          SELECT *
+          FROM (${cleanQuery}) AS subquery
+          WHERE ${safeOrderBy} ${comparator} ?
+          ORDER BY ${safeOrderBy} ${direction}
+          LIMIT ?
+        `;
+        [rows] = await this.pool.query(paginatedQuery, [options.cursor.lastValue, limit + 1]);
+      } else {
+        // Fetch one extra row to determine if there are more results
+        const paginatedQuery = `${cleanQuery} LIMIT ? OFFSET ?`;
+        [rows] = await this.pool.query(paginatedQuery, [limit + 1, offset]);
+      }
       const hasMore = rows.length > limit;
 
       // Remove extra row if present

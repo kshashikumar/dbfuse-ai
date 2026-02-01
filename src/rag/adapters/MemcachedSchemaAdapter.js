@@ -1,4 +1,5 @@
 const { connectionManager } = require("../../config");
+
 const SchemaAdapter = require("./SchemaAdapter");
 
 class MemcachedSchemaAdapter extends SchemaAdapter {
@@ -23,7 +24,7 @@ class MemcachedSchemaAdapter extends SchemaAdapter {
       try {
         const keys = await strategy.getKeys();
         keyPatterns = this._extractKeyPatterns(keys || []);
-      } catch (error) {
+      } catch {
         // Memcached might not support listing keys
         keyPatterns = [];
       }

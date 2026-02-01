@@ -1,10 +1,10 @@
-const { getAIModel } = require("../models/model");
-const logger = require("../utils/logger");
-const { FALLBACK_AI_MODEL, SCHEMA_PROMPT_BUDGET_CHARS } = require("../core/constants");
-const { buildTableCatalog, buildSchemaDSL } = require("../utils/schemaCompressor");
-const { inferProviderFromModel, PROVIDER_API_ENV_KEYS } = require("../core/env");
-
 const argv = require("minimist")(process.argv.slice(2));
+
+const { FALLBACK_AI_MODEL, SCHEMA_PROMPT_BUDGET_CHARS } = require("../core/constants");
+const { inferProviderFromModel, PROVIDER_API_ENV_KEYS } = require("../core/env");
+const { getAIModel } = require("../models/model");
+const { buildTableCatalog, buildSchemaDSL } = require("../utils/schemaCompressor");
+const logger = require("../utils/logger");
 const DEFAULT_LLM_REQUEST_TIMEOUT_MS = Number(process.env.LLM_REQUEST_TIMEOUT_MS) || 30000;
 const DEFAULT_TABLE_SELECT_TIMEOUT_MS =
   Number(process.env.LLM_TABLE_SELECT_TIMEOUT_MS) ||
@@ -349,12 +349,22 @@ Output only the SQL query.
    * @param {string} dbType - Database type (mysql, postgresql, etc.)
    * @returns {Promise<string>} - Generated SQL query
    */
-  async generateSQLQuery(dbMeta, databaseName, prompt, dbType, selectedTables) {
+  async generateSQLQuery(dbMeta, databaseName, prompt, dbType, selectedTables, options = {}) {
     this.metrics.totalRequests++;
     this.metrics.sqlGenerationCalls++;
     const startTime = Date.now();
 
     try {
+      if (
+        selectedTables &&
+        !Array.isArray(selectedTables) &&
+        typeof selectedTables === "object" &&
+        !Array.isArray(options)
+      ) {
+        options = selectedTables;
+        selectedTables = undefined;
+      }
+
       const selectedDatabase = dbMeta.find((db) => db.name === databaseName);
       if (!selectedDatabase) {
         throw new Error(`Database "${databaseName}" not found.`);
@@ -364,85 +374,128 @@ Output only the SQL query.
       const promptMatch = prompt.match(/for (\w+) table/i);
       const requestedTable = promptMatch ? promptMatch[1] : null;
 
+      const maxRetries = options.retryOnTimeout
+        ? Number.isFinite(options.maxRetries)
+          ? options.maxRetries
+          : 1
+        : 0;
       let systemPrompt;
+      let lastError = null;
 
-      if (requestedTable) {
-        // Single-table query
-        const selectedTable = selectedDatabase.tables.find(
-          (table) => table.name === requestedTable,
-        );
+      const baseTimeoutMs = Number.isFinite(options.timeoutMs)
+        ? options.timeoutMs
+        : this.requestTimeoutMs;
+      const promptText = String(prompt || "");
 
-        if (!selectedTable) {
-          throw new Error(
-            `Table "${requestedTable}" does not exist in database "${databaseName}".`,
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        const isRetry = attempt > 0;
+        const retryPromptLimit = options.promptCharLimit || 600;
+        const effectivePrompt = isRetry ? promptText.slice(0, retryPromptLimit) : promptText;
+        const timeoutMs = isRetry ? Math.max(3000, Math.floor(baseTimeoutMs * 0.6)) : baseTimeoutMs;
+
+        if (requestedTable) {
+          // Single-table query
+          const selectedTable = selectedDatabase.tables.find(
+            (table) => table.name === requestedTable,
+          );
+
+          if (!selectedTable) {
+            throw new Error(
+              `Table "${requestedTable}" does not exist in database "${databaseName}".`,
+            );
+          }
+
+          const tableColumns = isRetry
+            ? selectedTable.columns.map((col) => col.column_name || col.name).join(", ")
+            : this._formatTableColumns(selectedTable.columns);
+          systemPrompt = this._buildSingleTablePrompt(
+            dbType,
+            databaseName,
+            requestedTable,
+            tableColumns,
+            effectivePrompt,
+          );
+        } else {
+          // Multi-table query with intelligent table selection
+          const catalog = buildTableCatalog([selectedDatabase]);
+          const preselected =
+            Array.isArray(selectedTables) && selectedTables.length
+              ? selectedTables
+              : (selectedDatabase.tables || [])
+                  .filter((table) => Array.isArray(table.columns) && table.columns.length > 0)
+                  .map((table) => table.name);
+          const resolvedSelection =
+            preselected.length > 0
+              ? preselected
+              : await this.selectRelevantTables(dbType, catalog, effectivePrompt);
+          let filteredSelection = resolvedSelection.filter((t) => catalog.includes(t));
+          if (!filteredSelection.length) {
+            filteredSelection = catalog.slice(0, Math.min(12, catalog.length));
+          }
+
+          if (isRetry) {
+            filteredSelection = filteredSelection.slice(0, Math.min(4, filteredSelection.length));
+          }
+
+          // Filter to selected tables
+          const filteredDb = {
+            name: selectedDatabase.name,
+            tables: (selectedDatabase.tables || []).filter((t) =>
+              filteredSelection.includes(t.name),
+            ),
+          };
+
+          // Build schema DSL with tier 2, fallback to tier 1 if too large
+          const tier = isRetry ? 1 : 2;
+          let schemaDSL = buildSchemaDSL([filteredDb], filteredSelection, tier);
+          if (schemaDSL.length > this.BUDGET_CHARS) {
+            schemaDSL = buildSchemaDSL([filteredDb], filteredSelection, 1);
+            logger.debug("Schema DSL exceeded budget, using tier 1");
+          }
+
+          systemPrompt = this._buildMultiTablePrompt(
+            dbType,
+            databaseName,
+            catalog,
+            schemaDSL,
+            effectivePrompt,
           );
         }
 
-        const tableColumns = this._formatTableColumns(selectedTable.columns);
-        systemPrompt = this._buildSingleTablePrompt(
-          dbType,
-          databaseName,
-          requestedTable,
-          tableColumns,
-          prompt,
-        );
-      } else {
-        // Multi-table query with intelligent table selection
-        const catalog = buildTableCatalog([selectedDatabase]);
-        const preselected =
-          Array.isArray(selectedTables) && selectedTables.length
-            ? selectedTables
-            : (selectedDatabase.tables || [])
-                .filter((table) => Array.isArray(table.columns) && table.columns.length > 0)
-                .map((table) => table.name);
-        const resolvedSelection =
-          preselected.length > 0
-            ? preselected
-            : await this.selectRelevantTables(dbType, catalog, prompt);
-        let filteredSelection = resolvedSelection.filter((t) => catalog.includes(t));
-        if (!filteredSelection.length) {
-          filteredSelection = catalog.slice(0, Math.min(12, catalog.length));
+        try {
+          const result = await this.callWithTimeout(
+            [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: effectivePrompt },
+            ],
+            timeoutMs,
+            "SQL generation timed out.",
+          );
+
+          const cleanedQuery = this._cleanQuery(this._extractResponseText(result));
+
+          this.metrics.successfulRequests++;
+          this._recordResponseTime(Date.now() - startTime);
+
+          logger.debug(`Generated SQL: ${cleanedQuery.substring(0, 100)}...`);
+
+          return cleanedQuery;
+        } catch (error) {
+          lastError = error;
+          const isTimeout = /timed out/i.test(error?.message || "");
+          const canRetry = isTimeout && attempt < maxRetries;
+          logger.warn("LLM SQL generation attempt failed", {
+            attempt,
+            canRetry,
+            error: error?.message || error,
+          });
+          if (!canRetry) {
+            throw error;
+          }
         }
-
-        // Filter to selected tables
-        const filteredDb = {
-          name: selectedDatabase.name,
-          tables: (selectedDatabase.tables || []).filter((t) => filteredSelection.includes(t.name)),
-        };
-
-        // Build schema DSL with tier 2, fallback to tier 1 if too large
-        let schemaDSL = buildSchemaDSL([filteredDb], filteredSelection, 2);
-        if (schemaDSL.length > this.BUDGET_CHARS) {
-          schemaDSL = buildSchemaDSL([filteredDb], filteredSelection, 1);
-          logger.debug("Schema DSL exceeded budget, using tier 1");
-        }
-
-        systemPrompt = this._buildMultiTablePrompt(
-          dbType,
-          databaseName,
-          catalog,
-          schemaDSL,
-          prompt,
-        );
       }
 
-      const result = await this.callWithTimeout(
-        [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: prompt },
-        ],
-        this.requestTimeoutMs,
-        "SQL generation timed out.",
-      );
-
-      const cleanedQuery = this._cleanQuery(this._extractResponseText(result));
-
-      this.metrics.successfulRequests++;
-      this._recordResponseTime(Date.now() - startTime);
-
-      logger.debug(`Generated SQL: ${cleanedQuery.substring(0, 100)}...`);
-
-      return cleanedQuery;
+      throw lastError || new Error("SQL generation failed.");
     } catch (error) {
       this.metrics.failedRequests++;
       this._recordResponseTime(Date.now() - startTime);

@@ -45,7 +45,6 @@ function parseDotenv(content) {
   return out;
 }
 
-let lastApplied = {};
 let debounceTimer = null;
 
 function applyEnv(overrides, opts) {
@@ -76,9 +75,6 @@ function applyEnv(overrides, opts) {
   if (varName && process.env.AI_API_KEY) {
     process.env[varName] = process.env.AI_API_KEY;
   }
-
-  // Track snapshot
-  lastApplied = ENV_OVERLAY_KEYS.reduce((acc, k) => ({ ...acc, [k]: process.env[k] }), {});
 
   if (portChanged && typeof onPortChange === "function") {
     onPortChange();

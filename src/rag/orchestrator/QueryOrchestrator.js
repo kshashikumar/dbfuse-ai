@@ -1,18 +1,25 @@
+const crypto = require("crypto");
+
 const { connectionManager } = require("../../config");
 const llmService = require("../../services/LLMService");
+const logger = require("../../utils/logger");
 const RAGService = require("../services/RAGService");
-const QueryAnalyzer = require("./QueryAnalyzer");
-const StrategySelector = require("./StrategySelector");
 const DirectSQLStrategy = require("../strategies/DirectSQLStrategy");
-const RAGEnhancedStrategy = require("../strategies/RAGEnhancedStrategy");
 const DecompositionStrategy = require("../strategies/DecompositionStrategy");
 const ExplanationStrategy = require("../strategies/ExplanationStrategy");
+const RAGEnhancedStrategy = require("../strategies/RAGEnhancedStrategy");
 const SuggestionStrategy = require("../strategies/SuggestionStrategy");
 const storageManager = require("../storage/StorageManager");
+
+const QueryAnalyzer = require("./QueryAnalyzer");
+const StrategySelector = require("./StrategySelector");
 const TaskPlanner = require("./TaskPlanner");
 const { validateTaskSteps } = require("./TaskStepSchema");
-const logger = require("../../utils/logger");
-const crypto = require("crypto");
+
+const CONTEXT_MAX_TABLES = Number(process.env.RAG_CONTEXT_MAX_TABLES) || 8;
+const CONTEXT_MAX_COLUMNS = Number(process.env.RAG_CONTEXT_MAX_COLUMNS) || 24;
+const RAG_SAMPLE_ROWS_PER_TABLE = Number(process.env.RAG_SAMPLE_ROWS_PER_TABLE) || 0;
+const RAG_SAMPLE_MAX_TABLES = Number(process.env.RAG_SAMPLE_MAX_TABLES) || 3;
 
 class QueryOrchestrator {
   constructor(options = {}) {
@@ -74,7 +81,14 @@ class QueryOrchestrator {
       });
     }
 
-    const strategyName = this.selector.select({ analysis, context });
+    const capabilities =
+      typeof strategy.getCapabilities === "function" ? strategy.getCapabilities() : null;
+    const strategyName = this.selector.select({
+      analysis,
+      context,
+      capabilities,
+      dbType,
+    });
     const selectedStrategy = this.strategies[strategyName] || this.strategies.DirectSQLStrategy;
 
     const { dbMeta, selectedTables } = await this._buildDbMeta({
@@ -193,6 +207,7 @@ class QueryOrchestrator {
   }) {
     if (requestedTable && catalogNames.includes(requestedTable)) {
       const tableInfo = await strategy.getTableInfo(currentDb, requestedTable);
+      const packedColumns = this._packColumns(this._normalizeColumns(tableInfo?.columns || []));
       return {
         selectedTables: [requestedTable],
         dbMeta: [
@@ -201,7 +216,7 @@ class QueryOrchestrator {
             tables: [
               {
                 name: requestedTable,
-                columns: this._normalizeColumns(tableInfo?.columns || []),
+                columns: packedColumns,
               },
             ],
           },
@@ -226,24 +241,46 @@ class QueryOrchestrator {
         ? suggestedSelection
         : catalogNames.slice(0, Math.min(12, catalogNames.length));
 
-    const multiInfo = await strategy.getMultipleTablesInfo(currentDb, selectedTables);
+    const limitedSelection = this._limitSelection(selectedTables, CONTEXT_MAX_TABLES);
+    const multiInfo = await strategy.getMultipleTablesInfo(currentDb, limitedSelection);
     const infoByName = new Map(
       multiInfo.map((tableInfo) => [this._getTableName(tableInfo), tableInfo]),
     );
 
-    const tables = catalogNames.map((name) => {
+    const tables = limitedSelection.map((name) => {
       if (infoByName.has(name)) {
         const tableInfo = infoByName.get(name);
         return {
           name,
-          columns: this._normalizeColumns(tableInfo?.columns || []),
+          columns: this._packColumns(this._normalizeColumns(tableInfo?.columns || [])),
         };
       }
       return { name, columns: [] };
     });
 
+    if (RAG_SAMPLE_ROWS_PER_TABLE > 0 && this._isSqlDbType(dbType)) {
+      const sampleTargets = limitedSelection.slice(0, RAG_SAMPLE_MAX_TABLES);
+      await Promise.all(
+        sampleTargets.map(async (tableName) => {
+          const rows = await this._fetchSampleRows({
+            strategy,
+            dbType,
+            dbName: currentDb,
+            tableName,
+            limit: RAG_SAMPLE_ROWS_PER_TABLE,
+          });
+          if (rows.length) {
+            const target = tables.find((table) => table.name === tableName);
+            if (target) {
+              target.sampleRows = rows;
+            }
+          }
+        }),
+      );
+    }
+
     return {
-      selectedTables,
+      selectedTables: limitedSelection,
       dbMeta: [
         {
           name: currentDb,
@@ -280,6 +317,103 @@ class QueryOrchestrator {
       precision: col.precision ?? null,
       scale: col.scale ?? null,
     }));
+  }
+
+  _packColumns(columns) {
+    if (!Array.isArray(columns)) return [];
+    if (!Number.isFinite(CONTEXT_MAX_COLUMNS) || CONTEXT_MAX_COLUMNS <= 0) {
+      return columns;
+    }
+    return columns.slice(0, CONTEXT_MAX_COLUMNS);
+  }
+
+  _limitSelection(tables, maxTables) {
+    if (!Array.isArray(tables)) return [];
+    if (!Number.isFinite(maxTables) || maxTables <= 0) {
+      return tables;
+    }
+    return tables.slice(0, maxTables);
+  }
+
+  _isSqlDbType(dbType) {
+    const normalized = String(dbType || "").toLowerCase();
+    return [
+      "mysql",
+      "mysql2",
+      "pg",
+      "postgresql",
+      "sqlite",
+      "sqlite3",
+      "mssql",
+      "oracledb",
+    ].includes(normalized);
+  }
+
+  _sanitizeTableName(name) {
+    return String(name || "")
+      .split(".")
+      .map((part) => String(part || "").replace(/[^\w_]/g, ""))
+      .filter(Boolean)
+      .join(".");
+  }
+
+  _buildSimpleSelectQuery(dbType, tableName, limit) {
+    const safeTable = this._sanitizeTableName(tableName);
+    const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 5;
+    const normalized = String(dbType || "").toLowerCase();
+    if (normalized === "mssql") {
+      return `SELECT TOP (${safeLimit}) * FROM ${safeTable}`;
+    }
+    if (normalized === "oracledb") {
+      return `SELECT * FROM ${safeTable} FETCH FIRST ${safeLimit} ROWS ONLY`;
+    }
+    return `SELECT * FROM ${safeTable} LIMIT ${safeLimit}`;
+  }
+
+  _extractRowsFromResult(result) {
+    if (!result || typeof result !== "object") {
+      return [];
+    }
+    if (Array.isArray(result.rows)) {
+      return result.rows;
+    }
+    if (Array.isArray(result.result?.rows)) {
+      return result.result.rows;
+    }
+    const queries = Array.isArray(result.queries)
+      ? result.queries
+      : Array.isArray(result.result?.queries)
+        ? result.result.queries
+        : null;
+    if (Array.isArray(queries) && queries.length > 0) {
+      const firstWithRows =
+        queries.find((entry) => Array.isArray(entry?.rows)) ||
+        queries.find((entry) => Array.isArray(entry?.results?.rows)) ||
+        queries[0];
+      if (Array.isArray(firstWithRows?.rows)) {
+        return firstWithRows.rows;
+      }
+      if (Array.isArray(firstWithRows?.results?.rows)) {
+        return firstWithRows.results.rows;
+      }
+    }
+    return [];
+  }
+
+  async _fetchSampleRows({ strategy, dbType, dbName, tableName, limit } = {}) {
+    if (!strategy || !tableName || !limit) return [];
+    try {
+      const query = this._buildSimpleSelectQuery(dbType, tableName, limit);
+      const result = await strategy.executeQuery(query, { dbName, page: 1, pageSize: limit });
+      const rows = this._extractRowsFromResult(result);
+      return rows.slice(0, limit);
+    } catch (error) {
+      logger.debug("RAG sample row fetch failed", {
+        tableName,
+        error: error?.message || error,
+      });
+      return [];
+    }
   }
 
   async _recordHistory(entry) {

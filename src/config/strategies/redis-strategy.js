@@ -15,7 +15,7 @@ class RedisStrategy extends CacheStrategy {
     let createClient;
     try {
       ({ createClient } = require("redis"));
-    } catch (error) {
+    } catch {
       throw new Error(
         "Redis driver not installed. Add 'redis' to dependencies to enable Redis support.",
       );
@@ -167,6 +167,18 @@ class RedisStrategy extends CacheStrategy {
         const value = await this.client.get(normalized.key);
         return { key: normalized.key, value };
       }
+      case "incr":
+      case "incrby": {
+        const delta = Number.isFinite(Number(normalized.delta)) ? Number(normalized.delta) : 1;
+        const result = await this.client.sendCommand(["INCRBY", normalized.key, String(delta)]);
+        return { key: normalized.key, value: Number(result) };
+      }
+      case "decr":
+      case "decrby": {
+        const delta = Number.isFinite(Number(normalized.delta)) ? Number(normalized.delta) : 1;
+        const result = await this.client.sendCommand(["DECRBY", normalized.key, String(delta)]);
+        return { key: normalized.key, value: Number(result) };
+      }
       case "set": {
         const setOptions = {};
         if (Number.isFinite(Number(normalized.ttl))) {
@@ -178,6 +190,35 @@ class RedisStrategy extends CacheStrategy {
           Object.keys(setOptions).length > 0
             ? await this.client.set(normalized.key, normalized.value, setOptions)
             : await this.client.set(normalized.key, normalized.value);
+        return { key: normalized.key, result };
+      }
+      case "getset": {
+        const result = await this.client.sendCommand([
+          "GETSET",
+          normalized.key,
+          String(normalized.value ?? ""),
+        ]);
+        return { key: normalized.key, value: result };
+      }
+      case "setnx": {
+        const result = await this.client.sendCommand([
+          "SETNX",
+          normalized.key,
+          String(normalized.value ?? ""),
+        ]);
+        return { key: normalized.key, result: result === 1 || result === "1" };
+      }
+      case "setex": {
+        const ttl = Number(normalized.ttl);
+        if (!Number.isFinite(ttl) || ttl <= 0) {
+          throw new Error("Redis TTL is required");
+        }
+        const result = await this.client.sendCommand([
+          "SETEX",
+          normalized.key,
+          String(ttl),
+          String(normalized.value ?? ""),
+        ]);
         return { key: normalized.key, result };
       }
       case "del": {
@@ -214,6 +255,35 @@ class RedisStrategy extends CacheStrategy {
         const values = await this.client.lRange(normalized.key, start, stop);
         return { key: normalized.key, values };
       }
+      case "llen": {
+        const length = await this.client.sendCommand(["LLEN", normalized.key]);
+        return { key: normalized.key, length: Number(length) };
+      }
+      case "lpop":
+      case "rpop": {
+        const count = Number.isFinite(Number(normalized.count)) ? Number(normalized.count) : null;
+        const command = op === "lpop" ? "LPOP" : "RPOP";
+        const args = count ? [command, normalized.key, String(count)] : [command, normalized.key];
+        const result = await this.client.sendCommand(args);
+        if (count) {
+          return { key: normalized.key, values: Array.isArray(result) ? result : [result] };
+        }
+        return { key: normalized.key, value: result };
+      }
+      case "blpop":
+      case "brpop": {
+        const keys = normalized.keys || [];
+        if (keys.length === 0) throw new Error("Redis keys are required");
+        const timeout = Number.isFinite(Number(normalized.timeout))
+          ? Number(normalized.timeout)
+          : 1;
+        const command = op === "blpop" ? "BLPOP" : "BRPOP";
+        const result = await this.client.sendCommand([command, ...keys, String(timeout)]);
+        if (Array.isArray(result) && result.length >= 2) {
+          return { key: result[0], value: result[1] };
+        }
+        return { result };
+      }
       case "lpush": {
         const values = this._normalizeRedisValues(normalized.values);
         if (values.length === 0) throw new Error("Redis list values are required");
@@ -242,6 +312,18 @@ class RedisStrategy extends CacheStrategy {
         const values = await this.client.sMembers(normalized.key);
         return { key: normalized.key, values };
       }
+      case "sunion": {
+        const keys = normalized.keys || [];
+        if (keys.length === 0) throw new Error("Redis keys are required");
+        const values = await this.client.sendCommand(["SUNION", ...keys]);
+        return { keys, values };
+      }
+      case "sinter": {
+        const keys = normalized.keys || [];
+        if (keys.length === 0) throw new Error("Redis keys are required");
+        const values = await this.client.sendCommand(["SINTER", ...keys]);
+        return { keys, values };
+      }
       case "zadd": {
         const values = this._normalizeRedisSortedSet(normalized.values);
         if (values.length === 0) throw new Error("Redis sorted set values are required");
@@ -253,6 +335,28 @@ class RedisStrategy extends CacheStrategy {
         const stop = Number.isFinite(Number(normalized.stop)) ? Number(normalized.stop) : 9;
         const values = await this.client.zRange(normalized.key, start, stop);
         return { key: normalized.key, values };
+      }
+      case "zrangebyscore": {
+        const min = normalized.min ?? "-inf";
+        const max = normalized.max ?? "+inf";
+        const args = ["ZRANGEBYSCORE", normalized.key, String(min), String(max)];
+        if (normalized.withScores) {
+          args.push("WITHSCORES");
+        }
+        if (
+          Number.isFinite(Number(normalized.offset)) &&
+          Number.isFinite(Number(normalized.count))
+        ) {
+          args.push("LIMIT", String(Number(normalized.offset)), String(Number(normalized.count)));
+        }
+        const values = await this.client.sendCommand(args);
+        return { key: normalized.key, values };
+      }
+      case "zrem": {
+        const members = this._normalizeRedisValues(normalized.members || normalized.values);
+        if (members.length === 0) throw new Error("Redis sorted set members are required");
+        const removed = await this.client.sendCommand(["ZREM", normalized.key, ...members]);
+        return { key: normalized.key, removed: Number(removed) };
       }
       case "expire": {
         const result = await this.client.expire(normalized.key, Number(normalized.ttl) || 0);
@@ -304,6 +408,69 @@ class RedisStrategy extends CacheStrategy {
           if (normalized.limit && keys.length >= normalized.limit) break;
         }
         return { keys };
+      }
+      case "publish": {
+        const channel = normalized.channel || normalized.key;
+        if (!channel) throw new Error("Redis channel is required");
+        const message = normalized.message ?? normalized.value ?? "";
+        const subscribers = await this.client.publish(channel, String(message));
+        return { channel, subscribers };
+      }
+      case "subscribe": {
+        const channels = normalized.channels?.length
+          ? normalized.channels
+          : normalized.channel
+            ? [normalized.channel]
+            : [];
+        if (channels.length === 0) throw new Error("Redis channel is required");
+        if (typeof this.client.duplicate !== "function") {
+          throw new Error("Redis client does not support subscriptions");
+        }
+
+        const limit = Number.isFinite(Number(normalized.limit)) ? Number(normalized.limit) : 1;
+        const timeoutMs = Number.isFinite(Number(normalized.timeoutMs))
+          ? Number(normalized.timeoutMs)
+          : Number.isFinite(Number(normalized.timeout))
+            ? Number(normalized.timeout) * 1000
+            : 1000;
+
+        const subscriber = this.client.duplicate();
+        await subscriber.connect();
+
+        const messages = [];
+        let resolveDone;
+        const done = new Promise((resolve) => {
+          resolveDone = resolve;
+        });
+
+        const pushMessage = (message, channel) => {
+          messages.push({ channel, message });
+          if (messages.length >= limit) {
+            resolveDone();
+          }
+        };
+
+        await Promise.all(
+          channels.map((channel) =>
+            subscriber.subscribe(channel, (message) => pushMessage(message, channel)),
+          ),
+        );
+
+        let timer = null;
+        if (timeoutMs > 0) {
+          timer = setTimeout(() => resolveDone(), timeoutMs);
+        }
+
+        await done;
+
+        if (timer) clearTimeout(timer);
+
+        await Promise.all(
+          channels.map((channel) => subscriber.unsubscribe(channel).catch(() => {})),
+        );
+        await subscriber.disconnect();
+
+        return { channels, messages, count: messages.length };
       }
       case "command": {
         const command = String(normalized.command).toUpperCase();
@@ -391,6 +558,8 @@ class RedisStrategy extends CacheStrategy {
     const key = raw.key || payload.key;
     const keys = raw.keys || payload.keys || (key ? [key] : []);
     const values = raw.values || payload.values || raw.value || payload.value;
+    const channel = raw.channel || payload.channel;
+    const channels = raw.channels || payload.channels || (channel ? [channel] : []);
 
     return {
       operation: normalizedOperation,
@@ -398,13 +567,24 @@ class RedisStrategy extends CacheStrategy {
       keys: Array.isArray(keys) ? keys : [keys],
       value: raw.value || payload.value,
       values,
+      delta: raw.delta || payload.delta,
       field: raw.field || payload.field,
       ttl: raw.ttl || payload.ttl || mergedOptions.ttl,
       pattern: raw.pattern || payload.pattern,
       count: raw.count || payload.count,
       limit: mergedOptions.limit || mergedOptions.pageSize,
+      offset: raw.offset || payload.offset,
       start: raw.start || payload.start,
       stop: raw.stop || payload.stop,
+      min: raw.min || payload.min,
+      max: raw.max || payload.max,
+      withScores: raw.withScores ?? payload.withScores ?? mergedOptions.withScores,
+      members: raw.members || payload.members,
+      channel,
+      channels: Array.isArray(channels) ? channels : [channels],
+      message: raw.message || payload.message,
+      timeout: raw.timeout || payload.timeout || mergedOptions.timeout,
+      timeoutMs: raw.timeoutMs || payload.timeoutMs || mergedOptions.timeoutMs,
       command: raw.command || payload.command,
       args: raw.args || payload.args,
       options: mergedOptions,

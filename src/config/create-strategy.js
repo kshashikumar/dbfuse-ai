@@ -1,18 +1,19 @@
-const MySQLStrategy = require("./strategies/mysql-strategy");
-const PostgreSQLStrategy = require("./strategies/postgresql-strategy");
-const SQLiteStrategy = require("./strategies/sqlite-strategy");
-const MSSQLStrategy = require("./strategies/mssql-strategy");
-const OracleStrategy = require("./strategies/oracle-strategy");
-const MongoDBStrategy = require("./strategies/mongodb-strategy");
-const RedisStrategy = require("./strategies/redis-strategy");
+const { DEFAULT_CONFIG } = require("../core/constants");
+
+const CassandraStrategy = require("./strategies/cassandra-strategy");
 const CouchDBStrategy = require("./strategies/couchdb-strategy");
 const CosmosDBStrategy = require("./strategies/cosmosdb-strategy");
-const FirestoreStrategy = require("./strategies/firestore-strategy");
 const DynamoDBStrategy = require("./strategies/dynamodb-strategy");
-const CassandraStrategy = require("./strategies/cassandra-strategy");
+const FirestoreStrategy = require("./strategies/firestore-strategy");
 const HBaseStrategy = require("./strategies/hbase-strategy");
 const MemcachedStrategy = require("./strategies/memcached-strategy");
-const { DEFAULT_CONFIG } = require("../core/constants");
+const MongoDBStrategy = require("./strategies/mongodb-strategy");
+const MSSQLStrategy = require("./strategies/mssql-strategy");
+const MySQLStrategy = require("./strategies/mysql-strategy");
+const OracleStrategy = require("./strategies/oracle-strategy");
+const PostgreSQLStrategy = require("./strategies/postgresql-strategy");
+const RedisStrategy = require("./strategies/redis-strategy");
+const SQLiteStrategy = require("./strategies/sqlite-strategy");
 
 const strategyMap = Object.freeze({
   mysql2: MySQLStrategy,
@@ -94,43 +95,58 @@ const strategyMetadata = Object.freeze({
     name: "CouchDB",
     version: "3.x+",
     type: "nosql",
-    capabilities: ["crud", "query", "mango", "indexes", "documents"],
-    supportedFeatures: ["databases", "mango", "documents", "indexes"],
+    capabilities: ["crud", "query", "mango", "indexes", "documents", "changes", "attachments"],
+    supportedFeatures: [
+      "databases",
+      "mango",
+      "documents",
+      "indexes",
+      "views",
+      "changes",
+      "attachments",
+    ],
   },
   cosmosdb: {
     name: "Azure Cosmos DB",
     version: "SQL API",
     type: "nosql",
-    capabilities: ["crud", "query", "indexes", "documents", "batch"],
-    supportedFeatures: ["databases", "containers", "sql-api", "partition-keys"],
+    capabilities: ["crud", "query", "indexes", "documents", "batch", "stored-procedures", "admin"],
+    supportedFeatures: [
+      "databases",
+      "containers",
+      "sql-api",
+      "partition-keys",
+      "stored-procedures",
+      "admin",
+    ],
   },
   firestore: {
     name: "Firestore",
     version: "1.x",
     type: "nosql",
-    capabilities: ["crud", "query", "documents"],
-    supportedFeatures: ["collections", "documents", "collection-group"],
+    capabilities: ["crud", "query", "documents", "transactions", "batch"],
+    supportedFeatures: ["collections", "documents", "collection-group", "transactions", "batch"],
   },
   dynamodb: {
     name: "DynamoDB",
     version: "2012+",
     type: "nosql",
-    capabilities: ["crud", "query", "batch", "indexes"],
-    supportedFeatures: ["tables", "gsi", "lsi", "items"],
+    capabilities: ["crud", "query", "batch", "indexes", "transactions", "admin"],
+    supportedFeatures: ["tables", "gsi", "lsi", "items", "transactions", "admin"],
   },
   cassandra: {
     name: "Cassandra",
     version: "4.x+",
     type: "nosql",
-    capabilities: ["crud", "query", "cql"],
-    supportedFeatures: ["keyspaces", "tables", "indexes", "columns"],
+    capabilities: ["crud", "query", "cql", "batch", "transactions"],
+    supportedFeatures: ["keyspaces", "tables", "indexes", "columns", "batch", "lwt"],
   },
   hbase: {
     name: "HBase",
     version: "2.x+",
     type: "nosql",
-    capabilities: ["crud", "scan"],
-    supportedFeatures: ["tables", "column-families", "rows"],
+    capabilities: ["crud", "scan", "filters"],
+    supportedFeatures: ["tables", "column-families", "rows", "increment", "append", "filters"],
   },
   memcached: {
     name: "Memcached",
@@ -187,6 +203,7 @@ function buildCapabilityModel(dbType) {
   }
 
   return {
+    type,
     operations: Array.from(operations),
     features: Array.from(features),
     limits: {
@@ -283,6 +300,14 @@ function getStrategyMetadata(dbType) {
 }
 
 /**
+ * Get capability model for a dbType
+ * @param {string} dbType - Database type
+ * @returns {Object} Capability model
+ */
+function getCapabilityModel(dbType) {
+  return buildCapabilityModel(dbType);
+}
+/**
  * Get all strategy capabilities
  * @returns {Object} Map of dbType to metadata
  */
@@ -321,6 +346,7 @@ module.exports = {
   createStrategy,
   getStrategyClass,
   getStrategyMetadata,
+  getCapabilityModel,
   getAllStrategyMetadata,
   validateStrategyImplementation,
   registerStrategyHook,

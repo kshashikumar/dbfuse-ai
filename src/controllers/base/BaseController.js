@@ -3,9 +3,10 @@
  * Includes standardized response handling, error management, and header extraction
  */
 
-const logger = require("../../utils/logger");
-const { HTTP_STATUS, GENERAL_ERRORS } = require("../../core/constants");
 const sanitizeHtml = require("sanitize-html");
+
+const { HTTP_STATUS, GENERAL_ERRORS } = require("../../core/constants");
+const logger = require("../../utils/logger");
 
 /**
  * Base controller class with common methods for all controllers

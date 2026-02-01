@@ -3,12 +3,13 @@
  * Handles reading and updating application configuration
  */
 
-const BaseController = require("./base/BaseController");
 const logger = require("../utils/logger");
 const configService = require("../services/ConfigService");
 const connectionStore = require("../config/connection-store");
 const { CONFIG_MESSAGES, HTTP_STATUS, AI_MODELS, FALLBACK_AI_MODEL } = require("../core/constants");
 const { CONFIG_PORT_RESTART_DELAY_MS, ENV_KEYS } = require("../core/env");
+
+const BaseController = require("./base/BaseController");
 
 class ConfigController extends BaseController {
   /**

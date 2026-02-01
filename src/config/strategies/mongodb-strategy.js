@@ -15,7 +15,7 @@ class MongoDBStrategy extends NoSQLStrategy {
     let MongoClient;
     try {
       ({ MongoClient } = require("mongodb"));
-    } catch (error) {
+    } catch {
       throw new Error(
         "MongoDB driver not installed. Add 'mongodb' to dependencies to enable MongoDB support.",
       );
@@ -203,6 +203,33 @@ class MongoDBStrategy extends NoSQLStrategy {
         );
         return { documents: document ? [document] : [], totalRows: document ? 1 : 0 };
       }
+      case "findoneandupdate": {
+        if (!collection) throw new Error("MongoDB collection is required");
+        if (!normalized.update) throw new Error("MongoDB update document is required");
+        const result = await collection.findOneAndUpdate(
+          normalized.filter || {},
+          normalized.update,
+          {
+            ...normalized.options,
+            returnDocument: normalized.options?.returnDocument || "after",
+          },
+        );
+        return {
+          documents: result?.value ? [result.value] : [],
+          lastErrorObject: result?.lastErrorObject,
+          ok: result?.ok,
+        };
+      }
+      case "findoneanddelete": {
+        if (!collection) throw new Error("MongoDB collection is required");
+        const result = await collection.findOneAndDelete(normalized.filter || {}, {
+          ...normalized.options,
+        });
+        return {
+          documents: result?.value ? [result.value] : [],
+          ok: result?.ok,
+        };
+      }
       case "aggregate": {
         if (!collection) throw new Error("MongoDB collection is required");
         const pipeline = Array.isArray(normalized.pipeline) ? [...normalized.pipeline] : [];
@@ -267,6 +294,43 @@ class MongoDBStrategy extends NoSQLStrategy {
         const response = await collection[handler](normalized.filter || {});
         return {
           deletedCount: response.deletedCount || 0,
+        };
+      }
+      case "bulkwrite": {
+        if (!collection) throw new Error("MongoDB collection is required");
+        if (!Array.isArray(normalized.operations) || normalized.operations.length === 0) {
+          throw new Error("MongoDB bulkWrite operations array is required");
+        }
+        const result = await collection.bulkWrite(normalized.operations, normalized.options || {});
+        return { result };
+      }
+      case "createcollection": {
+        if (!normalized.collection) throw new Error("MongoDB collection is required");
+        const created = await db.createCollection(
+          normalized.collection,
+          normalized.collectionOptions || {},
+        );
+        return {
+          created: Boolean(created?.collectionName || created?.namespace),
+          name: normalized.collection,
+        };
+      }
+      case "dropcollection": {
+        if (!normalized.collection) throw new Error("MongoDB collection is required");
+        const dropped = await db.dropCollection(normalized.collection);
+        return { dropped: Boolean(dropped), name: normalized.collection };
+      }
+      case "renamecollection": {
+        if (!normalized.collection || !normalized.newName) {
+          throw new Error("MongoDB collection and newName are required");
+        }
+        const renamed = await db
+          .collection(normalized.collection)
+          .rename(normalized.newName, { dropTarget: Boolean(normalized.dropTarget) });
+        return {
+          renamed: Boolean(renamed?.collectionName || renamed?.namespace),
+          from: normalized.collection,
+          to: normalized.newName,
         };
       }
       case "count": {
@@ -394,6 +458,10 @@ class MongoDBStrategy extends NoSQLStrategy {
       indexKeys: raw.indexKeys || payload.indexKeys,
       indexOptions: raw.indexOptions || payload.indexOptions,
       indexName: raw.indexName || payload.indexName,
+      operations: raw.operations || payload.operations || raw.bulkOps || payload.bulkOps,
+      collectionOptions: raw.collectionOptions || payload.collectionOptions,
+      newName: raw.newName || payload.newName || raw.renameTo || payload.renameTo,
+      dropTarget: raw.dropTarget ?? payload.dropTarget,
       explain: raw.explain || payload.explain,
       command: raw.commandPayload || payload.command || raw.command,
       payload,

@@ -16,7 +16,7 @@ class StrategySelector {
         .map((f) => f.replace(".js", ""));
 
       return new Set(strategies);
-    } catch (error) {
+    } catch {
       // Fallback to known strategies if directory read fails
       return new Set([
         "DirectSQLStrategy",
@@ -28,11 +28,23 @@ class StrategySelector {
     }
   }
 
-  select({ analysis, context, queryIntent }) {
+  select({ analysis, context, queryIntent, capabilities, dbType } = {}) {
     const tables = Array.isArray(context?.tables) ? context.tables : [];
     const complexity = analysis?.complexity || "simple";
     const confidence = analysis?.confidence || 0.5;
     const intent = queryIntent?.type || null;
+    const caps = capabilities || {};
+    const ops = Array.isArray(caps.operations)
+      ? caps.operations.map((op) => String(op).toLowerCase())
+      : [];
+    const type = String(caps.type || "").toLowerCase();
+    const normalizedDbType = String(dbType || "").toLowerCase();
+    const isSql =
+      type === "sql" ||
+      ["mysql", "mysql2", "pg", "postgresql", "sqlite", "sqlite3", "mssql", "oracledb"].includes(
+        normalizedDbType,
+      );
+    const canQuery = ops.length === 0 || ops.includes("query");
 
     // 1. Intent-based routing (if available)
     if (intent === "explain_query") {
@@ -41,6 +53,14 @@ class StrategySelector {
 
     if (intent === "suggest_alternatives") {
       return this._validateStrategy("SuggestionStrategy");
+    }
+
+    if (!canQuery) {
+      return this._validateStrategy("DirectSQLStrategy");
+    }
+
+    if (!isSql) {
+      return this._validateStrategy("DirectSQLStrategy");
     }
 
     // 2. Complex queries always use decomposition

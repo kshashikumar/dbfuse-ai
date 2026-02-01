@@ -1,9 +1,10 @@
 // oracle-test-suite.js
 // Oracle Database Strategy Integration Tests
 
-const BaseTester = require("./base-tester");
 const { LOCALHOST_HOSTNAME } = require("../../../src/core/app");
 const { DB_TYPES, DB_DEFAULTS } = require("../../../src/core/constants");
+
+const BaseTester = require("./base-tester");
 
 class OracleTester extends BaseTester {
   constructor() {

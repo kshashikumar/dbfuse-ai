@@ -14,7 +14,7 @@ class CouchDBStrategy extends NoSQLStrategy {
     let nano;
     try {
       nano = require("nano");
-    } catch (error) {
+    } catch {
       throw new Error(
         "CouchDB driver not installed. Add 'nano' to dependencies to enable CouchDB support.",
       );
@@ -172,6 +172,100 @@ class CouchDBStrategy extends NoSQLStrategy {
         const result = await db.bulk({ docs: normalized.documents });
         return { result };
       }
+      case "view": {
+        if (!normalized.designDoc || !normalized.view) {
+          throw new Error("CouchDB view requires designDoc and view name.");
+        }
+        const result = await db.view(
+          normalized.designDoc,
+          normalized.view,
+          normalized.params || {},
+        );
+        return {
+          rows: result.rows || [],
+          totalRows: result.total_rows ?? result.rows?.length ?? 0,
+          offset: result.offset ?? 0,
+        };
+      }
+      case "changes": {
+        const result = await db.changes(normalized.params || {});
+        return {
+          changes: result.results || [],
+          lastSeq: result.last_seq,
+          pending: result.pending,
+        };
+      }
+      case "attachmentget": {
+        if (!normalized.id || !normalized.attachmentName) {
+          throw new Error("CouchDB attachment get requires id and attachmentName.");
+        }
+        const data = await db.attachment.get(
+          normalized.id,
+          normalized.attachmentName,
+          normalized.params || {},
+        );
+        return { id: normalized.id, attachmentName: normalized.attachmentName, data };
+      }
+      case "attachmentinsert": {
+        if (!normalized.id || !normalized.attachmentName) {
+          throw new Error("CouchDB attachment insert requires id and attachmentName.");
+        }
+        if (normalized.data === undefined) {
+          throw new Error("CouchDB attachment insert requires data.");
+        }
+        const contentType = normalized.contentType || "application/octet-stream";
+        const payload =
+          normalized.encoding === "base64"
+            ? Buffer.from(String(normalized.data), "base64")
+            : normalized.data;
+        const result = await db.attachment.insert(
+          normalized.id,
+          normalized.attachmentName,
+          payload,
+          contentType,
+          normalized.params || {},
+        );
+        return { result };
+      }
+      case "attachmentdelete": {
+        if (!normalized.id || !normalized.attachmentName || !normalized.rev) {
+          throw new Error("CouchDB attachment delete requires id, attachmentName, and rev.");
+        }
+        const result = await db.attachment.destroy(
+          normalized.id,
+          normalized.attachmentName,
+          normalized.rev,
+        );
+        return { result };
+      }
+      case "createindex": {
+        if (!normalized.index) {
+          throw new Error("CouchDB createIndex requires index definition.");
+        }
+        const result = await db.createIndex(normalized.index);
+        return { result };
+      }
+      case "deleteindex": {
+        if (!normalized.indexName || !normalized.designDoc) {
+          throw new Error("CouchDB deleteIndex requires designDoc and indexName.");
+        }
+        if (typeof db.deleteIndex === "function") {
+          const result = await db.deleteIndex(normalized.designDoc, normalized.indexName);
+          return { result };
+        }
+        if (typeof db.request === "function") {
+          const result = await db.request({
+            method: "DELETE",
+            path: `_index/${normalized.designDoc}/json/${normalized.indexName}`,
+          });
+          return { result };
+        }
+        throw new Error("CouchDB deleteIndex is not supported by this driver.");
+      }
+      case "listindexes": {
+        const result = await db.getIndexes();
+        return { indexes: result.indexes || [] };
+      }
       default:
         throw new Error(`Unsupported CouchDB operation: ${normalized.operation}`);
     }
@@ -208,9 +302,18 @@ class CouchDBStrategy extends NoSQLStrategy {
       database: query?.database || payload.database || query?.dbName,
       id: query?.id || payload.id,
       rev: query?.rev || payload.rev,
+      designDoc: query?.designDoc || payload.designDoc || query?.ddoc || payload.ddoc,
+      view: query?.view || payload.view,
       filter: query?.selector || payload.selector || query?.filter,
       document: query?.document || payload.document,
       documents: query?.documents || payload.documents,
+      params: query?.params || payload.params || query?.options || payload.options || {},
+      attachmentName: query?.attachmentName || payload.attachmentName || query?.attachment,
+      contentType: query?.contentType || payload.contentType,
+      data: query?.data || payload.data,
+      encoding: query?.encoding || payload.encoding,
+      index: query?.index || payload.index,
+      indexName: query?.indexName || payload.indexName,
       options,
     };
   }

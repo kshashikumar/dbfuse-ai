@@ -86,6 +86,7 @@ class DatabaseService {
       failedQueries: 0,
       cachedQueries: 0,
       totalExecutionTime: 0,
+      byDbType: {},
     };
     this.rateLimitHooks = [];
     this.transactionHooks = [];
@@ -142,6 +143,27 @@ class DatabaseService {
     return { ...options, page, pageSize };
   }
 
+  _resolveDbType(connectionId) {
+    const info = connectionManager.getConnectionInfo(connectionId);
+    const dbType = info?.config?.dbType;
+    return dbType ? String(dbType).toLowerCase() : "unknown";
+  }
+
+  _resolveDbName(dbName, connectionInfo) {
+    const base =
+      dbName || connectionInfo?.currentDatabase || connectionInfo?.config?.database || null;
+    const dbType = String(connectionInfo?.config?.dbType || "").toLowerCase();
+    if (dbType !== "oracledb") {
+      return base;
+    }
+    const serviceName = connectionInfo?.config?.database || null;
+    const username = connectionInfo?.config?.username || null;
+    if (!base || (serviceName && base === serviceName)) {
+      return username || base;
+    }
+    return base;
+  }
+
   /**
    * Update metrics after query execution
    * @private
@@ -150,6 +172,7 @@ class DatabaseService {
    * @param {boolean} cached - Whether result was from cache
    */
   _updateMetrics(success, executionTime = 0, cached = false) {
+    const dbType = arguments.length > 3 ? arguments[3] : "unknown";
     this.metrics.totalQueries++;
     if (success) {
       this.metrics.successfulQueries++;
@@ -160,6 +183,28 @@ class DatabaseService {
       this.metrics.cachedQueries++;
     }
     this.metrics.totalExecutionTime += executionTime;
+
+    if (!this.metrics.byDbType[dbType]) {
+      this.metrics.byDbType[dbType] = {
+        totalQueries: 0,
+        successfulQueries: 0,
+        failedQueries: 0,
+        cachedQueries: 0,
+        totalExecutionTime: 0,
+      };
+    }
+
+    const dbMetrics = this.metrics.byDbType[dbType];
+    dbMetrics.totalQueries++;
+    if (success) {
+      dbMetrics.successfulQueries++;
+    } else {
+      dbMetrics.failedQueries++;
+    }
+    if (cached) {
+      dbMetrics.cachedQueries++;
+    }
+    dbMetrics.totalExecutionTime += executionTime;
   }
 
   /**
@@ -229,12 +274,13 @@ class DatabaseService {
    */
   async getDatabases(connectionId) {
     const startTime = Date.now();
+    const dbType = this._resolveDbType(connectionId);
     try {
       const strategy = connectionManager.getConnection(connectionId);
       const databases = await strategy.getDatabases();
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       return {
         databases,
@@ -242,7 +288,7 @@ class DatabaseService {
         executionTime,
       };
     } catch (error) {
-      this._updateMetrics(false, Date.now() - startTime);
+      this._updateMetrics(false, Date.now() - startTime, false, dbType);
       throw error;
     }
   }
@@ -255,19 +301,20 @@ class DatabaseService {
    */
   async getTables(connectionId, dbName = null) {
     const startTime = Date.now();
+    const dbType = this._resolveDbType(connectionId);
     try {
       const strategy = connectionManager.getConnection(connectionId);
 
-      if (dbName && strategy.switchDatabase) {
-        await strategy.switchDatabase(dbName);
-      }
-
       const info = connectionManager.getConnectionInfo(connectionId);
-      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const currentDb = this._resolveDbName(dbName, info);
+
+      if (currentDb && strategy.switchDatabase) {
+        await strategy.switchDatabase(currentDb);
+      }
       const tables = await strategy.getTables(currentDb);
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       return {
         tables,
@@ -277,7 +324,7 @@ class DatabaseService {
         executionTime,
       };
     } catch (error) {
-      this._updateMetrics(false, Date.now() - startTime);
+      this._updateMetrics(false, Date.now() - startTime, false, dbType);
       throw error;
     }
   }
@@ -290,19 +337,20 @@ class DatabaseService {
    */
   async getCollections(connectionId, dbName = null) {
     const startTime = Date.now();
+    const dbType = this._resolveDbType(connectionId);
     try {
       const strategy = connectionManager.getConnection(connectionId);
 
-      if (dbName && strategy.switchDatabase) {
-        await strategy.switchDatabase(dbName);
-      }
-
       const info = connectionManager.getConnectionInfo(connectionId);
-      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const currentDb = this._resolveDbName(dbName, info);
+
+      if (currentDb && strategy.switchDatabase) {
+        await strategy.switchDatabase(currentDb);
+      }
       const collections = await strategy.getCollections(currentDb);
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       return {
         collections,
@@ -312,7 +360,7 @@ class DatabaseService {
         executionTime,
       };
     } catch (error) {
-      this._updateMetrics(false, Date.now() - startTime);
+      this._updateMetrics(false, Date.now() - startTime, false, dbType);
       throw error;
     }
   }
@@ -326,15 +374,16 @@ class DatabaseService {
    */
   async getCollectionInfo(connectionId, collection, dbName = null) {
     const startTime = Date.now();
+    const dbType = this._resolveDbType(connectionId);
     try {
       const strategy = connectionManager.getConnection(connectionId);
 
-      if (dbName && strategy.switchDatabase) {
-        await strategy.switchDatabase(dbName);
-      }
-
       const info = connectionManager.getConnectionInfo(connectionId);
-      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const currentDb = this._resolveDbName(dbName, info);
+
+      if (currentDb && strategy.switchDatabase) {
+        await strategy.switchDatabase(currentDb);
+      }
       const collectionInfo = await strategy.getCollectionInfo(currentDb, collection);
       const normalized =
         typeof strategy.normalizeMetadata === "function"
@@ -342,7 +391,7 @@ class DatabaseService {
           : collectionInfo;
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       return {
         ...normalized,
@@ -350,7 +399,7 @@ class DatabaseService {
         executionTime,
       };
     } catch (error) {
-      this._updateMetrics(false, Date.now() - startTime);
+      this._updateMetrics(false, Date.now() - startTime, false, dbType);
       throw error;
     }
   }
@@ -363,12 +412,13 @@ class DatabaseService {
    */
   async getKeyPatterns(connectionId, pattern = "*") {
     const startTime = Date.now();
+    const dbType = this._resolveDbType(connectionId);
     try {
       const strategy = connectionManager.getConnection(connectionId);
       const keys = await strategy.getKeys(pattern || "*");
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       return {
         keys,
@@ -378,7 +428,7 @@ class DatabaseService {
         executionTime,
       };
     } catch (error) {
-      this._updateMetrics(false, Date.now() - startTime);
+      this._updateMetrics(false, Date.now() - startTime, false, dbType);
       throw error;
     }
   }
@@ -392,23 +442,24 @@ class DatabaseService {
    */
   async getTableInfo(connectionId, table, dbName = null) {
     const startTime = Date.now();
+    const dbType = this._resolveDbType(connectionId);
     try {
       // Check cache first
       const cacheKey = { table, dbName };
       const cached = this.queryCache.get(connectionId, "getTableInfo", cacheKey);
       if (cached) {
-        this._updateMetrics(true, 0, true);
+        this._updateMetrics(true, 0, true, dbType);
         return cached;
       }
 
       const strategy = connectionManager.getConnection(connectionId);
 
-      if (dbName && strategy.switchDatabase) {
-        await strategy.switchDatabase(dbName);
-      }
-
       const info = connectionManager.getConnectionInfo(connectionId);
-      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const currentDb = this._resolveDbName(dbName, info);
+
+      if (currentDb && strategy.switchDatabase) {
+        await strategy.switchDatabase(currentDb);
+      }
       const tableInfo = await strategy.getTableInfo(currentDb, table);
       const normalized =
         typeof strategy.normalizeMetadata === "function"
@@ -416,7 +467,7 @@ class DatabaseService {
           : tableInfo;
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       const result = {
         ...normalized,
@@ -429,7 +480,7 @@ class DatabaseService {
 
       return result;
     } catch (error) {
-      this._updateMetrics(false, Date.now() - startTime);
+      this._updateMetrics(false, Date.now() - startTime, false, dbType);
       throw error;
     }
   }
@@ -443,15 +494,16 @@ class DatabaseService {
    */
   async getMultipleTablesInfo(connectionId, tables, dbName = null) {
     const startTime = Date.now();
+    const dbType = this._resolveDbType(connectionId);
     try {
       const strategy = connectionManager.getConnection(connectionId);
 
-      if (dbName && strategy.switchDatabase) {
-        await strategy.switchDatabase(dbName);
-      }
-
       const info = connectionManager.getConnectionInfo(connectionId);
-      const currentDb = dbName || info?.currentDatabase || info?.config?.database;
+      const currentDb = this._resolveDbName(dbName, info);
+
+      if (currentDb && strategy.switchDatabase) {
+        await strategy.switchDatabase(currentDb);
+      }
       const tableDetails = await strategy.getMultipleTablesInfo(currentDb, tables);
       const normalized = Array.isArray(tableDetails)
         ? tableDetails.map((info) =>
@@ -462,7 +514,7 @@ class DatabaseService {
         : tableDetails;
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       return {
         tables: normalized,
@@ -472,7 +524,7 @@ class DatabaseService {
         executionTime,
       };
     } catch (error) {
-      this._updateMetrics(false, Date.now() - startTime);
+      this._updateMetrics(false, Date.now() - startTime, false, dbType);
       throw error;
     }
   }
@@ -491,6 +543,7 @@ class DatabaseService {
 
     const startTime = Date.now();
     const isStringQuery = typeof query === "string";
+    const dbType = this._resolveDbType(connectionId);
 
     try {
       // Check rate limits
@@ -508,13 +561,16 @@ class DatabaseService {
         throw new Error("Query rate limit exceeded");
       }
 
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = this._resolveDbName(dbName, info);
+
       // Check cache for SELECT queries
       const isSelect = isStringQuery && query.trim().toUpperCase().startsWith("SELECT");
       if (useCache && isSelect) {
-        const cacheKey = { query, page, pageSize, dbName };
+        const cacheKey = { query, page, pageSize, dbName: currentDb };
         const cached = this.queryCache.get(connectionId, "query", cacheKey);
         if (cached) {
-          this._updateMetrics(true, 0, true);
+          this._updateMetrics(true, 0, true, dbType);
           return cached;
         }
       }
@@ -524,8 +580,8 @@ class DatabaseService {
 
       const strategy = connectionManager.getConnection(connectionId);
 
-      if (dbName && strategy.switchDatabase) {
-        await strategy.switchDatabase(dbName);
+      if (currentDb && strategy.switchDatabase) {
+        await strategy.switchDatabase(currentDb);
       }
 
       const opType = this._inferOperationType(query);
@@ -533,12 +589,12 @@ class DatabaseService {
         strategy.validateOperation(opType, query);
       }
 
-      const result = await strategy.executeQuery(query, { page, pageSize, dbName });
+      const result = await strategy.executeQuery(query, { page, pageSize, dbName: currentDb });
       const normalized =
         typeof strategy.normalizeResult === "function" ? strategy.normalizeResult(result) : result;
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       // Notify success
       await this._notifyTransactionHooks("query_success", {
@@ -549,14 +605,14 @@ class DatabaseService {
 
       // Cache SELECT results
       if (useCache && isSelect && normalized.rows) {
-        const cacheKey = { query, page, pageSize, dbName };
+        const cacheKey = { query, page, pageSize, dbName: currentDb };
         this.queryCache.set(connectionId, "query", cacheKey, normalized);
       }
 
       return normalized;
     } catch (error) {
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(false, executionTime);
+      this._updateMetrics(false, executionTime, false, dbType);
 
       // Notify error
       await this._notifyTransactionHooks("query_error", {
@@ -578,23 +634,27 @@ class DatabaseService {
    */
   async executeBatch(connectionId, queries, dbName = null) {
     const startTime = Date.now();
+    const dbType = this._resolveDbType(connectionId);
     try {
       const strategy = connectionManager.getConnection(connectionId);
 
-      if (dbName && strategy.switchDatabase) {
-        await strategy.switchDatabase(dbName);
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const currentDb = this._resolveDbName(dbName, info);
+
+      if (currentDb && strategy.switchDatabase) {
+        await strategy.switchDatabase(currentDb);
       }
 
       await this._notifyTransactionHooks("batch_start", { connectionId, count: queries.length });
 
       const results = [];
       for (const query of queries) {
-        const result = await strategy.executeQuery(query, { dbName });
+        const result = await strategy.executeQuery(query, { dbName: currentDb });
         results.push(result);
       }
 
       const executionTime = Date.now() - startTime;
-      this._updateMetrics(true, executionTime);
+      this._updateMetrics(true, executionTime, false, dbType);
 
       await this._notifyTransactionHooks("batch_success", { connectionId, count: queries.length });
 
@@ -606,7 +666,7 @@ class DatabaseService {
         mode: "batch",
       };
     } catch (error) {
-      this._updateMetrics(false, Date.now() - startTime);
+      this._updateMetrics(false, Date.now() - startTime, false, dbType);
       await this._notifyTransactionHooks("batch_error", { connectionId, error: error.message });
       throw error;
     }
@@ -619,26 +679,22 @@ class DatabaseService {
    * @returns {Promise<Object>} Switch result
    */
   async switchDatabase(connectionId, dbName) {
-    try {
-      const strategy = connectionManager.getConnection(connectionId);
-      await strategy.switchDatabase(dbName);
+    const strategy = connectionManager.getConnection(connectionId);
+    await strategy.switchDatabase(dbName);
 
-      const info = connectionManager.getConnectionInfo(connectionId);
-      if (info) {
-        info.currentDatabase = dbName;
-      }
-
-      // Clear cache for this connection
-      this.queryCache.clear();
-
-      return {
-        message: `Switched to database ${dbName}`,
-        database: dbName,
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
-      throw error;
+    const info = connectionManager.getConnectionInfo(connectionId);
+    if (info) {
+      info.currentDatabase = dbName;
     }
+
+    // Clear cache for this connection
+    this.queryCache.clear();
+
+    return {
+      message: `Switched to database ${dbName}`,
+      database: dbName,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   /**
@@ -651,9 +707,20 @@ class DatabaseService {
         ? this.metrics.totalExecutionTime / this.metrics.totalQueries
         : 0;
 
+    const byDbType = {};
+    Object.entries(this.metrics.byDbType).forEach(([dbType, stats]) => {
+      const averageExecutionTime =
+        stats.totalQueries > 0 ? stats.totalExecutionTime / stats.totalQueries : 0;
+      byDbType[dbType] = {
+        ...stats,
+        averageExecutionTime: Math.round(averageExecutionTime),
+      };
+    });
+
     return {
       ...this.metrics,
       averageExecutionTime: Math.round(avgExecutionTime),
+      byDbType,
       cacheStats: this.queryCache.getStats(),
     };
   }
@@ -668,6 +735,7 @@ class DatabaseService {
       failedQueries: 0,
       cachedQueries: 0,
       totalExecutionTime: 0,
+      byDbType: {},
     };
     logger.debug("Database service metrics reset");
   }
@@ -686,8 +754,6 @@ class DatabaseService {
   isHealthy() {
     try {
       const metrics = this.getMetrics();
-      const hasActiveConnections = connectionManager.getAllConnectionIds().length > 0;
-
       return {
         healthy: true,
         cacheEnabled: true,
@@ -751,7 +817,7 @@ class DatabaseService {
         }
 
         if (typeof strategy.fetchRowRange === "function") {
-          return await strategy.fetchRowRange(query, offset, limit);
+          return await strategy.fetchRowRange(query, offset, limit, options);
         } else {
           throw new Error(`fetchRowRange not implemented for this database type`);
         }

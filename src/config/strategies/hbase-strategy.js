@@ -14,7 +14,7 @@ class HBaseStrategy extends NoSQLStrategy {
     let hbase;
     try {
       hbase = require("hbase");
-    } catch (error) {
+    } catch {
       throw new Error(
         "HBase driver not installed. Add 'hbase' to dependencies to enable HBase support.",
       );
@@ -143,16 +143,31 @@ class HBaseStrategy extends NoSQLStrategy {
     switch (normalized.operation) {
       case "get": {
         if (!normalized.rowKey) throw new Error("HBase rowKey is required.");
-        const cells = await this._wrapCallback((cb) => table.row(normalized.rowKey).get(cb));
+        const getOptions = {};
+        if (normalized.columns?.length) getOptions.columns = normalized.columns;
+        if (Number.isFinite(Number(normalized.maxVersions))) {
+          getOptions.maxVersions = Number(normalized.maxVersions);
+        }
+        const cells = await this._wrapCallback((cb) => {
+          if (Object.keys(getOptions).length > 0) {
+            table.row(normalized.rowKey).get(getOptions, cb);
+          } else {
+            table.row(normalized.rowKey).get(cb);
+          }
+        });
         return { documents: [this._formatRow({ key: normalized.rowKey, columns: cells })] };
       }
       case "scan": {
         const scanOptions = {
-          maxVersions: 1,
+          maxVersions: Number.isFinite(Number(normalized.maxVersions))
+            ? Number(normalized.maxVersions)
+            : 1,
           limit: normalized.limit || options?.pageSize || 20,
         };
         if (normalized.startRow) scanOptions.startRow = normalized.startRow;
         if (normalized.endRow) scanOptions.endRow = normalized.endRow;
+        if (normalized.columns?.length) scanOptions.columns = normalized.columns;
+        if (normalized.filter) scanOptions.filter = normalized.filter;
         const rows = await this._wrapCallback((cb) => table.scan(scanOptions, cb));
         const documents = rows.map((row) => this._formatRow(row));
         return { documents, totalRows: documents.length };
@@ -166,6 +181,32 @@ class HBaseStrategy extends NoSQLStrategy {
         }
         await this._wrapCallback((cb) => table.row(normalized.rowKey).put(normalized.values, cb));
         return { written: true };
+      }
+      case "increment": {
+        if (!normalized.rowKey) throw new Error("HBase rowKey is required.");
+        if (!normalized.values || typeof normalized.values !== "object") {
+          throw new Error("HBase increment requires values.");
+        }
+        if (typeof table.row(normalized.rowKey).increment !== "function") {
+          throw new Error("HBase increment not supported by this driver.");
+        }
+        const result = await this._wrapCallback((cb) =>
+          table.row(normalized.rowKey).increment(normalized.values, cb),
+        );
+        return { result };
+      }
+      case "append": {
+        if (!normalized.rowKey) throw new Error("HBase rowKey is required.");
+        if (!normalized.values || typeof normalized.values !== "object") {
+          throw new Error("HBase append requires values.");
+        }
+        if (typeof table.row(normalized.rowKey).append !== "function") {
+          throw new Error("HBase append not supported by this driver.");
+        }
+        const result = await this._wrapCallback((cb) =>
+          table.row(normalized.rowKey).append(normalized.values, cb),
+        );
+        return { result };
       }
       case "delete": {
         if (!normalized.rowKey) throw new Error("HBase rowKey is required.");
@@ -202,7 +243,16 @@ class HBaseStrategy extends NoSQLStrategy {
       startRow: query?.startRow || payload.startRow,
       endRow: query?.endRow || payload.endRow,
       limit: query?.limit || payload.limit,
+      columns: this._normalizeColumns(query?.columns || payload.columns),
+      filter: query?.filter || payload.filter,
+      maxVersions: query?.maxVersions || payload.maxVersions,
     };
+  }
+
+  _normalizeColumns(columns) {
+    if (!columns) return [];
+    if (Array.isArray(columns)) return columns;
+    return [columns];
   }
 
   _wrapCallback(fn) {

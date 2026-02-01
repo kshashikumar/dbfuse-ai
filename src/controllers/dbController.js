@@ -3,13 +3,12 @@
  * Handles HTTP endpoints for database operations (queries, schema, connections)
  */
 
-const BaseController = require("./base/BaseController");
 const chalk = require("chalk");
+
 const dbContext = require("../config/database-context");
 const { connectionManager } = require("../config");
 const { getStrategyMetadata } = require("../config/create-strategy");
 const databaseService = require("../services/DatabaseService");
-const logger = require("../utils/logger");
 const {
   HEADERS,
   HEADER_VARIANTS,
@@ -18,6 +17,8 @@ const {
   HTTP_STATUS,
 } = require("../core/constants");
 const { getHeaderValue } = require("../utils/http");
+
+const BaseController = require("./base/BaseController");
 
 class DatabaseController extends BaseController {
   /**

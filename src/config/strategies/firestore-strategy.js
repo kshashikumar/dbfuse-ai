@@ -14,7 +14,7 @@ class FirestoreStrategy extends NoSQLStrategy {
     let Firestore;
     try {
       ({ Firestore } = require("@google-cloud/firestore"));
-    } catch (error) {
+    } catch {
       throw new Error(
         "Firestore driver not installed. Add '@google-cloud/firestore' to dependencies to enable Firestore support.",
       );
@@ -172,6 +172,90 @@ class FirestoreStrategy extends NoSQLStrategy {
         await docRef.delete();
         return { deleted: true, id: docRef.id };
       }
+      case "transaction": {
+        const actions = normalized.actions || [];
+        if (!Array.isArray(actions) || actions.length === 0) {
+          throw new Error("Firestore transaction requires actions array.");
+        }
+        const documents = [];
+        let writes = 0;
+        await this.client.runTransaction(async (tx) => {
+          for (const action of actions) {
+            const op = String(action.operation || action.op || action.action || "").toLowerCase();
+            const docRef = this._resolveDocRef(action);
+            if (op === "get") {
+              const snap = await tx.get(docRef);
+              if (snap.exists) {
+                documents.push({ id: snap.id, ...snap.data() });
+              }
+              continue;
+            }
+            if (!action.document && op !== "delete") {
+              throw new Error(`Firestore transaction '${op}' requires document.`);
+            }
+            if (op === "set") {
+              tx.set(docRef, action.document, action.merge ? { merge: true } : undefined);
+              writes++;
+              continue;
+            }
+            if (op === "create") {
+              tx.create(docRef, action.document);
+              writes++;
+              continue;
+            }
+            if (op === "update") {
+              tx.update(docRef, action.document);
+              writes++;
+              continue;
+            }
+            if (op === "delete") {
+              tx.delete(docRef);
+              writes++;
+              continue;
+            }
+            throw new Error(`Unsupported Firestore transaction action: ${op}`);
+          }
+        });
+        return { documents, writes };
+      }
+      case "batch": {
+        const actions = normalized.actions || [];
+        if (!Array.isArray(actions) || actions.length === 0) {
+          throw new Error("Firestore batch requires actions array.");
+        }
+        const batch = this.client.batch();
+        let writes = 0;
+        for (const action of actions) {
+          const op = String(action.operation || action.op || action.action || "").toLowerCase();
+          const docRef = this._resolveDocRef(action);
+          if (!action.document && op !== "delete") {
+            throw new Error(`Firestore batch '${op}' requires document.`);
+          }
+          if (op === "set") {
+            batch.set(docRef, action.document, action.merge ? { merge: true } : undefined);
+            writes++;
+            continue;
+          }
+          if (op === "create") {
+            batch.create(docRef, action.document);
+            writes++;
+            continue;
+          }
+          if (op === "update") {
+            batch.update(docRef, action.document);
+            writes++;
+            continue;
+          }
+          if (op === "delete") {
+            batch.delete(docRef);
+            writes++;
+            continue;
+          }
+          throw new Error(`Unsupported Firestore batch action: ${op}`);
+        }
+        await batch.commit();
+        return { writes };
+      }
       case "query": {
         if (!normalized.collection) throw new Error("Firestore collection is required.");
         let ref = normalized.collectionGroup
@@ -247,6 +331,9 @@ class FirestoreStrategy extends NoSQLStrategy {
       id: query?.id || payload.id || query?.documentId || payload.documentId,
       document: query?.document || payload.document,
       merge: query?.merge ?? payload.merge,
+      actions: this._normalizeActions(
+        query?.actions || payload.actions || query?.operations || payload.operations,
+      ),
       filters: this._normalizeFilters(query?.filters || payload.filters),
       orderBy: this._normalizeOrderBy(query?.orderBy || payload.orderBy),
       limit: query?.limit || payload.limit || options?.pageSize,
@@ -256,6 +343,24 @@ class FirestoreStrategy extends NoSQLStrategy {
       endAt: this._normalizeCursor(query?.endAt || payload.endAt),
       collectionGroup: Boolean(query?.collectionGroup || payload.collectionGroup),
     };
+  }
+
+  _normalizeActions(actions) {
+    if (!actions) return [];
+    if (!Array.isArray(actions)) return [];
+    return actions
+      .map((action) => {
+        if (!action || typeof action !== "object") return null;
+        return {
+          operation: action.operation || action.op || action.action,
+          collection: action.collection,
+          documentPath: action.documentPath,
+          id: action.id || action.documentId,
+          document: action.document,
+          merge: action.merge,
+        };
+      })
+      .filter(Boolean);
   }
 
   _normalizeFilters(filters) {

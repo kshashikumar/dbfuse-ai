@@ -23,6 +23,8 @@ type ChatMessage = {
     id: string;
     role: 'user' | 'assistant';
     text: string;
+    fullText?: string;
+    streaming?: boolean;
     queryId?: string;
     error?: string;
     steps?: ChatStep[];
@@ -62,9 +64,13 @@ export class ChatComponent implements OnDestroy {
     currentSteps: ChatStep[] = [];
     isStreaming = false;
     private streamingMessageId: string | null = null;
+    private readonly streamTimers = new Map<string, ReturnType<typeof setInterval>>();
     enrichedContext: EnrichedQueryContext | null = null;
     showEnrichmentDetails = false;
-    currentQueryResult: any = null;
+
+    // Results management
+    queryResults: any[] = [];
+    activeResultIndex = 0;
     hasResults = false;
     private readonly destroy$ = new Subject<void>();
 
@@ -245,7 +251,7 @@ export class ChatComponent implements OnDestroy {
                 role: 'assistant',
                 text: 'Processing your request...',
                 steps: [],
-                showSteps: true,
+                showSteps: false,
             };
             this.messages = [...this.messages, streamingMessage];
             this.cdr.markForCheck();
@@ -260,27 +266,25 @@ export class ChatComponent implements OnDestroy {
             }
             const steps = this.consumeSteps(payload.requestId) || payload.steps;
 
-            console.log('📥 FRONTEND RECEIVED MESSAGE', {
-                hasTableData: !!payload.tableData,
-                tableName: payload.tableData?.tableName,
-                rowCount: payload.tableData?.rows?.length,
-                columnCount: payload.tableData?.columns?.length,
-            });
-
+            const fullText = payload.content || 'No response returned.';
             const message: ChatMessage = {
                 id: payload.messageId || `assistant-${Date.now()}`,
                 role: 'assistant',
-                text: payload.content || 'No response returned.',
+                text: '',
+                fullText,
+                streaming: true,
                 queryId: payload.queryId || undefined,
                 steps: Array.isArray(steps) ? steps : undefined,
                 showSteps: false,
                 queryResult: payload.tableData || undefined,
             };
 
-            // If tableData exists, show in result grid
+            // If tableData exists, append to results
             if (payload.tableData) {
-                console.log('✅ SHOWING QUERY RESULT', payload.tableData.tableName);
-                this.currentQueryResult = payload.tableData;
+                // Check if this result is already added (deduplicate by query/timestamp if possible, or just push)
+                // For now, push as new result and switch to it
+                this.queryResults.push(payload.tableData);
+                this.activeResultIndex = this.queryResults.length - 1;
                 this.hasResults = true;
             } else {
                 console.warn('⚠️ NO TABLE DATA IN PAYLOAD');
@@ -297,6 +301,7 @@ export class ChatComponent implements OnDestroy {
             } else {
                 this.messages = [...this.messages, message];
             }
+            this.startStreamingText(message.id, fullText);
             this.currentSteps = [];
             this.isStreaming = false;
             this.loading = false;
@@ -352,6 +357,9 @@ export class ChatComponent implements OnDestroy {
                 }
                 this.streamingMessageId = null;
             }
+            if (payload?.messageId) {
+                this.stopStreamingText(payload.messageId);
+            }
             this.currentSteps = [];
             this.isStreaming = false;
             this.handleError({ ...(envelope.payload || envelope), steps });
@@ -389,6 +397,8 @@ export class ChatComponent implements OnDestroy {
         this.isStreaming = false;
         this.streamingMessageId = null;
         this.loading = false;
+        this.streamTimers.forEach((timer) => clearInterval(timer));
+        this.streamTimers.clear();
     }
 
     private consumeSteps(requestId?: string): ChatStep[] | null {
@@ -421,74 +431,126 @@ export class ChatComponent implements OnDestroy {
         // Find the last step that is running or done
         for (let i = steps.length - 1; i >= 0; i--) {
             if (steps[i].status === 'running' || steps[i].status === 'done') {
-                return steps[i].label;
+                return this.getStepLabel(steps[i]);
             }
         }
 
         // If no running or done step, return the first step label
-        return steps[0].label;
+        return this.getStepLabel(steps[0]);
+    }
+
+    getStepLabel(step: ChatStep): string {
+        const map: Record<string, string> = {
+            enrich: 'Analyze request',
+            plan: 'Plan steps',
+            schema: 'Fetch schema',
+            rag: 'Find relevant tables',
+            generate: 'Write query',
+            execute: 'Run query',
+            summarize: 'Summarize results',
+            clarify: 'Clarify question',
+            explain: 'Explain response',
+            suggest: 'Suggest options',
+            analyze: 'Analyze request',
+        };
+        if (step?.label && step.label !== step.id) {
+            return step.label;
+        }
+        return map[step.id] || step.label || step.id || 'Step';
+    }
+
+    getStepNote(note?: string | null): string | null {
+        if (!note) return null;
+        const map: Record<string, string> = {
+            DirectSQLStrategy: 'Direct SQL',
+            RAGEnhancedStrategy: 'RAG Enhanced',
+            DecompositionStrategy: 'Decompose & Query',
+            ExplanationStrategy: 'Explain',
+            SuggestionStrategy: 'Suggest alternatives',
+        };
+        let cleaned = String(note);
+        Object.entries(map).forEach(([key, value]) => {
+            cleaned = cleaned.replaceAll(key, value);
+        });
+        cleaned = cleaned.replace(/^Strategy:\s*/i, 'Approach: ');
+        return cleaned.trim() || null;
+    }
+
+    getStrategyLabel(strategy?: string | null): string {
+        if (!strategy) return '';
+        const map: Record<string, string> = {
+            DirectSQLStrategy: 'Direct SQL',
+            RAGEnhancedStrategy: 'RAG Enhanced',
+            DecompositionStrategy: 'Decompose & Query',
+            ExplanationStrategy: 'Explain',
+            SuggestionStrategy: 'Suggest alternatives',
+        };
+        return map[strategy] || strategy;
+    }
+
+    private startStreamingText(messageId: string, fullText: string): void {
+        this.stopStreamingText(messageId);
+        let index = 0;
+        const chunkSize = 4;
+        const interval = 20;
+        const tick = () => {
+            const messageIndex = this.messages.findIndex((m) => m.id === messageId);
+            if (messageIndex === -1) {
+                this.stopStreamingText(messageId);
+                return;
+            }
+            index = Math.min(index + chunkSize, fullText.length);
+            const message = this.messages[messageIndex];
+            message.text = fullText.slice(0, index);
+            message.streaming = index < fullText.length;
+            message.fullText = fullText;
+            this.messages = [...this.messages];
+            this.cdr.markForCheck();
+            if (index >= fullText.length) {
+                this.stopStreamingText(messageId);
+            }
+        };
+        const timer = setInterval(tick, interval);
+        this.streamTimers.set(messageId, timer);
+        tick();
+    }
+
+    private stopStreamingText(messageId: string): void {
+        const timer = this.streamTimers.get(messageId);
+        if (timer) {
+            clearInterval(timer);
+            this.streamTimers.delete(messageId);
+        }
     }
 
     closeResults(): void {
         this.hasResults = false;
-        this.currentQueryResult = null;
+        this.queryResults = [];
+        this.activeResultIndex = 0;
         this.cdr.markForCheck();
     }
 
-    // Synchronize horizontal scroll between header and body
-    onTableBodyScroll(event: Event): void {
-        if (this.tableHeaderScroll && this.tableBodyScroll) {
-            const scrollLeft = this.tableBodyScroll.measureScrollOffset('left');
-            this.tableHeaderScroll.nativeElement.scrollLeft = scrollLeft;
+    // Result Tabs Management
+    setActiveResultTab(index: number): void {
+        if (index >= 0 && index < this.queryResults.length) {
+            this.activeResultIndex = index;
+            this.cdr.markForCheck();
         }
     }
 
-    exportToCSV(): void {
-        if (!this.currentQueryResult) return;
-        const csv = this.convertToCSV(this.currentQueryResult);
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${this.currentQueryResult.tableName}_${new Date().toISOString().split('T')[0]}.csv`;
-        a.click();
-        window.URL.revokeObjectURL(url);
-    }
-
-    exportToJSON(): void {
-        if (!this.currentQueryResult) return;
-        const json = JSON.stringify(this.currentQueryResult.rows, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${this.currentQueryResult.tableName}_${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
-        window.URL.revokeObjectURL(url);
-    }
-
-    private convertToCSV(data: any): string {
-        const headers = data.columns.map((c: any) => c.name).join(',');
-        const rows = data.rows
-            .map((row: any) =>
-                data.columns
-                    .map((col: any) => {
-                        const value = row[col.name];
-                        if (value === null || value === undefined) return '';
-                        if (typeof value === 'string' && value.includes(',')) {
-                            return `"${value.replace(/"/g, '""')}"`;
-                        }
-                        return value;
-                    })
-                    .join(','),
-            )
-            .join('\n');
-        return `${headers}\n${rows}`;
-    }
-
-    copyQuery(): void {
-        if (this.currentQueryResult?.query) {
-            navigator.clipboard.writeText(this.currentQueryResult.query);
+    closeResultTab(index: number, event?: MouseEvent): void {
+        if (event) {
+            event.stopPropagation();
+        }
+        if (index >= 0 && index < this.queryResults.length) {
+            this.queryResults.splice(index, 1);
+            if (this.queryResults.length === 0) {
+                this.hasResults = false;
+                this.activeResultIndex = 0;
+            } else if (this.activeResultIndex >= this.queryResults.length) {
+                this.activeResultIndex = this.queryResults.length - 1;
+            }
+            this.cdr.markForCheck();
         }
     }
 
@@ -496,6 +558,8 @@ export class ChatComponent implements OnDestroy {
         this.destroy$.next();
         this.destroy$.complete();
         this.clearAllPending();
+        this.streamTimers.forEach((timer) => clearInterval(timer));
+        this.streamTimers.clear();
         this.chatSocket.disconnect();
     }
 }

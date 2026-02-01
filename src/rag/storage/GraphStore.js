@@ -101,7 +101,7 @@ class GraphStore {
     }
     try {
       return JSON.parse(value);
-    } catch (err) {
+    } catch {
       return null;
     }
   }

@@ -132,7 +132,10 @@ class MSSQLStrategy extends SQLStrategy {
 
     for (const single of statements) {
       const started = Date.now();
-      const isSelect = /^SELECT\s/i.test(single);
+      const startsWithWith = /^WITH\s/i.test(single);
+      const isSelect =
+        /^SELECT\s/i.test(single) ||
+        (startsWithWith && !/\b(INSERT|UPDATE|DELETE|MERGE)\b/i.test(single));
       const isShow = /^SHOW\s/i.test(single);
       const isDescribe = /^DESCRIBE\s/i.test(single);
       const isInsert = /^INSERT\s/i.test(single);
@@ -181,7 +184,7 @@ class MSSQLStrategy extends SQLStrategy {
               totalPages: Math.ceil(entry.totalRows / pageSize),
               hasMore: page * pageSize < entry.totalRows,
             };
-          } catch (e) {
+          } catch {
             entry.totalRows = recordset.length;
           }
         } else if (isShow || isDescribe) {
@@ -237,7 +240,30 @@ class MSSQLStrategy extends SQLStrategy {
               : "Permission command executed successfully",
           });
         } else {
-          entry.messages.push({ query: single, message: "Command not recognized or unsupported" });
+          const result = await this.pool.request().query(single);
+          const recordset = result.recordset || [];
+          const affectedRows = Array.isArray(result.rowsAffected)
+            ? result.rowsAffected.reduce((sum, count) => sum + (count || 0), 0)
+            : 0;
+          if (recordset.length > 0) {
+            entry.type = "query";
+            entry.rows = recordset;
+            entry.totalRows = recordset.length;
+            entry.pagination = {
+              page: 1,
+              pageSize: recordset.length,
+              totalPages: 1,
+              hasMore: false,
+            };
+          } else {
+            entry.type = "command";
+            entry.stats = { affectedRows };
+          }
+          entry.messages.push({
+            query: single,
+            message: "Command executed successfully",
+            affectedRows,
+          });
         }
       } catch (err) {
         entry.messages.push({ query: single, error: true, message: err.message });
@@ -459,7 +485,7 @@ class MSSQLStrategy extends SQLStrategy {
    * @param {number} limit - Number of rows to fetch
    * @returns {Promise<{rows: any[], hasMore: boolean, columns?: any[]}>}
    */
-  async fetchRowRange(query, offset, limit) {
+  async fetchRowRange(query, offset, limit, options = {}) {
     if (!this.pool) throw new Error("SQL Server connection not initialized");
 
     // Validate inputs
@@ -470,21 +496,45 @@ class MSSQLStrategy extends SQLStrategy {
     // Strip trailing semicolon if present
     let workingQuery = query.trim().replace(/;+$/, "");
 
-    // SQL Server requires ORDER BY with OFFSET/FETCH
-    // If query doesn't have ORDER BY, add a default one
-    if (!modifiedQuery.toLowerCase().includes("order by")) {
-      modifiedQuery += " ORDER BY (SELECT NULL)";
-    }
+    const useKeyset =
+      options?.paginationMode === "seek" &&
+      options?.cursor?.orderBy &&
+      options?.cursor?.lastValue !== undefined &&
+      options?.cursor?.lastValue !== null;
 
-    // Fetch one extra row to determine if there are more results
-    const paginatedQuery = `
-      ${modifiedQuery}
-      OFFSET ${offset} ROWS
-      FETCH NEXT ${limit + 1} ROWS ONLY
-    `;
+    const safeOrderBy = useKeyset ? this.sanitizeOrderBy(options.cursor.orderBy) : "";
+    const direction = options?.cursor?.direction === "desc" ? "DESC" : "ASC";
+    const comparator = direction === "DESC" ? "<" : ">";
 
     try {
-      const result = await this.pool.request().query(paginatedQuery);
+      let result;
+      if (useKeyset && safeOrderBy) {
+        const paginatedQuery = `
+          SELECT TOP (@limit) *
+          FROM (${workingQuery}) AS subquery
+          WHERE ${safeOrderBy} ${comparator} @lastValue
+          ORDER BY ${safeOrderBy} ${direction}
+        `;
+        const request = this.pool.request();
+        request.input("limit", limit + 1);
+        request.input("lastValue", options.cursor.lastValue);
+        result = await request.query(paginatedQuery);
+      } else {
+        // SQL Server requires ORDER BY with OFFSET/FETCH
+        // If query doesn't have ORDER BY, add a default one
+        if (!workingQuery.toLowerCase().includes("order by")) {
+          workingQuery += " ORDER BY (SELECT NULL)";
+        }
+
+        // Fetch one extra row to determine if there are more results
+        const paginatedQuery = `
+          ${workingQuery}
+          OFFSET ${offset} ROWS
+          FETCH NEXT ${limit + 1} ROWS ONLY
+        `;
+        result = await this.pool.request().query(paginatedQuery);
+      }
+
       const rows = result.recordset;
       const hasMore = rows.length > limit;
 
