@@ -9,6 +9,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VirtualListComponent } from '@shared/components/virtual-list/virtual-list.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
 import { NosqlExplorerBase } from '../nosql-explorer-base';
@@ -16,7 +17,7 @@ import { NosqlExplorerBase } from '../nosql-explorer-base';
 @Component({
     selector: 'app-mongodb-explorer',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, VirtualListComponent],
     templateUrl: './mongodb-explorer.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -129,7 +130,7 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runMongoFindOneAndDelete(): void {
+    async runMongoFindOneAndDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Delete is not supported for this database.';
             return;
@@ -140,7 +141,11 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
         }
         const filter = this.parseJsonInput(this.mongoFindOneDeleteFilter, 'Find filter');
         if (!filter) return;
-        if (!this.confirmDestructive(`Delete one document from ${this.selectedCollection}?`)) {
+        const confirmed = await this.confirmDestructive(`Delete one document from ${this.selectedCollection}?`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -151,7 +156,7 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runMongoDelete(): void {
+    async runMongoDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Delete is not supported for this database.';
             return;
@@ -163,9 +168,14 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
         const filter = this.parseJsonInput(this.mongoDeleteFilter, 'Delete filter');
         if (!filter) return;
 
-        if (
-            !this.confirmDestructive(`Delete matching documents in ${this.selectedCollection}? This cannot be undone.`)
-        ) {
+        const confirmed = await this.confirmDestructive(
+            `Delete matching documents in ${this.selectedCollection}? This cannot be undone.`,
+            {
+                title: 'Confirm delete',
+                confirmLabel: 'Delete',
+            },
+        );
+        if (!confirmed) {
             return;
         }
 
@@ -176,7 +186,7 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runMongoBulkWrite(): void {
+    async runMongoBulkWrite(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Bulk write is not supported for this database.';
             return;
@@ -191,7 +201,11 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
             this.errorMessage = 'Bulk operations must be a JSON array.';
             return;
         }
-        if (!this.confirmDestructive('Run bulk write? This may modify multiple documents.')) {
+        const confirmed = await this.confirmDestructive('Run bulk write? This may modify multiple documents.', {
+            title: 'Confirm bulk write',
+            confirmLabel: 'Run',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -259,7 +273,7 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runMongoDropIndex(): void {
+    async runMongoDropIndex(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Index write operations are not supported for this database.';
             return;
@@ -272,7 +286,11 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
             this.errorMessage = 'Index name is required.';
             return;
         }
-        if (!this.confirmDestructive(`Drop index "${this.mongoDropIndexName}"?`)) {
+        const confirmed = await this.confirmDestructive(`Drop index "${this.mongoDropIndexName}"?`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -298,7 +316,7 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runMongoDropCollection(): void {
+    async runMongoDropCollection(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Collection deletion is not supported for this database.';
             return;
@@ -308,7 +326,11 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
             this.errorMessage = 'Select a collection to delete.';
             return;
         }
-        if (!this.confirmDestructive(`Drop collection "${collection}"?`)) {
+        const confirmed = await this.confirmDestructive(`Drop collection "${collection}"?`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
         this.executeAction({
@@ -333,9 +355,5 @@ export class MongodbExplorerComponent extends NosqlExplorerBase implements OnIni
             newName: this.mongoRenameTo,
             dropTarget: false,
         });
-    }
-
-    private confirmDestructive(message: string): boolean {
-        return window.confirm(message);
     }
 }

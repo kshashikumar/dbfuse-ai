@@ -1,6 +1,7 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Connection } from '@core/utils/storage/storage.types';
+import { getDbTypeEntry } from '@core/registry/db-type.registry';
 
 @Component({
     selector: 'app-connection-card',
@@ -46,7 +47,8 @@ export class ConnectionCardComponent {
     }
 
     getConnectionTitle(): string {
-        if (this.connection.dbType === 'sqlite3') {
+        const entry = getDbTypeEntry(this.connection.dbType);
+        if (entry?.connection?.isFileBased) {
             return (
                 this.connection.databaseDisplay ?? this.connection.database ?? this.connection.databasePath ?? 'SQLite'
             );
@@ -58,23 +60,8 @@ export class ConnectionCardComponent {
     }
 
     getDbTypeLabel(type: string): string {
-        const labels: { [key: string]: string } = {
-            mysql2: 'MySQL',
-            pg: 'PostgreSQL',
-            sqlite3: 'SQLite',
-            mssql: 'SQL Server',
-            oracledb: 'Oracle DB',
-            mongodb: 'MongoDB',
-            redis: 'Redis',
-            couchdb: 'CouchDB',
-            cosmosdb: 'Azure Cosmos DB',
-            firestore: 'Firestore',
-            dynamodb: 'DynamoDB',
-            cassandra: 'Cassandra',
-            hbase: 'HBase',
-            memcached: 'Memcached',
-        };
-        return labels[type] || type;
+        const entry = getDbTypeEntry(type as any);
+        return entry?.label || type;
     }
 
     getStatusColor(status?: string): string {

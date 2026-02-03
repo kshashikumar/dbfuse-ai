@@ -1,7 +1,7 @@
 /* stylelint-disable */
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
     :root {
@@ -116,6 +116,10 @@
 
     .ui-button:hover {
         box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    }
+
+    .ui-list-item {
+        @apply w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150;
     }
 
     .ui-input {

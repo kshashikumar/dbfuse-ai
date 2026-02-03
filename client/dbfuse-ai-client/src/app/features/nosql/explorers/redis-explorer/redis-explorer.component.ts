@@ -9,6 +9,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VirtualListComponent } from '@shared/components/virtual-list/virtual-list.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
 import { NosqlExplorerBase } from '../nosql-explorer-base';
@@ -16,7 +17,7 @@ import { NosqlExplorerBase } from '../nosql-explorer-base';
 @Component({
     selector: 'app-redis-explorer',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, VirtualListComponent],
     templateUrl: './redis-explorer.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -91,7 +92,7 @@ export class RedisExplorerComponent extends NosqlExplorerBase implements OnInit,
         });
     }
 
-    runRedisDelete(): void {
+    async runRedisDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Deletes are not supported for this database.';
             return;
@@ -100,7 +101,11 @@ export class RedisExplorerComponent extends NosqlExplorerBase implements OnInit,
             this.errorMessage = 'Redis key is required.';
             return;
         }
-        if (!this.confirmDestructive(`Delete key "${this.redisDeleteKey}"? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(`Delete key "${this.redisDeleteKey}"? This cannot be undone.`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -128,7 +133,7 @@ export class RedisExplorerComponent extends NosqlExplorerBase implements OnInit,
         });
     }
 
-    runRedisExpireMany(): void {
+    async runRedisExpireMany(): Promise<void> {
         if (!this.supportsTtl) {
             this.errorMessage = 'TTL updates are not supported for this database.';
             return;
@@ -144,7 +149,14 @@ export class RedisExplorerComponent extends NosqlExplorerBase implements OnInit,
         }
         const limit = this.redisExpireLimit ? Number(this.redisExpireLimit) : undefined;
 
-        if (!this.confirmDestructive(`Apply TTL ${ttl}s to keys matching "${this.redisExpirePattern}"?`)) {
+        const confirmed = await this.confirmDestructive(
+            `Apply TTL ${ttl}s to keys matching "${this.redisExpirePattern}"?`,
+            {
+                title: 'Confirm TTL update',
+                confirmLabel: 'Apply',
+            },
+        );
+        if (!confirmed) {
             return;
         }
 
@@ -154,9 +166,5 @@ export class RedisExplorerComponent extends NosqlExplorerBase implements OnInit,
             ttl,
             ...(Number.isFinite(limit) ? { limit } : {}),
         });
-    }
-
-    private confirmDestructive(message: string): boolean {
-        return window.confirm(message);
     }
 }

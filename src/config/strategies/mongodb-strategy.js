@@ -1,5 +1,7 @@
 // db_strategies/mongodb-strategy.js
 const logger = require("../../utils/logger");
+const { buildColumnsFromRecords } = require("../../utils/metadata-sampler");
+const { getQueryParts, resolveOperation } = require("../../utils/query-normalizer");
 
 const NoSQLStrategy = require("./base/nosql-strategy");
 
@@ -102,11 +104,7 @@ class MongoDBStrategy extends NoSQLStrategy {
 
     const collection = this.client.db(targetDb).collection(collectionName);
     const sample = await collection.find({}).limit(20).toArray();
-    const fieldTypes = this._inferFieldTypes(sample);
-    const fields = Object.entries(fieldTypes).map(([name, dataType]) => ({
-      column_name: name,
-      data_type: dataType,
-    }));
+    const fields = buildColumnsFromRecords(sample);
 
     let indexes = [];
     try {
@@ -404,30 +402,8 @@ class MongoDBStrategy extends NoSQLStrategy {
     return `mongodb://${auth}${host}:${port}/${dbName}`;
   }
 
-  _inferFieldTypes(documents) {
-    const map = {};
-    for (const doc of documents || []) {
-      if (!doc || typeof doc !== "object") continue;
-      for (const [key, value] of Object.entries(doc)) {
-        if (!map[key]) {
-          map[key] = this._typeOfValue(value);
-        }
-      }
-    }
-    return map;
-  }
-
-  _typeOfValue(value) {
-    if (Array.isArray(value)) return "array";
-    if (value === null) return "null";
-    const type = typeof value;
-    if (type === "object") return "object";
-    return type;
-  }
-
   _normalizeMongoQuery(query, options = {}) {
-    const raw = query && typeof query === "object" ? query : {};
-    const payload = raw.payload && typeof raw.payload === "object" ? raw.payload : {};
+    const { raw, payload } = getQueryParts(query);
     const mergedOptions = {
       ...options,
       ...(raw.options && typeof raw.options === "object" ? raw.options : {}),
@@ -436,10 +412,11 @@ class MongoDBStrategy extends NoSQLStrategy {
 
     const pagination = this._buildPagination(mergedOptions);
 
-    const operation =
-      raw.operation || raw.action || payload.operation || payload.action || raw.command;
-    const normalizedOperation =
-      typeof operation === "string" ? operation : raw.command || payload.command ? "command" : null;
+    const normalizedOperation = resolveOperation(raw, payload, {
+      defaultOperation: null,
+      commandFallback: true,
+      coerceNonString: false,
+    });
 
     return {
       mode: raw.mode || payload.mode || raw.type,

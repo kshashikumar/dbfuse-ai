@@ -2,7 +2,14 @@
 const express = require("express");
 const router = express.Router();
 
+const { connectionManager } = require("../config");
+const { getCapabilityModel } = require("../config/create-strategy");
 const DatabaseService = require("../services/DatabaseService");
+const {
+  buildEnvelope,
+  isUnifiedEnvelopeEnabled,
+  wrapLegacyEnvelope,
+} = require("../utils/responseEnvelope");
 
 /**
  * POST /api/query/range
@@ -82,10 +89,37 @@ router.post("/range", async (req, res) => {
       rangeOptions,
     );
 
-    res.json({
+    const payload = {
       success: true,
       data: result,
+    };
+
+    if (!isUnifiedEnvelopeEnabled()) {
+      return res.json(payload);
+    }
+
+    let capabilities = { type: "unknown", operations: [], features: [], limits: {} };
+    try {
+      const strategy = connectionManager.getConnection(connectionId);
+      if (strategy && typeof strategy.getCapabilities === "function") {
+        capabilities = strategy.getCapabilities();
+      }
+    } catch {
+      const info = connectionManager.getConnectionInfo(connectionId);
+      const dbType = info?.config?.dbType;
+      if (dbType) {
+        capabilities = getCapabilityModel(dbType);
+      }
+    }
+
+    const envelope = buildEnvelope({
+      kind: "query",
+      payload,
+      request: { connectionId },
+      meta: { operation: "queryRange", capabilities },
     });
+
+    return res.json(wrapLegacyEnvelope(payload, envelope));
   } catch (error) {
     console.error("Query range error:", error);
 

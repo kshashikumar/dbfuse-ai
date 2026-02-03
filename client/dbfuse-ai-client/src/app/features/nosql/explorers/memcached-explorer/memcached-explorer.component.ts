@@ -9,6 +9,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VirtualListComponent } from '@shared/components/virtual-list/virtual-list.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
 import { NosqlExplorerBase } from '../nosql-explorer-base';
@@ -16,7 +17,7 @@ import { NosqlExplorerBase } from '../nosql-explorer-base';
 @Component({
     selector: 'app-memcached-explorer',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, VirtualListComponent],
     templateUrl: './memcached-explorer.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -71,7 +72,7 @@ export class MemcachedExplorerComponent extends NosqlExplorerBase implements OnI
         });
     }
 
-    runMemcachedDelete(): void {
+    async runMemcachedDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Deletes are not supported for this database.';
             return;
@@ -80,7 +81,11 @@ export class MemcachedExplorerComponent extends NosqlExplorerBase implements OnI
             this.errorMessage = 'Key is required.';
             return;
         }
-        if (!window.confirm(`Delete key ${this.memDeleteKey}? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(`Delete key ${this.memDeleteKey}? This cannot be undone.`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
         this.executeAction({
@@ -111,12 +116,16 @@ export class MemcachedExplorerComponent extends NosqlExplorerBase implements OnI
         });
     }
 
-    runMemcachedFlush(): void {
+    async runMemcachedFlush(): Promise<void> {
         if (!this.supportsCommands) {
             this.errorMessage = 'Flush is not supported for this database.';
             return;
         }
-        if (!window.confirm('Flush all keys? This cannot be undone.')) {
+        const confirmed = await this.confirmDestructive('Flush all keys? This cannot be undone.', {
+            title: 'Confirm flush',
+            confirmLabel: 'Flush',
+        });
+        if (!confirmed) {
             return;
         }
         this.executeAction({

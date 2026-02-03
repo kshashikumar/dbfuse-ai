@@ -2,6 +2,7 @@ const crypto = require("crypto");
 
 const { connectionManager } = require("../config");
 const llmService = require("../services/LLMService");
+const QueryGenerationService = require("../services/QueryGenerationService");
 const logger = require("../utils/logger");
 const QueryAnalyzer = require("../rag/orchestrator/QueryAnalyzer");
 const QueryOrchestrator = require("../rag/orchestrator/QueryOrchestrator");
@@ -120,6 +121,9 @@ class ChatService {
     this.cacheDbTypes = new Set(["redis", "memcached"]);
     this.analyzer = options.analyzer || new QueryAnalyzer();
     this.orchestrator = options.orchestrator || new QueryOrchestrator();
+    this.queryGenerator =
+      options.queryGenerator ||
+      new QueryGenerationService({ orchestrator: this.orchestrator, llmService });
     this.embeddingService = options.embeddingService || new EmbeddingService();
     this.ragService = options.ragService || new RAGService();
     this.mcpRunner = options.mcpRunner || new McpToolRunner();
@@ -1621,52 +1625,30 @@ class ChatService {
     tracker.addStep({ id: "generate", label: "Generate query draft", status: "running" });
     let query;
     try {
-      // Use QueryOrchestrator for strategy-based execution when RAG or decomposition is selected
-      const shouldUseOrchestrator =
-        enrichedContext &&
-        (enrichedContext.complexity !== "simple" ||
-          enrichedContext.selectedStrategy === "RAGEnhancedStrategy" ||
-          enrichedContext.selectedStrategy === "DecompositionStrategy");
-      if (shouldUseOrchestrator) {
-        logger.debug("Using QueryOrchestrator for query generation", {
-          strategy: enrichedContext.selectedStrategy,
-          complexity: enrichedContext.complexity,
-        });
+      const generation = await this.queryGenerator.generate({
+        connectionId,
+        dbType: normalizedDbType,
+        dbName: currentDb,
+        prompt: this._buildPromptWithClarification(prompt, clarificationContext),
+        model,
+        apiKey,
+        selectedTables,
+        dbMeta,
+        enrichedContext,
+        llmOptions: {
+          timeoutMs: llmBudget.nextTimeout(llmService.requestTimeoutMs || CHAT_LLM_BUDGET_MS),
+          retryOnTimeout: true,
+          maxRetries: 1,
+          promptCharLimit: 800,
+        },
+      });
 
-        const orchestratorResult = await this.orchestrator.execute({
-          connectionId,
-          dbType: normalizedDbType,
-          dbName: currentDb,
-          prompt: this._buildPromptWithClarification(prompt, clarificationContext),
-          model,
-          apiKey,
-          options: {
-            useRag: true,
-            includeExplanation: false,
-            includeSuggestions: false,
-          },
-        });
-
-        query = orchestratorResult.query;
-        // Add strategy info to tracker
-        tracker.setStatus("generate", "done", "Query draft ready");
-      } else {
-        // Fallback to direct LLM call for simple queries
-        query = await llmService.generateSQLQuery(
-          dbMeta,
-          currentDb,
-          this._buildPromptWithClarification(prompt, clarificationContext),
-          normalizedDbType,
-          selectedTables,
-          {
-            timeoutMs: llmBudget.nextTimeout(llmService.requestTimeoutMs || CHAT_LLM_BUDGET_MS),
-            retryOnTimeout: true,
-            maxRetries: 1,
-            promptCharLimit: 800,
-          },
-        );
-        tracker.setStatus("generate", "done");
-      }
+      query = generation?.query;
+      tracker.setStatus(
+        "generate",
+        "done",
+        generation?.source === "orchestrator" ? "Query draft ready" : null,
+      );
 
       if (!query || typeof query !== "string" || query.trim().length === 0) {
         throw new Error("Generated query is empty or invalid");

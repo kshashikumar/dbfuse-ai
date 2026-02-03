@@ -1,4 +1,6 @@
 const logger = require("../../utils/logger");
+const { buildColumnsFromRecords } = require("../../utils/metadata-sampler");
+const { getQueryParts, resolveOperation } = require("../../utils/query-normalizer");
 
 const NoSQLStrategy = require("./base/nosql-strategy");
 
@@ -98,12 +100,7 @@ class FirestoreStrategy extends NoSQLStrategy {
       sampleDocuments = [];
     }
 
-    const fields = Object.entries(this._inferFieldTypes(sampleDocuments)).map(
-      ([name, dataType]) => ({
-        column_name: name,
-        data_type: dataType,
-      }),
-    );
+    const fields = buildColumnsFromRecords(sampleDocuments);
 
     return {
       db_name: this.currentDatabase || "default",
@@ -313,35 +310,27 @@ class FirestoreStrategy extends NoSQLStrategy {
     if (typeof query === "string") {
       return { operation: "get", documentPath: query };
     }
-    const payload = query?.payload || {};
-    const operation = (
-      query?.operation ||
-      query?.action ||
-      payload.operation ||
-      payload.action ||
-      "query"
-    )
-      .toString()
-      .toLowerCase();
+    const { raw, payload } = getQueryParts(query);
+    const operation = resolveOperation(raw, payload, { defaultOperation: "query" });
 
     return {
       operation,
-      collection: query?.collection || payload.collection,
-      documentPath: query?.documentPath || payload.documentPath,
-      id: query?.id || payload.id || query?.documentId || payload.documentId,
-      document: query?.document || payload.document,
-      merge: query?.merge ?? payload.merge,
+      collection: raw.collection || payload.collection,
+      documentPath: raw.documentPath || payload.documentPath,
+      id: raw.id || payload.id || raw.documentId || payload.documentId,
+      document: raw.document || payload.document,
+      merge: raw.merge ?? payload.merge,
       actions: this._normalizeActions(
-        query?.actions || payload.actions || query?.operations || payload.operations,
+        raw.actions || payload.actions || raw.operations || payload.operations,
       ),
-      filters: this._normalizeFilters(query?.filters || payload.filters),
-      orderBy: this._normalizeOrderBy(query?.orderBy || payload.orderBy),
-      limit: query?.limit || payload.limit || options?.pageSize,
-      startAfter: this._normalizeCursor(query?.startAfter || payload.startAfter),
-      startAt: this._normalizeCursor(query?.startAt || payload.startAt),
-      endBefore: this._normalizeCursor(query?.endBefore || payload.endBefore),
-      endAt: this._normalizeCursor(query?.endAt || payload.endAt),
-      collectionGroup: Boolean(query?.collectionGroup || payload.collectionGroup),
+      filters: this._normalizeFilters(raw.filters || payload.filters),
+      orderBy: this._normalizeOrderBy(raw.orderBy || payload.orderBy),
+      limit: raw.limit || payload.limit || options?.pageSize,
+      startAfter: this._normalizeCursor(raw.startAfter || payload.startAfter),
+      startAt: this._normalizeCursor(raw.startAt || payload.startAt),
+      endBefore: this._normalizeCursor(raw.endBefore || payload.endBefore),
+      endAt: this._normalizeCursor(raw.endAt || payload.endAt),
+      collectionGroup: Boolean(raw.collectionGroup || payload.collectionGroup),
     };
   }
 
@@ -409,27 +398,6 @@ class FirestoreStrategy extends NoSQLStrategy {
     if (!value) return [];
     if (Array.isArray(value)) return value;
     return [value];
-  }
-
-  _inferFieldTypes(documents) {
-    const map = {};
-    for (const doc of documents || []) {
-      if (!doc || typeof doc !== "object") continue;
-      for (const [key, value] of Object.entries(doc)) {
-        if (!map[key]) {
-          map[key] = this._typeOfValue(value);
-        }
-      }
-    }
-    return map;
-  }
-
-  _typeOfValue(value) {
-    if (Array.isArray(value)) return "array";
-    if (value === null) return "null";
-    const type = typeof value;
-    if (type === "object") return "object";
-    return type;
   }
 }
 

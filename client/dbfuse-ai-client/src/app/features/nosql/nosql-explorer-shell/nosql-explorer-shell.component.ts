@@ -1,7 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
-import { NosqlExplorerComponent } from '@features/nosql/nosql-explorer/nosql-explorer.component';
 import { MongodbExplorerComponent } from '@features/nosql/explorers/mongodb-explorer/mongodb-explorer.component';
 import { RedisExplorerComponent } from '@features/nosql/explorers/redis-explorer/redis-explorer.component';
 import { DynamodbExplorerComponent } from '@features/nosql/explorers/dynamodb-explorer/dynamodb-explorer.component';
@@ -26,7 +25,6 @@ import { MemcachedExplorerComponent } from '@features/nosql/explorers/memcached-
         FirestoreExplorerComponent,
         HbaseExplorerComponent,
         MemcachedExplorerComponent,
-        NosqlExplorerComponent,
     ],
     templateUrl: './nosql-explorer-shell.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,

@@ -3,6 +3,7 @@ const fs = require("fs");
 
 const { QUERY_TYPES, ERROR_MESSAGES } = require("../../../core/constants/database.constants");
 const logger = require("../../../utils/logger");
+const { inferOperationType } = require("../../../utils/operation-infer");
 
 /**
  * Base DatabaseStrategy with agent hooks, metrics, and resilience patterns
@@ -198,7 +199,10 @@ class DatabaseStrategy {
       return true;
     }
     const label = this.dbType || "this database";
-    throw new Error(`Operation '${operation}' is not supported for ${label}.`);
+    const error = new Error(`Operation '${operation}' is not supported for ${label}.`);
+    error.code = "UNSUPPORTED_OPERATION";
+    error.operation = operation;
+    throw error;
   }
 
   normalizeResult(result) {
@@ -237,11 +241,6 @@ class DatabaseStrategy {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getDatabases"));
   }
 
-  // Structure methods (Tables/Collections/Keys)
-  async getStructure() {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getStructure"));
-  }
-
   // SQL specific (kept for backward compatibility and SQL implementations)
   async getTables(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getTables"));
@@ -261,10 +260,6 @@ class DatabaseStrategy {
 
   async getProcedures(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getProcedures"));
-  }
-
-  async getFunctions(_dbName) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getFunctions"));
   }
 
   // NoSQL specific stubs
@@ -295,6 +290,7 @@ class DatabaseStrategy {
         typeof options === "object" &&
         !Array.isArray(options) &&
         Object.keys(options).length > 0;
+      this.validateOperation(inferOperationType(query), query);
       const result = await this._executeQueryImpl(query, hasOptions ? options : undefined);
 
       const queryTime = Date.now() - startTime;
@@ -325,14 +321,6 @@ class DatabaseStrategy {
   // Override this in subclasses
   async _executeQueryImpl(_query, _options = {}) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeQuery"));
-  }
-
-  async executeBatch(_queries, _options = {}) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeBatch"));
-  }
-
-  async executeTransaction(_queries, _options = {}) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("executeTransaction"));
   }
 
   // Query analysis and validation
@@ -419,10 +407,6 @@ class DatabaseStrategy {
     return host;
   }
 
-  buildPaginationQuery(_baseQuery, _page, _pageSize) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("buildPaginationQuery"));
-  }
-
   buildCountQuery(baseQuery) {
     return `SELECT COUNT(*) as count FROM (${baseQuery}) as subquery`;
   }
@@ -461,16 +445,6 @@ class DatabaseStrategy {
       await this.executeHooks("connection.health", health);
       return health;
     }
-  }
-
-  // Performance monitoring
-  async getQueryStats() {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getQueryStats"));
-  }
-
-  // Security and permissions
-  async checkPermissions(_operation, _resource) {
-    throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("checkPermissions"));
   }
 }
 

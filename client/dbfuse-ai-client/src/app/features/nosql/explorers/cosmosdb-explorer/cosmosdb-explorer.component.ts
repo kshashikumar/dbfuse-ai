@@ -9,6 +9,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VirtualListComponent } from '@shared/components/virtual-list/virtual-list.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
 import { NosqlExplorerBase } from '../nosql-explorer-base';
@@ -16,7 +17,7 @@ import { NosqlExplorerBase } from '../nosql-explorer-base';
 @Component({
     selector: 'app-cosmosdb-explorer',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, VirtualListComponent],
     templateUrl: './cosmosdb-explorer.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -204,7 +205,7 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runCosmosDelete(): void {
+    async runCosmosDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Deletes are not supported for this database.';
             return;
@@ -217,7 +218,11 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
             this.errorMessage = 'Document id is required.';
             return;
         }
-        if (!window.confirm(`Delete document ${this.cosmosId}? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(`Delete document ${this.cosmosId}? This cannot be undone.`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
         const partitionKey = this.parseScalar(this.cosmosPartitionKey);
@@ -231,7 +236,7 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runCosmosBulk(): void {
+    async runCosmosBulk(): Promise<void> {
         if (!this.supportsBatch) {
             this.errorMessage = 'Bulk operations are not supported for this database.';
             return;
@@ -246,7 +251,11 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
             this.errorMessage = 'Bulk operations must be a JSON array.';
             return;
         }
-        if (!window.confirm('Run bulk operations? This may modify multiple documents.')) {
+        const confirmed = await this.confirmDestructive('Run bulk operations? This may modify multiple documents.', {
+            title: 'Confirm bulk write',
+            confirmLabel: 'Run',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -274,7 +283,7 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runDeleteDatabase(): void {
+    async runDeleteDatabase(): Promise<void> {
         if (!this.supportsAdmin) {
             this.errorMessage = 'Admin operations are not supported for this database.';
             return;
@@ -284,7 +293,11 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
             this.errorMessage = 'Database id is required.';
             return;
         }
-        if (!window.confirm(`Delete database ${database}? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(`Delete database ${database}? This cannot be undone.`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
         this.executeAction({
@@ -337,7 +350,7 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runDeleteContainer(): void {
+    async runDeleteContainer(): Promise<void> {
         if (!this.supportsAdmin) {
             this.errorMessage = 'Admin operations are not supported for this database.';
             return;
@@ -348,7 +361,11 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
             this.errorMessage = 'Database and container are required.';
             return;
         }
-        if (!window.confirm(`Delete container ${container}? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(`Delete container ${container}? This cannot be undone.`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
         this.executeAction({
@@ -402,7 +419,7 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runDeleteStoredProcedure(): void {
+    async runDeleteStoredProcedure(): Promise<void> {
         if (!this.supportsStoredProcedures) {
             this.errorMessage = 'Stored procedures are not supported for this database.';
             return;
@@ -415,7 +432,11 @@ export class CosmosdbExplorerComponent extends NosqlExplorerBase implements OnIn
             this.errorMessage = 'Stored procedure id is required.';
             return;
         }
-        if (!window.confirm(`Delete stored procedure ${this.sprocId}?`)) {
+        const confirmed = await this.confirmDestructive(`Delete stored procedure ${this.sprocId}?`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
         this.executeAction({

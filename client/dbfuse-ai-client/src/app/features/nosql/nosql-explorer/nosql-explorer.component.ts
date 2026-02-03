@@ -12,6 +12,7 @@ import { FormsModule } from '@angular/forms';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType, TableInfo } from '@core/utils/storage/storage.types';
 import { getSafeSessionStorage } from '@core/utils/browser-adapter';
+import { getDbTypeEntry } from '@core/registry/db-type.registry';
 
 @Component({
     selector: 'app-nosql-explorer',
@@ -63,10 +64,6 @@ export class NosqlExplorerComponent implements OnInit, OnChanges {
     redisExpireTtl = '';
     redisExpireLimit = '';
 
-    private readonly documentDbTypes = new Set<DatabaseType>(['mongodb', 'couchdb', 'cosmosdb', 'firestore']);
-    private readonly keyValueDbTypes = new Set<DatabaseType>(['redis', 'memcached']);
-    private readonly tableDbTypes = new Set<DatabaseType>(['dynamodb', 'cassandra', 'hbase']);
-
     constructor(
         private readonly backend: BackendService,
         private readonly cdr: ChangeDetectorRef,
@@ -94,43 +91,23 @@ export class NosqlExplorerComponent implements OnInit, OnChanges {
     }
 
     get explorerTitle(): string {
-        const labels: Record<string, string> = {
-            mongodb: 'MongoDB',
-            redis: 'Redis',
-            couchdb: 'CouchDB',
-            cosmosdb: 'Azure Cosmos DB',
-            firestore: 'Firestore',
-            dynamodb: 'DynamoDB',
-            cassandra: 'Cassandra',
-            hbase: 'HBase',
-            memcached: 'Memcached',
-        };
-        const base = labels[this.dbType] || 'NoSQL';
+        const base = getDbTypeEntry(this.dbType)?.label || 'NoSQL';
         return `${base} Explorer`;
     }
 
     get databaseLabel(): string {
-        if (this.dbType === 'firestore') return 'Projects';
-        if (this.dbType === 'dynamodb') return 'Regions';
-        if (this.dbType === 'hbase') return 'Namespaces';
-        if (this.dbType === 'cassandra' || this.keyValueDbTypes.has(this.dbType)) return 'Keyspaces';
-        return 'Databases';
+        const entry = getDbTypeEntry(this.dbType);
+        return entry?.explorer?.databaseLabel || 'Databases';
     }
 
     get collectionLabel(): string {
-        if (this.keyValueDbTypes.has(this.dbType)) return 'Key groups';
-        if (this.tableDbTypes.has(this.dbType)) return 'Tables';
-        if (this.documentDbTypes.has(this.dbType)) return 'Collections';
-        return 'Collections';
+        const entry = getDbTypeEntry(this.dbType);
+        return entry?.explorer?.collectionLabel || 'Collections';
     }
 
     get detailLabel(): string {
-        if (this.keyValueDbTypes.has(this.dbType)) return 'Keys';
-        if (this.tableDbTypes.has(this.dbType)) {
-            return this.dbType === 'dynamodb' ? 'Items' : 'Rows';
-        }
-        if (this.documentDbTypes.has(this.dbType)) return 'Documents';
-        return 'Documents';
+        const entry = getDbTypeEntry(this.dbType);
+        return entry?.explorer?.detailLabel || 'Documents';
     }
 
     get supportsCrud(): boolean {
@@ -170,7 +147,8 @@ export class NosqlExplorerComponent implements OnInit, OnChanges {
     }
 
     get mongoIndexes(): { name: string; type?: string; unique?: boolean }[] {
-        if (this.dbType !== 'mongodb' || !this.collectionInfo?.indexes) return [];
+        const entry = getDbTypeEntry(this.dbType);
+        if (!entry?.explorer?.showIndexStats || !this.collectionInfo?.indexes) return [];
         return this.collectionInfo.indexes.map((idx: any) => ({
             name: idx.index_name || idx.name || 'index',
             type: idx.type || idx.index_type,
@@ -179,7 +157,8 @@ export class NosqlExplorerComponent implements OnInit, OnChanges {
     }
 
     get redisKeyTypeStats(): { type: string; count: number }[] {
-        if (this.dbType !== 'redis' || !this.collectionInfo?.sampleKeys) return [];
+        const entry = getDbTypeEntry(this.dbType);
+        if (!entry?.explorer?.showKeyStats || !this.collectionInfo?.sampleKeys) return [];
         const counts: Record<string, number> = {};
         for (const key of this.collectionInfo.sampleKeys) {
             const type = (key.type || 'unknown').toString();
@@ -191,7 +170,8 @@ export class NosqlExplorerComponent implements OnInit, OnChanges {
     }
 
     get redisKeyPrefixStats(): { prefix: string; count: number }[] {
-        if (this.dbType !== 'redis' || !this.collectionInfo?.sampleKeys) return [];
+        const entry = getDbTypeEntry(this.dbType);
+        if (!entry?.explorer?.showKeyStats || !this.collectionInfo?.sampleKeys) return [];
         const counts: Record<string, number> = {};
         for (const entry of this.collectionInfo.sampleKeys) {
             const key = String(entry.key || '');
@@ -261,9 +241,9 @@ export class NosqlExplorerComponent implements OnInit, OnChanges {
 
     private loadCollections(dbName: string): void {
         this.loadingCollections = true;
-        this.backend.getTables(dbName).subscribe({
+        this.backend.getCollections(dbName).subscribe({
             next: (response) => {
-                const list = Array.isArray(response?.tables) ? response.tables : [];
+                const list = Array.isArray(response?.collections) ? response.collections : [];
                 this.collections = list;
                 this.filteredCollections = [...list];
                 this.loadingCollections = false;

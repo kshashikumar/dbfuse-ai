@@ -1,0 +1,11 @@
+<app-confirmation-dialog
+    *ngIf="state$ | async as state"
+    [isOpen]="state.isOpen"
+    [message]="state.message"
+    [title]="state.title"
+    [confirmLabel]="state.confirmLabel"
+    [cancelLabel]="state.cancelLabel"
+    [confirmVariant]="state.confirmVariant"
+    (onConfirm)="handleConfirm()"
+    (onCancel)="handleCancel()"
+></app-confirmation-dialog>

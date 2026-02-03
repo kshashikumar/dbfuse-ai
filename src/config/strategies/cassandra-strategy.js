@@ -1,4 +1,5 @@
 const logger = require("../../utils/logger");
+const { getQueryParts, resolveOperation } = require("../../utils/query-normalizer");
 
 const NoSQLStrategy = require("./base/nosql-strategy");
 
@@ -272,35 +273,27 @@ class CassandraStrategy extends NoSQLStrategy {
       return { operation: "query", statement: query, params: [] };
     }
 
-    const payload = query?.payload || {};
-    const operation = (
-      query?.operation ||
-      query?.action ||
-      payload.operation ||
-      payload.action ||
-      "query"
-    )
-      .toString()
-      .toLowerCase();
+    const { raw, payload } = getQueryParts(query);
+    const operation = resolveOperation(raw, payload, { defaultOperation: "query" });
 
     return {
       operation,
-      statement: query?.statement || query?.query || payload.statement || payload.query || "",
-      params: query?.params || payload.params || [],
-      keyspace: query?.keyspace || payload.keyspace || query?.database || payload.database,
-      table: query?.table || query?.collection || payload.table || payload.collection,
-      values: query?.values || payload.values,
-      where: query?.where || payload.where,
+      statement: raw.statement || raw.query || payload.statement || payload.query || "",
+      params: raw.params || payload.params || [],
+      keyspace: raw.keyspace || payload.keyspace || raw.database || payload.database,
+      table: raw.table || raw.collection || payload.table || payload.collection,
+      values: raw.values || payload.values,
+      where: raw.where || payload.where,
       if:
-        query?.if ||
+        raw.if ||
         payload.if ||
-        query?.conditions ||
+        raw.conditions ||
         payload.conditions ||
-        (query?.ifNotExists || payload.ifNotExists ? "NOT EXISTS" : undefined),
-      statements: query?.statements || payload.statements || query?.batch || payload.batch,
-      logged: query?.logged ?? payload.logged,
-      limit: query?.limit || payload.limit || options?.pageSize,
-      consistency: query?.consistency || payload.consistency,
+        (raw.ifNotExists || payload.ifNotExists ? "NOT EXISTS" : undefined),
+      statements: raw.statements || payload.statements || raw.batch || payload.batch,
+      logged: raw.logged ?? payload.logged,
+      limit: raw.limit || payload.limit || options?.pageSize,
+      consistency: raw.consistency || payload.consistency,
     };
   }
 

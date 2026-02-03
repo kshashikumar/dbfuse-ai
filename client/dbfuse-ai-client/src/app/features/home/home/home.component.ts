@@ -26,8 +26,8 @@ import { BackendService } from '@core/services/backend/backend.service';
 import { DragDropTabDirective } from '@shared/directives/drag-drop.directive';
 import { MonacoEditorComponent } from '@app/editor/components/monaco-editor/monaco-editor.component';
 import { MonacoThemeService } from '@app/editor/services/monaco-theme.service';
-import { NosqlExplorerShellComponent } from '@features/nosql/nosql-explorer-shell/nosql-explorer-shell.component';
 import { getSafeSessionStorage } from '@core/utils/browser-adapter';
+import { getDbTypeEntry } from '@core/registry/db-type.registry';
 import { of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
@@ -48,7 +48,6 @@ type AIMeta = {
         ResultGridComponent,
         DragDropTabDirective,
         MonacoEditorComponent,
-        NosqlExplorerShellComponent,
     ],
     templateUrl: './home.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
@@ -87,10 +86,6 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
     private darkModeObserver: MutationObserver | null = null;
     Math = Math;
     private databaseType: DatabaseType = sessionStorage.getItem('dbType') as DatabaseType;
-    readonly sqlDbTypes = new Set<DatabaseType>(['mysql2', 'pg', 'sqlite3', 'mssql', 'oracledb']);
-    readonly documentDbTypes = new Set<DatabaseType>(['mongodb', 'couchdb', 'cosmosdb', 'firestore']);
-    readonly keyValueDbTypes = new Set<DatabaseType>(['redis', 'memcached']);
-    readonly previewLimit = 6;
     private document = inject(DOCUMENT);
     private draggingIndex: number | null = null;
     // Sequential counter for generic tab names (ytab 1, ytab 2, ...)
@@ -168,16 +163,14 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     get isSqlBased(): boolean {
-        return this.sqlDbTypes.has(this.currentDbType);
+        return getDbTypeEntry(this.currentDbType)?.category === 'sql';
     }
 
     getTableLabel(): string {
-        if (this.keyValueDbTypes.has(this.currentDbType)) {
-            return 'Key groups';
-        }
-        if (this.documentDbTypes.has(this.currentDbType)) {
-            return 'Collections';
-        }
+        const entry = getDbTypeEntry(this.currentDbType);
+        if (entry?.explorer?.collectionLabel) return entry.explorer.collectionLabel;
+        if (entry?.category === 'cache') return 'Key groups';
+        if (entry?.category === 'nosql') return 'Collections';
         return 'Tables';
     }
 
@@ -185,29 +178,12 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
         return this.isSqlBased;
     }
 
-    getNoSqlPreviewItems(database: any): string[] {
-        if (!database?.tables || !Array.isArray(database.tables)) return [];
-        return database.tables
-            .map((table: any) => table?.name ?? table)
-            .filter((name: any) => typeof name === 'string' && name.trim().length > 0)
-            .slice(0, this.previewLimit);
-    }
-
-    getNoSqlRemainingCount(database: any): number {
-        const total = Array.isArray(database?.tables) ? database.tables.length : 0;
-        return total > this.previewLimit ? total - this.previewLimit : 0;
-    }
-
     private getDefaultEditorText(): string {
         if (this.isSqlBased) {
             return '-- Write your SQL here\n';
         }
-        if (this.currentDbType === 'mongodb') {
-            return `{\n  \"operation\": \"find\",\n  \"collection\": \"your_collection\",\n  \"filter\": {},\n  \"options\": { \"limit\": 50 }\n}\n`;
-        }
-        if (this.currentDbType === 'redis') {
-            return `{\n  \"operation\": \"get\",\n  \"key\": \"example:key\"\n}\n`;
-        }
+        const entry = getDbTypeEntry(this.currentDbType);
+        if (entry?.explorer?.defaultEditorText) return entry.explorer.defaultEditorText;
         return '-- Write your query here\n';
     }
 
@@ -713,7 +689,8 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     handleOpenAIPrompt() {
-        if (!this.isSqlBased) {
+        const entry = getDbTypeEntry(this.currentDbType);
+        if (!entry?.supports?.aiQueryGeneration) {
             alert('AI query generation is currently supported for SQL databases only.');
             return;
         }

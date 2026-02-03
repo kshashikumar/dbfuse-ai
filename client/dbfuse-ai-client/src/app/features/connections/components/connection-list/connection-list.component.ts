@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ConnectionCardComponent } from '@features/connections/components/connection-card/connection-card.component';
 import { Connection } from '@core/utils/storage/storage.types';
+import { getDbTypeEntry } from '@core/registry/db-type.registry';
 
 @Component({
     selector: 'app-connection-list',
@@ -118,25 +119,15 @@ export class ConnectionListComponent {
     }
 
     private getConnectionDisplayName(connection: Connection): string {
+        const entry = getDbTypeEntry(connection.dbType);
         const dbInfo = connection.database ? `/${connection.database}` : '';
-        if (connection.dbType === 'sqlite3') {
-            return `${connection.database} (${connection.dbType})`;
+        if (entry?.connection?.isFileBased) {
+            return `${connection.database} (${entry.label || connection.dbType})`;
         }
         if (!connection.host || !connection.port) {
-            return `${connection.database || 'default'} (${connection.dbType})`;
+            return `${connection.database || 'default'} (${entry?.label || connection.dbType})`;
         }
-        const noUserTypes = new Set([
-            'mongodb',
-            'redis',
-            'couchdb',
-            'cosmosdb',
-            'firestore',
-            'dynamodb',
-            'cassandra',
-            'hbase',
-            'memcached',
-        ]);
-        if (noUserTypes.has(connection.dbType) || !connection.username) {
+        if (entry?.connection?.omitUsername || !connection.username) {
             return `${connection.host}:${connection.port}${dbInfo}`;
         }
         return `${connection.username}@${connection.host}:${connection.port}${dbInfo}`;
@@ -151,22 +142,7 @@ export class ConnectionListComponent {
     }
 
     getDbTypeLabel(type: string): string {
-        const labels: { [key: string]: string } = {
-            mysql2: 'MySQL',
-            pg: 'PostgreSQL',
-            sqlite3: 'SQLite',
-            mssql: 'SQL Server',
-            oracledb: 'Oracle DB',
-            mongodb: 'MongoDB',
-            redis: 'Redis',
-            couchdb: 'CouchDB',
-            cosmosdb: 'Azure Cosmos DB',
-            firestore: 'Firestore',
-            dynamodb: 'DynamoDB',
-            cassandra: 'Cassandra',
-            hbase: 'HBase',
-            memcached: 'Memcached',
-        };
-        return labels[type] || type;
+        const entry = getDbTypeEntry(type as any);
+        return entry?.label || type;
     }
 }

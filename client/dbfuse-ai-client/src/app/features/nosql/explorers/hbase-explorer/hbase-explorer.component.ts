@@ -9,6 +9,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VirtualListComponent } from '@shared/components/virtual-list/virtual-list.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
 import { NosqlExplorerBase } from '../nosql-explorer-base';
@@ -16,7 +17,7 @@ import { NosqlExplorerBase } from '../nosql-explorer-base';
 @Component({
     selector: 'app-hbase-explorer',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, VirtualListComponent],
     templateUrl: './hbase-explorer.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -183,7 +184,7 @@ export class HbaseExplorerComponent extends NosqlExplorerBase implements OnInit,
         });
     }
 
-    runHBaseDelete(): void {
+    async runHBaseDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Deletes are not supported for this database.';
             return;
@@ -196,7 +197,11 @@ export class HbaseExplorerComponent extends NosqlExplorerBase implements OnInit,
             this.errorMessage = 'Row key is required.';
             return;
         }
-        if (!window.confirm(`Delete row ${this.rowKey}? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(`Delete row ${this.rowKey}? This cannot be undone.`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 

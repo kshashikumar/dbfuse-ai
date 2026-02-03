@@ -7,6 +7,10 @@
 const { connectionManager } = require("../config");
 const logger = require("../utils/logger");
 const { DEFAULT_CONFIG } = require("../core/constants");
+const { inferOperationType, resolveOperationName } = require("../utils/operation-infer");
+
+const METADATA_CACHE_TTL_MS = Number(process.env.DB_METADATA_CACHE_TTL_MS) || 120000;
+const METADATA_CACHE_MAX_SIZE = Number(process.env.DB_METADATA_CACHE_MAX_SIZE) || 200;
 
 /**
  * Simple in-memory cache for query results
@@ -59,6 +63,92 @@ class QueryCache {
     logger.debug("Query cache cleared");
   }
 
+  clearMatching(predicate) {
+    if (typeof predicate !== "function") return;
+    for (const key of this.cache.keys()) {
+      if (predicate(key)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  clearConnection(connectionId) {
+    if (!connectionId) return;
+    const prefix = `${connectionId}:`;
+    this.clearMatching((key) => String(key).startsWith(prefix));
+  }
+
+  getStats() {
+    return {
+      size: this.cache.size,
+      maxSize: this.maxSize,
+      ttlMs: this.ttlMs,
+    };
+  }
+}
+
+/**
+ * Simple in-memory cache for metadata results
+ */
+class MetadataCache {
+  constructor(maxSize = METADATA_CACHE_MAX_SIZE, ttlMs = METADATA_CACHE_TTL_MS) {
+    this.cache = new Map();
+    this.maxSize = maxSize;
+    this.ttlMs = ttlMs;
+  }
+
+  _generateKey(connectionId, scope, params) {
+    return `${connectionId}:${scope}:${JSON.stringify(params)}`;
+  }
+
+  get(connectionId, scope, params = {}) {
+    const key = this._generateKey(connectionId, scope, params);
+    const entry = this.cache.get(key);
+
+    if (!entry) return null;
+
+    if (Date.now() - entry.timestamp > this.ttlMs) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return entry.data;
+  }
+
+  set(connectionId, scope, params = {}, data) {
+    const key = this._generateKey(connectionId, scope, params);
+
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+    });
+  }
+
+  clear() {
+    this.cache.clear();
+    logger.debug("Metadata cache cleared");
+  }
+
+  clearMatching(predicate) {
+    if (typeof predicate !== "function") return;
+    for (const key of this.cache.keys()) {
+      if (predicate(key)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  clearConnection(connectionId) {
+    if (!connectionId) return;
+    const prefix = `${connectionId}:`;
+    this.clearMatching((key) => String(key).startsWith(prefix));
+  }
+
   getStats() {
     return {
       size: this.cache.size,
@@ -80,6 +170,7 @@ class QueryCache {
 class DatabaseService {
   constructor() {
     this.queryCache = new QueryCache();
+    this.metadataCache = new MetadataCache();
     this.metrics = {
       totalQueries: 0,
       successfulQueries: 0,
@@ -92,46 +183,26 @@ class DatabaseService {
     this.transactionHooks = [];
   }
 
-  _inferOperationType(query) {
-    if (typeof query === "string") return "query";
-    if (!query || typeof query !== "object") return "query";
+  _standardizeResultShape(result) {
+    if (!result || typeof result !== "object") {
+      return { raw: result };
+    }
 
-    const mode = String(query.mode || query.payload?.mode || "").toLowerCase();
-    if (mode === "command") return "command";
-    if (mode === "crud") return "crud";
-    if (mode === "query") return "query";
+    const normalized = { ...result };
+    const hasRows = Array.isArray(normalized.rows);
+    const hasDocuments = Array.isArray(normalized.documents);
 
-    const op =
-      query.operation ||
-      query.action ||
-      query.command ||
-      query.payload?.operation ||
-      query.payload?.action ||
-      query.payload?.command;
-    const normalized = op ? String(op).toLowerCase() : "";
+    if (!hasRows && !hasDocuments) {
+      if (Array.isArray(normalized.items)) {
+        normalized.documents = normalized.items;
+      } else if (Array.isArray(normalized.values)) {
+        normalized.rows = normalized.values;
+      } else if (Array.isArray(normalized.data)) {
+        normalized.rows = normalized.data;
+      }
+    }
 
-    if (!normalized) return "query";
-    if (normalized.includes("index")) return "indexes";
-    if (normalized === "explain") return "explain";
-    if (normalized === "command") return "command";
-
-    const crudPrefixes = [
-      "insert",
-      "update",
-      "delete",
-      "replace",
-      "upsert",
-      "create",
-      "set",
-      "add",
-      "put",
-      "patch",
-      "batch",
-    ];
-    if (normalized === "del" || normalized === "remove") return "crud";
-    if (crudPrefixes.some((prefix) => normalized.startsWith(prefix))) return "crud";
-
-    return "query";
+    return normalized;
   }
 
   _applySafePaging(options = {}) {
@@ -162,6 +233,80 @@ class DatabaseService {
       return username || base;
     }
     return base;
+  }
+
+  _shouldInvalidateCaches(query, strategy) {
+    if (!query) return false;
+    if (typeof query === "string") {
+      const trimmed = query.trim();
+      if (!trimmed) return false;
+      if (typeof strategy?.analyzeQuery === "function") {
+        const analysis = strategy.analyzeQuery(query);
+        const type = String(analysis?.type || "").toUpperCase();
+        const writeTypes = new Set([
+          "INSERT",
+          "UPDATE",
+          "DELETE",
+          "CREATE",
+          "DROP",
+          "ALTER",
+          "TRUNCATE",
+          "RENAME",
+          "MERGE",
+          "GRANT",
+          "REVOKE",
+        ]);
+        if (writeTypes.has(type)) {
+          return true;
+        }
+      }
+      return /^(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|RENAME|MERGE|GRANT|REVOKE)\b/i.test(
+        trimmed,
+      );
+    }
+
+    const opType = inferOperationType(query);
+    if (["crud", "indexes", "command"].includes(opType)) {
+      return true;
+    }
+
+    const operation = resolveOperationName(query);
+    if (!operation) return false;
+
+    const readOps = new Set([
+      "find",
+      "get",
+      "list",
+      "scan",
+      "query",
+      "aggregate",
+      "count",
+      "distinct",
+      "explain",
+      "view",
+      "changes",
+      "listindexes",
+      "attachmentget",
+      "mget",
+      "hgetall",
+      "lrange",
+      "llen",
+      "smembers",
+      "sunion",
+      "sinter",
+      "zrange",
+      "zrangebyscore",
+      "ttl",
+      "type",
+      "keys",
+    ]);
+
+    return !readOps.has(operation);
+  }
+
+  _invalidateCaches(connectionId) {
+    this.queryCache.clearConnection(connectionId);
+    this.metadataCache.clearConnection(connectionId);
   }
 
   /**
@@ -276,16 +421,28 @@ class DatabaseService {
     const startTime = Date.now();
     const dbType = this._resolveDbType(connectionId);
     try {
+      const cached = this.metadataCache.get(connectionId, "getDatabases", {});
+      if (cached) {
+        this._updateMetrics(true, 0, true, dbType);
+        return { ...cached, cached: true };
+      }
+
       const strategy = connectionManager.getConnection(connectionId);
       const databases = await strategy.getDatabases();
 
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime, false, dbType);
 
-      return {
+      const result = {
         databases,
         retrievedAt: new Date().toISOString(),
         executionTime,
+      };
+      this.metadataCache.set(connectionId, "getDatabases", {}, result);
+
+      return {
+        ...result,
+        cached: false,
       };
     } catch (error) {
       this._updateMetrics(false, Date.now() - startTime, false, dbType);
@@ -308,6 +465,12 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
 
+      const cached = this.metadataCache.get(connectionId, "getTables", { dbName: currentDb });
+      if (cached) {
+        this._updateMetrics(true, 0, true, dbType);
+        return { ...cached, cached: true };
+      }
+
       if (currentDb && strategy.switchDatabase) {
         await strategy.switchDatabase(currentDb);
       }
@@ -316,12 +479,18 @@ class DatabaseService {
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime, false, dbType);
 
-      return {
+      const result = {
         tables,
         count: Array.isArray(tables) ? tables.length : 0,
         database: currentDb,
         retrievedAt: new Date().toISOString(),
         executionTime,
+      };
+      this.metadataCache.set(connectionId, "getTables", { dbName: currentDb }, result);
+
+      return {
+        ...result,
+        cached: false,
       };
     } catch (error) {
       this._updateMetrics(false, Date.now() - startTime, false, dbType);
@@ -344,6 +513,12 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
 
+      const cached = this.metadataCache.get(connectionId, "getCollections", { dbName: currentDb });
+      if (cached) {
+        this._updateMetrics(true, 0, true, dbType);
+        return { ...cached, cached: true };
+      }
+
       if (currentDb && strategy.switchDatabase) {
         await strategy.switchDatabase(currentDb);
       }
@@ -352,12 +527,18 @@ class DatabaseService {
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime, false, dbType);
 
-      return {
+      const result = {
         collections,
         count: Array.isArray(collections) ? collections.length : 0,
         database: currentDb,
         retrievedAt: new Date().toISOString(),
         executionTime,
+      };
+      this.metadataCache.set(connectionId, "getCollections", { dbName: currentDb }, result);
+
+      return {
+        ...result,
+        cached: false,
       };
     } catch (error) {
       this._updateMetrics(false, Date.now() - startTime, false, dbType);
@@ -381,6 +562,15 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
 
+      const cached = this.metadataCache.get(connectionId, "getCollectionInfo", {
+        dbName: currentDb,
+        collection,
+      });
+      if (cached) {
+        this._updateMetrics(true, 0, true, dbType);
+        return { ...cached, cached: true };
+      }
+
       if (currentDb && strategy.switchDatabase) {
         await strategy.switchDatabase(currentDb);
       }
@@ -393,10 +583,21 @@ class DatabaseService {
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime, false, dbType);
 
-      return {
+      const result = {
         ...normalized,
         retrievedAt: new Date().toISOString(),
         executionTime,
+      };
+      this.metadataCache.set(
+        connectionId,
+        "getCollectionInfo",
+        { dbName: currentDb, collection },
+        result,
+      );
+
+      return {
+        ...result,
+        cached: false,
       };
     } catch (error) {
       this._updateMetrics(false, Date.now() - startTime, false, dbType);
@@ -414,18 +615,33 @@ class DatabaseService {
     const startTime = Date.now();
     const dbType = this._resolveDbType(connectionId);
     try {
+      const safePattern = pattern || "*";
+      const cached = this.metadataCache.get(connectionId, "getKeyPatterns", {
+        pattern: safePattern,
+      });
+      if (cached) {
+        this._updateMetrics(true, 0, true, dbType);
+        return { ...cached, cached: true };
+      }
+
       const strategy = connectionManager.getConnection(connectionId);
-      const keys = await strategy.getKeys(pattern || "*");
+      const keys = await strategy.getKeys(safePattern);
 
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime, false, dbType);
 
-      return {
+      const result = {
         keys,
         count: Array.isArray(keys) ? keys.length : 0,
-        pattern: pattern || "*",
+        pattern: safePattern,
         retrievedAt: new Date().toISOString(),
         executionTime,
+      };
+      this.metadataCache.set(connectionId, "getKeyPatterns", { pattern: safePattern }, result);
+
+      return {
+        ...result,
+        cached: false,
       };
     } catch (error) {
       this._updateMetrics(false, Date.now() - startTime, false, dbType);
@@ -444,18 +660,19 @@ class DatabaseService {
     const startTime = Date.now();
     const dbType = this._resolveDbType(connectionId);
     try {
-      // Check cache first
-      const cacheKey = { table, dbName };
-      const cached = this.queryCache.get(connectionId, "getTableInfo", cacheKey);
-      if (cached) {
-        this._updateMetrics(true, 0, true, dbType);
-        return cached;
-      }
-
       const strategy = connectionManager.getConnection(connectionId);
 
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
+
+      const cached = this.metadataCache.get(connectionId, "getTableInfo", {
+        dbName: currentDb,
+        table,
+      });
+      if (cached) {
+        this._updateMetrics(true, 0, true, dbType);
+        return { ...cached, cached: true };
+      }
 
       if (currentDb && strategy.switchDatabase) {
         await strategy.switchDatabase(currentDb);
@@ -475,10 +692,9 @@ class DatabaseService {
         executionTime,
       };
 
-      // Cache result
-      this.queryCache.set(connectionId, "getTableInfo", cacheKey, result);
+      this.metadataCache.set(connectionId, "getTableInfo", { dbName: currentDb, table }, result);
 
-      return result;
+      return { ...result, cached: false };
     } catch (error) {
       this._updateMetrics(false, Date.now() - startTime, false, dbType);
       throw error;
@@ -501,6 +717,15 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
 
+      const cached = this.metadataCache.get(connectionId, "getMultipleTablesInfo", {
+        dbName: currentDb,
+        tables,
+      });
+      if (cached) {
+        this._updateMetrics(true, 0, true, dbType);
+        return { ...cached, cached: true };
+      }
+
       if (currentDb && strategy.switchDatabase) {
         await strategy.switchDatabase(currentDb);
       }
@@ -516,12 +741,23 @@ class DatabaseService {
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime, false, dbType);
 
-      return {
+      const result = {
         tables: normalized,
         count: Array.isArray(normalized) ? normalized.length : 0,
         database: currentDb,
         retrievedAt: new Date().toISOString(),
         executionTime,
+      };
+      this.metadataCache.set(
+        connectionId,
+        "getMultipleTablesInfo",
+        { dbName: currentDb, tables },
+        result,
+      );
+
+      return {
+        ...result,
+        cached: false,
       };
     } catch (error) {
       this._updateMetrics(false, Date.now() - startTime, false, dbType);
@@ -584,7 +820,7 @@ class DatabaseService {
         await strategy.switchDatabase(currentDb);
       }
 
-      const opType = this._inferOperationType(query);
+      const opType = inferOperationType(query);
       if (strategy.validateOperation) {
         strategy.validateOperation(opType, query);
       }
@@ -592,6 +828,7 @@ class DatabaseService {
       const result = await strategy.executeQuery(query, { page, pageSize, dbName: currentDb });
       const normalized =
         typeof strategy.normalizeResult === "function" ? strategy.normalizeResult(result) : result;
+      const standardized = this._standardizeResultShape(normalized);
 
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime, false, dbType);
@@ -604,12 +841,16 @@ class DatabaseService {
       });
 
       // Cache SELECT results
-      if (useCache && isSelect && normalized.rows) {
+      if (useCache && isSelect && standardized.rows) {
         const cacheKey = { query, page, pageSize, dbName: currentDb };
-        this.queryCache.set(connectionId, "query", cacheKey, normalized);
+        this.queryCache.set(connectionId, "query", cacheKey, standardized);
       }
 
-      return normalized;
+      if (this._shouldInvalidateCaches(query, strategy)) {
+        this._invalidateCaches(connectionId);
+      }
+
+      return standardized;
     } catch (error) {
       const executionTime = Date.now() - startTime;
       this._updateMetrics(false, executionTime, false, dbType);
@@ -648,15 +889,23 @@ class DatabaseService {
       await this._notifyTransactionHooks("batch_start", { connectionId, count: queries.length });
 
       const results = [];
+      let shouldInvalidate = false;
       for (const query of queries) {
         const result = await strategy.executeQuery(query, { dbName: currentDb });
         results.push(result);
+        if (!shouldInvalidate && this._shouldInvalidateCaches(query, strategy)) {
+          shouldInvalidate = true;
+        }
       }
 
       const executionTime = Date.now() - startTime;
       this._updateMetrics(true, executionTime, false, dbType);
 
       await this._notifyTransactionHooks("batch_success", { connectionId, count: queries.length });
+
+      if (shouldInvalidate) {
+        this._invalidateCaches(connectionId);
+      }
 
       return {
         results,
@@ -687,8 +936,8 @@ class DatabaseService {
       info.currentDatabase = dbName;
     }
 
-    // Clear cache for this connection
-    this.queryCache.clear();
+    // Clear caches for this connection
+    this._invalidateCaches(connectionId);
 
     return {
       message: `Switched to database ${dbName}`,
@@ -722,6 +971,7 @@ class DatabaseService {
       averageExecutionTime: Math.round(avgExecutionTime),
       byDbType,
       cacheStats: this.queryCache.getStats(),
+      metadataCacheStats: this.metadataCache.getStats(),
     };
   }
 
@@ -745,6 +995,7 @@ class DatabaseService {
    */
   clearCache() {
     this.queryCache.clear();
+    this.metadataCache.clear();
   }
 
   /**
@@ -760,6 +1011,9 @@ class DatabaseService {
         cacheSize: this.queryCache.cache.size,
         maxCacheSize: this.queryCache.maxSize,
         cacheTTL: this.queryCache.ttlMs,
+        metadataCacheSize: this.metadataCache.cache.size,
+        metadataCacheMaxSize: this.metadataCache.maxSize,
+        metadataCacheTTL: this.metadataCache.ttlMs,
         activeConnections: connectionManager.getAllConnectionIds().length,
         hasRateLimitHooks: this.rateLimitHooks.length > 0,
         hasTransactionHooks: this.transactionHooks.length > 0,
@@ -802,6 +1056,15 @@ class DatabaseService {
 
       // Determine if this is a SQL or NoSQL database
       const isNoSQL = collectionName !== null;
+
+      if (typeof strategy.validateOperation === "function") {
+        strategy.validateOperation("query", {
+          query,
+          collectionName,
+          filter,
+          options,
+        });
+      }
 
       if (isNoSQL) {
         // NoSQL path (MongoDB, etc.)

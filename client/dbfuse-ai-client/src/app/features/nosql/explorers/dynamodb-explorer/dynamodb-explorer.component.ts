@@ -9,6 +9,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VirtualListComponent } from '@shared/components/virtual-list/virtual-list.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
 import { NosqlExplorerBase } from '../nosql-explorer-base';
@@ -16,7 +17,7 @@ import { NosqlExplorerBase } from '../nosql-explorer-base';
 @Component({
     selector: 'app-dynamodb-explorer',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, VirtualListComponent],
     templateUrl: './dynamodb-explorer.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -157,7 +158,7 @@ export class DynamodbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runDynamoDelete(): void {
+    async runDynamoDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Deletes are not supported for this database.';
             return;
@@ -168,7 +169,11 @@ export class DynamodbExplorerComponent extends NosqlExplorerBase implements OnIn
         }
         const key = this.parseJsonInput(this.dynamoDeleteKey, 'Key');
         if (!key) return;
-        if (!window.confirm('Delete the matching item? This cannot be undone.')) {
+        const confirmed = await this.confirmDestructive('Delete the matching item? This cannot be undone.', {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -193,7 +198,7 @@ export class DynamodbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runDynamoBatchWrite(): void {
+    async runDynamoBatchWrite(): Promise<void> {
         if (!this.supportsBatch) {
             this.errorMessage = 'Batch operations are not supported for this database.';
             return;
@@ -204,7 +209,11 @@ export class DynamodbExplorerComponent extends NosqlExplorerBase implements OnIn
         }
         const requestItems = this.parseJsonInput(this.dynamoBatchWrite, 'Batch write request');
         if (!requestItems) return;
-        if (!window.confirm('Run batch write? This may insert or delete multiple items.')) {
+        const confirmed = await this.confirmDestructive('Run batch write? This may insert or delete multiple items.', {
+            title: 'Confirm batch write',
+            confirmLabel: 'Run',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -232,7 +241,7 @@ export class DynamodbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runDynamoTransactWrite(): void {
+    async runDynamoTransactWrite(): Promise<void> {
         if (!this.supportsTransactions) {
             this.errorMessage = 'Transactions are not supported for this database.';
             return;
@@ -247,7 +256,11 @@ export class DynamodbExplorerComponent extends NosqlExplorerBase implements OnIn
             this.errorMessage = 'Transact write items must be a JSON array.';
             return;
         }
-        if (!window.confirm('Run transactional write? This may modify multiple items.')) {
+        const confirmed = await this.confirmDestructive('Run transactional write? This may modify multiple items.', {
+            title: 'Confirm transaction',
+            confirmLabel: 'Run',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -285,7 +298,7 @@ export class DynamodbExplorerComponent extends NosqlExplorerBase implements OnIn
         });
     }
 
-    runDynamoDeleteTable(): void {
+    async runDynamoDeleteTable(): Promise<void> {
         if (!this.supportsAdmin) {
             this.errorMessage = 'Admin operations are not supported for this database.';
             return;
@@ -295,7 +308,11 @@ export class DynamodbExplorerComponent extends NosqlExplorerBase implements OnIn
             this.errorMessage = 'Table name is required.';
             return;
         }
-        if (!window.confirm(`Delete table ${tableName}? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(`Delete table ${tableName}? This cannot be undone.`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 

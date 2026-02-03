@@ -11,6 +11,7 @@ import { ConnectionConfig, DatabaseType, newTabData, openAIEvent } from '@core/u
 import { filter } from 'rxjs/operators';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { getSafeSessionStorage } from '@core/utils/browser-adapter';
+import { getDbTypeEntry } from '@core/registry/db-type.registry';
 
 @Component({
     selector: 'app-layout-horizontal',
@@ -40,7 +41,6 @@ export class LayoutHorizontalComponent implements OnInit {
     currentDbType: DatabaseType | null = null;
     activeView: 'explorer' | 'chat' = 'explorer';
     pendingQuery: { sql: string; dbName: string; id: number } | null = null;
-    readonly sqlDbTypes = new Set<DatabaseType>(['mysql2', 'pg', 'sqlite3', 'mssql', 'oracledb']);
 
     ngOnInit(): void {
         this._router.events
@@ -109,7 +109,7 @@ export class LayoutHorizontalComponent implements OnInit {
     }
 
     get isSqlBased(): boolean {
-        return this.sqlDbTypes.has(this.effectiveDbType);
+        return getDbTypeEntry(this.effectiveDbType)?.category === 'sql';
     }
 
     handleChatSendToEditor(payload: { sql: string; dbName: string }): void {

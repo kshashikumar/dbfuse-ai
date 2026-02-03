@@ -1,4 +1,6 @@
 const logger = require("../../utils/logger");
+const { buildColumnsFromRecords } = require("../../utils/metadata-sampler");
+const { getQueryParts, resolveOperation } = require("../../utils/query-normalizer");
 
 const NoSQLStrategy = require("./base/nosql-strategy");
 
@@ -92,12 +94,7 @@ class CouchDBStrategy extends NoSQLStrategy {
       indexes = [];
     }
 
-    const fields = Object.entries(this._inferFieldTypes(sampleDocuments)).map(
-      ([name, dataType]) => ({
-        column_name: name,
-        data_type: dataType,
-      }),
-    );
+    const fields = buildColumnsFromRecords(sampleDocuments);
 
     return {
       db_name: targetDb,
@@ -286,57 +283,28 @@ class CouchDBStrategy extends NoSQLStrategy {
     if (typeof query === "string") {
       return { operation: "find", filter: { _id: query } };
     }
-    const payload = query?.payload || {};
-    const operation = (
-      query?.operation ||
-      query?.action ||
-      payload.operation ||
-      payload.action ||
-      "find"
-    )
-      .toString()
-      .toLowerCase();
+    const { raw, payload } = getQueryParts(query);
+    const operation = resolveOperation(raw, payload, { defaultOperation: "find" });
 
     return {
       operation,
-      database: query?.database || payload.database || query?.dbName,
-      id: query?.id || payload.id,
-      rev: query?.rev || payload.rev,
-      designDoc: query?.designDoc || payload.designDoc || query?.ddoc || payload.ddoc,
-      view: query?.view || payload.view,
-      filter: query?.selector || payload.selector || query?.filter,
-      document: query?.document || payload.document,
-      documents: query?.documents || payload.documents,
-      params: query?.params || payload.params || query?.options || payload.options || {},
-      attachmentName: query?.attachmentName || payload.attachmentName || query?.attachment,
-      contentType: query?.contentType || payload.contentType,
-      data: query?.data || payload.data,
-      encoding: query?.encoding || payload.encoding,
-      index: query?.index || payload.index,
-      indexName: query?.indexName || payload.indexName,
+      database: raw.database || payload.database || raw.dbName,
+      id: raw.id || payload.id,
+      rev: raw.rev || payload.rev,
+      designDoc: raw.designDoc || payload.designDoc || raw.ddoc || payload.ddoc,
+      view: raw.view || payload.view,
+      filter: raw.selector || payload.selector || raw.filter,
+      document: raw.document || payload.document,
+      documents: raw.documents || payload.documents,
+      params: raw.params || payload.params || raw.options || payload.options || {},
+      attachmentName: raw.attachmentName || payload.attachmentName || raw.attachment,
+      contentType: raw.contentType || payload.contentType,
+      data: raw.data || payload.data,
+      encoding: raw.encoding || payload.encoding,
+      index: raw.index || payload.index,
+      indexName: raw.indexName || payload.indexName,
       options,
     };
-  }
-
-  _inferFieldTypes(documents) {
-    const map = {};
-    for (const doc of documents || []) {
-      if (!doc || typeof doc !== "object") continue;
-      for (const [key, value] of Object.entries(doc)) {
-        if (!map[key]) {
-          map[key] = this._typeOfValue(value);
-        }
-      }
-    }
-    return map;
-  }
-
-  _typeOfValue(value) {
-    if (Array.isArray(value)) return "array";
-    if (value === null) return "null";
-    const type = typeof value;
-    if (type === "object") return "object";
-    return type;
   }
 }
 

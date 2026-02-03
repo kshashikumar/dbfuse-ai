@@ -1,6 +1,9 @@
-<div class="flex h-full bg-background">
+<div class="flex h-full min-h-0 bg-background">
     <!-- Chat Messages Panel (Left Side) -->
-    <div [ngClass]="hasResults ? 'w-1/2' : 'flex-1'" class="min-w-0 flex flex-col border-r border-border">
+    <div
+        [ngClass]="hasResults ? 'w-1/2' : 'flex-1'"
+        class="min-w-0 min-h-0 flex flex-col border-r border-border"
+    >
         <div class="border-b border-border px-6 py-4">
             <div class="flex items-center justify-between">
                 <div>
@@ -264,7 +267,10 @@
     </div>
 
     <!-- Results Panel (Right Side) - Only show when there are results -->
-    <div *ngIf="hasResults && queryResults.length > 0" class="w-1/2 border-l border-border flex flex-col bg-background">
+    <div
+        *ngIf="hasResults && queryResults.length > 0"
+        class="w-1/2 min-w-0 min-h-0 border-l border-border flex flex-col bg-background"
+    >
         <!-- Tab Bar -->
         <div class="flex items-center border-b border-border bg-muted/30 px-2 pt-2">
             <div class="flex items-center overflow-x-auto scrollbar-hidden space-x-1 flex-1">

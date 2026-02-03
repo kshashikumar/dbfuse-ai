@@ -9,6 +9,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VirtualListComponent } from '@shared/components/virtual-list/virtual-list.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
 import { NosqlExplorerBase } from '../nosql-explorer-base';
@@ -16,7 +17,7 @@ import { NosqlExplorerBase } from '../nosql-explorer-base';
 @Component({
     selector: 'app-couchdb-explorer',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, VirtualListComponent],
     templateUrl: './couchdb-explorer.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -209,7 +210,7 @@ export class CouchdbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runAttachmentDelete(): void {
+    async runAttachmentDelete(): Promise<void> {
         if (!this.supportsAttachments) {
             this.errorMessage = 'Attachments are not supported for this database.';
             return;
@@ -226,7 +227,14 @@ export class CouchdbExplorerComponent extends NosqlExplorerBase implements OnIni
             this.errorMessage = 'Document id, rev, and attachment name are required.';
             return;
         }
-        if (!window.confirm(`Delete attachment ${this.attachmentName}? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(
+            `Delete attachment ${this.attachmentName}? This cannot be undone.`,
+            {
+                title: 'Confirm delete',
+                confirmLabel: 'Delete',
+            },
+        );
+        if (!confirmed) {
             return;
         }
 
@@ -277,7 +285,7 @@ export class CouchdbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runDocDelete(): void {
+    async runDocDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Deletes are not supported for this database.';
             return;
@@ -298,7 +306,11 @@ export class CouchdbExplorerComponent extends NosqlExplorerBase implements OnIni
             this.errorMessage = 'Document id and rev are required for delete.';
             return;
         }
-        if (!window.confirm(`Delete document ${id}? This cannot be undone.`)) {
+        const confirmed = await this.confirmDestructive(`Delete document ${id}? This cannot be undone.`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -310,7 +322,7 @@ export class CouchdbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runBulk(): void {
+    async runBulk(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Bulk writes are not supported for this database.';
             return;
@@ -325,7 +337,14 @@ export class CouchdbExplorerComponent extends NosqlExplorerBase implements OnIni
             this.errorMessage = 'Bulk documents must be a JSON array.';
             return;
         }
-        if (!window.confirm('Run bulk document write? This may insert or delete multiple documents.')) {
+        const confirmed = await this.confirmDestructive(
+            'Run bulk document write? This may insert or delete multiple documents.',
+            {
+                title: 'Confirm bulk write',
+                confirmLabel: 'Run',
+            },
+        );
+        if (!confirmed) {
             return;
         }
 
@@ -359,7 +378,7 @@ export class CouchdbExplorerComponent extends NosqlExplorerBase implements OnIni
         });
     }
 
-    runDeleteIndex(): void {
+    async runDeleteIndex(): Promise<void> {
         if (!this.supportsIndexes) {
             this.errorMessage = 'Index operations are not supported for this database.';
             return;
@@ -376,7 +395,11 @@ export class CouchdbExplorerComponent extends NosqlExplorerBase implements OnIni
             this.errorMessage = 'Design doc and index name are required.';
             return;
         }
-        if (!window.confirm(`Delete index ${this.indexName}?`)) {
+        const confirmed = await this.confirmDestructive(`Delete index ${this.indexName}?`, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 

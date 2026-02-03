@@ -21,6 +21,7 @@ import { BackendService } from '@core/services/backend/backend.service';
 import { TruncatePipe } from '@shared/pipes/truncate.pipe';
 import { firstValueFrom, BehaviorSubject, Observable, Subscription } from 'rxjs';
 import { getSafeSessionStorage } from '@core/utils/browser-adapter';
+import type { DbMultiQueryResponse, DbQueryResponse } from '@core/services/db-api/db-api.types';
 
 @Component({
     selector: 'app-resultgrid',
@@ -137,6 +138,26 @@ export class ResultGridComponent implements OnInit {
             }
             this._cdr.markForCheck();
         }
+    }
+
+    private isMultiQueryResponse(
+        response: DbQueryResponse | DbMultiQueryResponse | null | undefined,
+    ): response is DbMultiQueryResponse {
+        return Boolean(response && Array.isArray((response as DbMultiQueryResponse).queries));
+    }
+
+    private extractQueryResults(
+        response: DbQueryResponse | DbMultiQueryResponse | null | undefined,
+    ): DbQueryResponse[] {
+        if (!response) {
+            return [];
+        }
+
+        if (this.isMultiQueryResponse(response)) {
+            return (response as DbMultiQueryResponse).queries;
+        }
+
+        return [response];
     }
 
     // State Management Helpers
@@ -309,12 +330,7 @@ export class ResultGridComponent implements OnInit {
                         if (this.tabId !== executionTabId) {
                             this.updateCachedState(executionTabId, {
                                 isLoading: false,
-                                queryResults:
-                                    response && Array.isArray(response.queries)
-                                        ? response.queries
-                                        : response
-                                          ? [response]
-                                          : [],
+                                queryResults: this.extractQueryResults(response),
                                 isVirtualScrollLoading: false,
                                 resultScrollOffsets: {},
                             });
@@ -323,11 +339,7 @@ export class ResultGridComponent implements OnInit {
 
                         this.isLoading = false;
                         if (response) {
-                            if (Array.isArray(response.queries)) {
-                                this.queryResults = response.queries;
-                            } else {
-                                this.queryResults = [response];
-                            }
+                            this.queryResults = this.extractQueryResults(response);
                             // Emit results to parent (SqlWorkspace) to update tabs if needed
                             this.resultsChanged.emit(this.queryResults);
 

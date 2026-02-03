@@ -1,5 +1,7 @@
 // db_strategies/redis-strategy.js
 const logger = require("../../utils/logger");
+const { limitSample } = require("../../utils/metadata-sampler");
+const { getQueryParts, resolveOperation } = require("../../utils/query-normalizer");
 
 const CacheStrategy = require("./base/cache-strategy");
 
@@ -102,7 +104,7 @@ class RedisStrategy extends CacheStrategy {
     const prefix = tableName || "default";
     const pattern = prefix === "default" ? "*" : `${prefix}:*`;
     const keys = await this.getKeys(pattern);
-    const sampled = keys.slice(0, 25);
+    const sampled = limitSample(keys, 25);
 
     const columns = [];
     const sampleKeys = [];
@@ -542,18 +544,18 @@ class RedisStrategy extends CacheStrategy {
   }
 
   _normalizeRedisQuery(query, options = {}) {
-    const raw = query && typeof query === "object" ? query : {};
-    const payload = raw.payload && typeof raw.payload === "object" ? raw.payload : {};
+    const { raw, payload } = getQueryParts(query);
     const mergedOptions = {
       ...options,
       ...(raw.options && typeof raw.options === "object" ? raw.options : {}),
       ...(payload.options && typeof payload.options === "object" ? payload.options : {}),
     };
 
-    const operation =
-      raw.operation || raw.action || payload.operation || payload.action || raw.command;
-    const normalizedOperation =
-      typeof operation === "string" ? operation : raw.command || payload.command ? "command" : null;
+    const normalizedOperation = resolveOperation(raw, payload, {
+      defaultOperation: null,
+      commandFallback: true,
+      coerceNonString: false,
+    });
 
     const key = raw.key || payload.key;
     const keys = raw.keys || payload.keys || (key ? [key] : []);

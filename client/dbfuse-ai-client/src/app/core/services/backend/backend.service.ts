@@ -3,16 +3,27 @@ import { environment } from '@env/environment';
 import { Observable, forkJoin, of, throwError } from 'rxjs';
 import { map, switchMap, catchError, finalize } from 'rxjs/operators';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { DbApiService } from '@core/services/db-api/db-api.service';
+import type {
+    DbBatchQueryResponse,
+    DbMultiQueryResponse,
+    DbQueryResponse,
+    DbMetadataMultipleTablesResponse,
+    DbMetadataProceduresResponse,
+    DbMetadataStrategyResponse,
+    DbMetadataTableInfoResponse,
+    DbMetadataViewsResponse,
+    DbMetadataTablesResponse,
+    DbMetadataCollectionsResponse,
+    DbHealthResponse,
+    DbConnectResponse,
+    DbSwitchResponse,
+    DbQueryAnalysisResponse,
+} from '@core/services/db-api/db-api.types';
 import {
-    MultipleTablesInfo,
     RAGHistoryResponse,
     RAGPromptResponse,
-    TableInfo,
     DatabaseStats,
-    ConnectionHealth,
-    QueryResult,
-    BatchQueryResult,
-    QueryAnalysis,
     ConnectionConfig,
     Connection,
     ConfigData,
@@ -62,7 +73,10 @@ export class BackendService {
         });
     }
 
-    constructor(private _http: HttpClient) {}
+    constructor(
+        private _http: HttpClient,
+        private readonly dbApi: DbApiService,
+    ) {}
 
     private getStoredConnectionConfig(): ConnectionConfig | null {
         const raw = getSafeSessionStorage().getItem('connection');
@@ -139,73 +153,41 @@ export class BackendService {
     }
 
     // Database Information Methods
-    getDatabases(): Observable<{ databases: DatabaseStats[]; count: number; retrievedAt: string }> {
-        return this.withReconnect(() =>
-            this._http.get<{ databases: DatabaseStats[]; count: number; retrievedAt: string }>(
-                `${this.BASE_URL}/api/sql/databases`,
-                { headers: this.getHeaders() },
-            ),
-        );
+    getDatabases(): Observable<{
+        databases: DatabaseStats[];
+        count?: number;
+        retrievedAt?: string;
+        executionTime?: number;
+    }> {
+        return this.withReconnect(() => this.dbApi.getDatabases());
     }
 
-    getTables(dbName: string): Observable<{ tables: string[]; count: number; database: string; retrievedAt: string }> {
-        const url = `${this.BASE_URL}/api/sql/tables${dbName ? `?dbName=${encodeURIComponent(dbName)}` : ''}`;
-        return this.withReconnect(() =>
-            this._http.get<{ tables: string[]; count: number; database: string; retrievedAt: string }>(url, {
-                headers: this.getHeaders(),
-            }),
-        );
+    getTables(dbName: string): Observable<DbMetadataTablesResponse> {
+        return this.withReconnect(() => this.dbApi.getTables(dbName));
     }
 
-    getViews(dbName: string): Observable<{ views: any[]; count: number; database: string; retrievedAt: string }> {
-        const url = `${this.BASE_URL}/api/sql/views${dbName ? `?dbName=${encodeURIComponent(dbName)}` : ''}`;
-        return this.withReconnect(() =>
-            this._http.get<{ views: any[]; count: number; database: string; retrievedAt: string }>(url, {
-                headers: this.getHeaders(),
-            }),
-        );
+    getCollections(dbName: string): Observable<DbMetadataCollectionsResponse> {
+        return this.withReconnect(() => this.dbApi.getCollections(dbName));
     }
 
-    getProcedures(
-        dbName: string,
-    ): Observable<{ procedures: any[]; count: number; database: string; retrievedAt: string }> {
-        const url = `${this.BASE_URL}/api/sql/procedures${dbName ? `?dbName=${encodeURIComponent(dbName)}` : ''}`;
-        return this.withReconnect(() =>
-            this._http.get<{ procedures: any[]; count: number; database: string; retrievedAt: string }>(url, {
-                headers: this.getHeaders(),
-            }),
-        );
+    getViews(dbName: string): Observable<DbMetadataViewsResponse> {
+        return this.withReconnect(() => this.dbApi.getViews(dbName));
     }
 
-    getStrategyMetadata(): Observable<{ dbType: string; metadata: any; retrievedAt: string }> {
-        return this.withReconnect(() =>
-            this._http.get<{ dbType: string; metadata: any; retrievedAt: string }>(
-                `${this.BASE_URL}/api/sql/strategy-metadata`,
-                { headers: this.getHeaders() },
-            ),
-        );
+    getProcedures(dbName: string): Observable<DbMetadataProceduresResponse> {
+        return this.withReconnect(() => this.dbApi.getProcedures(dbName));
     }
 
-    getTableInfo(dbName: string, table: string): Observable<TableInfo & { retrievedAt: string }> {
-        const url = `${this.BASE_URL}/api/sql/table-info?table=${encodeURIComponent(table)}${dbName ? `&dbName=${encodeURIComponent(dbName)}` : ''}`;
-        return this.withReconnect(() =>
-            this._http.get<TableInfo & { retrievedAt: string }>(url, { headers: this.getHeaders() }),
-        );
+    getStrategyMetadata(): Observable<DbMetadataStrategyResponse> {
+        return this.withReconnect(() => this.dbApi.getStrategyMetadata());
     }
 
-    getMultipleTablesInfo(
-        dbName: string,
-        tables: string[],
-    ): Observable<MultipleTablesInfo & { count: number; database: string; retrievedAt: string }> {
-        const payload: any = { tables };
-        if (dbName) payload.dbName = dbName;
-        return this.withReconnect(() =>
-            this._http.post<MultipleTablesInfo & { count: number; database: string; retrievedAt: string }>(
-                `${this.BASE_URL}/api/sql/info`,
-                payload,
-                { headers: this.getHeaders() },
-            ),
-        );
+    getTableInfo(dbName: string, table: string): Observable<DbMetadataTableInfoResponse> {
+        return this.withReconnect(() => this.dbApi.getTableInfo(dbName, table));
+    }
+
+    getMultipleTablesInfo(dbName: string, tables: string[]): Observable<DbMetadataMultipleTablesResponse> {
+        return this.withReconnect(() => this.dbApi.getMultipleTablesInfo(dbName, tables));
     }
 
     // Query Execution Methods
@@ -213,81 +195,44 @@ export class BackendService {
         query: any,
         dbName: string,
         options: { page?: number; pageSize?: number; timeout?: number } = {},
-    ): Observable<any> {
+    ): Observable<DbQueryResponse | DbMultiQueryResponse> {
         const { page = 1, pageSize = 10, timeout } = options;
         const payload: any = { query, page, pageSize, timeout };
         if (dbName) payload.dbName = dbName;
-        return this.withReconnect(() =>
-            this._http.post<any>(`${this.BASE_URL}/api/sql/query`, payload, {
-                headers: this.getHeaders(),
-            }),
-        );
+        return this.withReconnect(() => this.dbApi.executeQuery(payload));
     }
 
-    executeBatchQueries(dbName: string, queries: string[], transaction: boolean = false): Observable<BatchQueryResult> {
-        const payload: any = { queries, transaction };
-        if (dbName) payload.dbName = dbName;
-        return this.withReconnect(() =>
-            this._http.post<BatchQueryResult>(`${this.BASE_URL}/api/sql/batch`, payload, {
-                headers: this.getHeaders(),
-            }),
-        );
+    executeBatchQueries(
+        dbName: string,
+        queries: string[],
+        transaction: boolean = false,
+    ): Observable<DbBatchQueryResponse> {
+        return this.withReconnect(() => this.dbApi.executeBatch(queries, dbName, transaction));
     }
 
-    analyzeQuery(query: string): Observable<{ query: string; analysis: QueryAnalysis; analyzedAt: string }> {
-        const payload = { query };
-        return this.withReconnect(() =>
-            this._http.post<{ query: string; analysis: QueryAnalysis; analyzedAt: string }>(
-                `${this.BASE_URL}/api/sql/analyze-query`,
-                payload,
-                { headers: this.getHeaders() },
-            ),
-        );
+    analyzeQuery(query: string): Observable<DbQueryAnalysisResponse> {
+        return this.withReconnect(() => this.dbApi.analyzeQuery(query));
     }
 
     // Connection Management Methods
-    connect(connection: ConnectionConfig): Observable<{
-        message: string;
-        connectionId?: string;
-        timestamp: string;
-        database?: string;
-    }> {
+    connect(connection: ConnectionConfig): Observable<DbConnectResponse> {
         getSafeSessionStorage().setItem('dbType', connection.dbType);
-        return this._http
-            .post<{
-                message: string;
-                connectionId?: string;
-                timestamp: string;
-                database?: string;
-            }>(`${this.BASE_URL}/api/sql/connect`, connection, { headers: this.getHeaders() })
-            .pipe(
-                map((resp) => {
-                    if (resp?.connectionId) {
-                        getSafeSessionStorage().setItem('connectionId', resp.connectionId);
-                    }
-                    return resp;
-                }),
-            );
-    }
-
-    switchDatabase(dbName: string): Observable<{
-        message: string;
-        database: string;
-        timestamp: string;
-    }> {
-        return this.withReconnect(() =>
-            this._http.post<{
-                message: string;
-                database: string;
-                timestamp: string;
-            }>(`${this.BASE_URL}/api/sql/switch-database`, { dbName }, { headers: this.getHeaders() }),
+        return this.dbApi.connect(connection).pipe(
+            map((resp) => {
+                if (resp?.connectionId) {
+                    getSafeSessionStorage().setItem('connectionId', resp.connectionId);
+                }
+                return resp;
+            }),
         );
     }
 
-    getConnectionHealth(): Observable<ConnectionHealth> {
-        return this.withReconnect(() =>
-            this._http.get<ConnectionHealth>(`${this.BASE_URL}/api/sql/health`, { headers: this.getHeaders() }),
-        );
+    switchDatabase(dbName: string): Observable<DbSwitchResponse> {
+        return this.withReconnect(() => this.dbApi.switchDatabase(dbName));
+    }
+
+    getConnectionHealth(): Observable<DbHealthResponse> {
+        return this.withReconnect(() => this.dbApi.getConnectionHealth());
     }
 
     // AI Integration Methods

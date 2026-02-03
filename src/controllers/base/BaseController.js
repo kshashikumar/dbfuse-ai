@@ -7,6 +7,7 @@ const sanitizeHtml = require("sanitize-html");
 
 const { HTTP_STATUS, GENERAL_ERRORS } = require("../../core/constants");
 const logger = require("../../utils/logger");
+const { buildEnvelope, isUnifiedEnvelopeEnabled } = require("../../utils/responseEnvelope");
 
 /**
  * Base controller class with common methods for all controllers
@@ -42,6 +43,39 @@ class BaseController {
   }
 
   /**
+   * Send success response with optional unified envelope wrapper
+   * @param {Object} res - Express response object
+   * @param {Object} data - Response data
+   * @param {Object} options - Envelope options
+   * @param {string} options.kind - "metadata" | "query"
+   * @param {Object} options.request - Request context (dbType, connectionId)
+   * @param {Object} options.meta - Additional metadata
+   * @param {number} options.status - HTTP status code (default: 200)
+   */
+  sendSuccessWithEnvelope(res, data, options = {}) {
+    const status = options.status || HTTP_STATUS.OK;
+    const payload = { ...data, timestamp: new Date().toISOString() };
+
+    if (!isUnifiedEnvelopeEnabled() || !options.kind) {
+      return this.sendResponse(res, status, payload);
+    }
+
+    const meta = { ...(options.meta || {}) };
+    if (options.capabilities && !meta.capabilities) {
+      meta.capabilities = options.capabilities;
+    }
+
+    const envelope = buildEnvelope({
+      kind: options.kind,
+      payload,
+      request: options.request,
+      meta,
+    });
+
+    return this.sendResponse(res, status, { ...payload, envelope });
+  }
+
+  /**
    * Send error response
    * @param {Object} res - Express response object
    * @param {string} message - Error message
@@ -74,6 +108,10 @@ class BaseController {
         "SQL syntax error. Please check your query.",
         HTTP_STATUS.BAD_REQUEST,
       );
+    }
+
+    if (error.code === "UNSUPPORTED_OPERATION") {
+      return this.sendError(res, error.message, HTTP_STATUS.BAD_REQUEST);
     }
 
     // Database-specific errors

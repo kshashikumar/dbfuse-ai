@@ -9,6 +9,7 @@ import {
     SimpleChanges,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VirtualListComponent } from '@shared/components/virtual-list/virtual-list.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType } from '@core/utils/storage/storage.types';
 import { NosqlExplorerBase } from '../nosql-explorer-base';
@@ -16,7 +17,7 @@ import { NosqlExplorerBase } from '../nosql-explorer-base';
 @Component({
     selector: 'app-cassandra-explorer',
     standalone: true,
-    imports: [CommonModule, FormsModule],
+    imports: [CommonModule, FormsModule, VirtualListComponent],
     templateUrl: './cassandra-explorer.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -112,7 +113,7 @@ export class CassandraExplorerComponent extends NosqlExplorerBase implements OnI
         });
     }
 
-    runUpdate(): void {
+    async runUpdate(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Updates are not supported for this database.';
             return;
@@ -128,7 +129,15 @@ export class CassandraExplorerComponent extends NosqlExplorerBase implements OnI
         if (this.lwtConditions && !lwtPayload) return;
 
         if (!this.hasPartitionKey(where)) {
-            if (!window.confirm('Update without full partition key? This can cause wide scans.')) {
+            const confirmed = await this.confirmDestructive(
+                'Update without full partition key? This can cause wide scans.',
+                {
+                    title: 'Confirm update',
+                    confirmLabel: 'Continue',
+                    confirmVariant: 'primary',
+                },
+            );
+            if (!confirmed) {
                 return;
             }
         }
@@ -143,7 +152,7 @@ export class CassandraExplorerComponent extends NosqlExplorerBase implements OnI
         });
     }
 
-    runDelete(): void {
+    async runDelete(): Promise<void> {
         if (!this.supportsCrud) {
             this.errorMessage = 'Deletes are not supported for this database.';
             return;
@@ -160,7 +169,11 @@ export class CassandraExplorerComponent extends NosqlExplorerBase implements OnI
         const confirmMessage = this.hasPartitionKey(where)
             ? 'Delete matching rows? This cannot be undone.'
             : 'Delete without full partition key? This can cause wide scans.';
-        if (!window.confirm(confirmMessage)) {
+        const confirmed = await this.confirmDestructive(confirmMessage, {
+            title: 'Confirm delete',
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) {
             return;
         }
 
@@ -173,7 +186,7 @@ export class CassandraExplorerComponent extends NosqlExplorerBase implements OnI
         });
     }
 
-    runBatch(): void {
+    async runBatch(): Promise<void> {
         if (!this.hasCapability('batch')) {
             this.errorMessage = 'Batch operations are not supported for this database.';
             return;
@@ -184,7 +197,11 @@ export class CassandraExplorerComponent extends NosqlExplorerBase implements OnI
             this.errorMessage = 'Batch statements must be a JSON array.';
             return;
         }
-        if (!window.confirm('Run batch statements? This may modify multiple rows.')) {
+        const confirmed = await this.confirmDestructive('Run batch statements? This may modify multiple rows.', {
+            title: 'Confirm batch write',
+            confirmLabel: 'Run',
+        });
+        if (!confirmed) {
             return;
         }
 

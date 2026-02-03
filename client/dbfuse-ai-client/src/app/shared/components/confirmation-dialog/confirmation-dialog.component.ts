@@ -10,6 +10,10 @@ import { CommonModule } from '@angular/common';
 export class ConfirmationDialogComponent {
     @Input() isOpen: boolean = false;
     @Input() message: string = 'Are you sure you want to delete this connection?';
+    @Input() title: string = 'Confirm Deletion';
+    @Input() confirmLabel: string = 'Delete';
+    @Input() cancelLabel: string = 'Cancel';
+    @Input() confirmVariant: 'danger' | 'primary' = 'danger';
     @Output() onConfirm = new EventEmitter<void>();
     @Output() onCancel = new EventEmitter<void>();
 

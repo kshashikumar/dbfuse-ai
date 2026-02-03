@@ -8,11 +8,6 @@ class NoSQLStrategy extends DatabaseStrategy {
     super();
   }
 
-  // Override generic structure method
-  async getStructure() {
-    return this.getCollections();
-  }
-
   async getCollections(_dbName) {
     throw new Error(ERROR_MESSAGES.NOT_IMPLEMENTED("getCollections"));
   }

@@ -44,9 +44,10 @@
         [dbType]="dbType"
         [databases]="databases"
     ></app-memcached-explorer>
-    <app-nosql-explorer
+    <div
         *ngSwitchDefault
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-nosql-explorer>
+        class="h-full flex items-center justify-center text-sm text-muted-foreground"
+    >
+        No explorer is registered for "{{ dbType }}".
+    </div>
 </ng-container>

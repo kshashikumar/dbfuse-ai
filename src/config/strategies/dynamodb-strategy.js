@@ -1,4 +1,5 @@
 const logger = require("../../utils/logger");
+const { getQueryParts, resolveOperation } = require("../../utils/query-normalizer");
 
 const NoSQLStrategy = require("./base/nosql-strategy");
 
@@ -381,28 +382,20 @@ class DynamoDBStrategy extends NoSQLStrategy {
       return { operation: "scan", table: query };
     }
 
-    const payload = query?.payload || {};
-    const operation = (
-      query?.operation ||
-      query?.action ||
-      payload.operation ||
-      payload.action ||
-      "scan"
-    )
-      .toString()
-      .toLowerCase();
+    const { raw, payload } = getQueryParts(query);
+    const operation = resolveOperation(raw, payload, { defaultOperation: "scan" });
 
     return {
       operation,
-      table: query?.table || query?.collection || payload.table || payload.collection,
-      key: query?.key || payload.key,
-      item: query?.item || query?.document || payload.item || payload.document,
-      requestOptions: query?.options || payload.options || {},
-      requestItems: query?.requestItems || payload.requestItems,
-      transactItems: query?.transactItems || payload.transactItems,
-      tableDefinition: query?.tableDefinition || payload.tableDefinition,
-      limit: query?.limit || payload.limit || options?.pageSize,
-      exclusiveStartKey: query?.exclusiveStartKey || payload.exclusiveStartKey,
+      table: raw.table || raw.collection || payload.table || payload.collection,
+      key: raw.key || payload.key,
+      item: raw.item || raw.document || payload.item || payload.document,
+      requestOptions: raw.options || payload.options || {},
+      requestItems: raw.requestItems || payload.requestItems,
+      transactItems: raw.transactItems || payload.transactItems,
+      tableDefinition: raw.tableDefinition || payload.tableDefinition,
+      limit: raw.limit || payload.limit || options?.pageSize,
+      exclusiveStartKey: raw.exclusiveStartKey || payload.exclusiveStartKey,
     };
   }
 }

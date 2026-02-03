@@ -35,37 +35,39 @@
         {{ actionMessage }}
     </div>
 
-    <div class="flex-1 overflow-hidden p-4">
+    <div class="flex-1 min-h-0 overflow-hidden p-4">
         <div class="grid h-full grid-cols-12 gap-4">
             <div class="col-span-12 xl:col-span-3 h-full flex flex-col gap-4">
                 <div class="ui-card flex-1 overflow-hidden flex flex-col">
                     <div class="px-4 py-2 border-b border-border text-xs font-semibold text-muted-foreground">
                         Databases
                     </div>
-                    <div class="flex-1 overflow-auto p-2 space-y-1 scrollbar-hidden">
-                        <div *ngIf="loadingDatabases" class="text-xs text-muted-foreground px-2 py-1">
-                            Loading databases...
-                        </div>
-                        <button
-                            *ngFor="let db of availableDatabases"
-                            (click)="selectDatabase(db.name)"
-                            class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150"
-                            [ngClass]="{
-                                'bg-muted text-foreground': selectedDatabase === db.name,
-                                'text-muted-foreground': selectedDatabase !== db.name
-                            }"
+                    <div class="flex-1 min-h-0 p-2">
+                        <app-virtual-list
+                            [items]="availableDatabases"
+                            [trackByFn]="trackByDatabase"
+                            [loading]="loadingDatabases"
+                            loadingText="Loading databases..."
+                            emptyText="No databases found."
+                            emptyIcon="icon-[mdi--database]"
+                            [itemSize]="virtualItemSize"
                         >
-                            <div class="flex items-center justify-between">
-                                <span class="truncate">{{ db.name }}</span>
-                                <span class="text-xs text-muted-foreground">{{ db.tables?.length || 0 }}</span>
-                            </div>
-                        </button>
-                        <div
-                            *ngIf="!loadingDatabases && availableDatabases.length === 0"
-                            class="text-xs text-muted-foreground px-2 py-1"
-                        >
-                            No databases found.
-                        </div>
+                            <ng-template let-db>
+                                <button
+                                    (click)="selectDatabase(db.name)"
+                                    class="ui-list-item"
+                                    [ngClass]="{
+                                        'bg-muted text-foreground': selectedDatabase === db.name,
+                                        'text-muted-foreground': selectedDatabase !== db.name
+                                    }"
+                                >
+                                    <div class="flex items-center justify-between">
+                                        <span class="truncate">{{ db.name }}</span>
+                                        <span class="text-xs text-muted-foreground">{{ db.tables?.length || 0 }}</span>
+                                    </div>
+                                </button>
+                            </ng-template>
+                        </app-virtual-list>
                     </div>
                 </div>
 
@@ -83,27 +85,29 @@
                             />
                         </div>
                     </div>
-                    <div class="flex-1 overflow-auto p-2 space-y-1 scrollbar-hidden">
-                        <div *ngIf="loadingCollections" class="text-xs text-muted-foreground px-2 py-1">
-                            Loading collections...
-                        </div>
-                        <button
-                            *ngFor="let name of filteredCollections"
-                            (click)="selectCollection(name)"
-                            class="w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150"
-                            [ngClass]="{
-                                'bg-muted text-foreground': selectedCollection === name,
-                                'text-muted-foreground': selectedCollection !== name
-                            }"
+                    <div class="flex-1 min-h-0 p-2">
+                        <app-virtual-list
+                            [items]="filteredCollections"
+                            [trackByFn]="trackByCollection"
+                            [loading]="loadingCollections"
+                            loadingText="Loading collections..."
+                            emptyText="No collections found."
+                            emptyIcon="icon-[mdi--database]"
+                            [itemSize]="virtualItemSize"
                         >
-                            <span class="truncate">{{ name }}</span>
-                        </button>
-                        <div
-                            *ngIf="!loadingCollections && filteredCollections.length === 0"
-                            class="text-xs text-muted-foreground px-2 py-1"
-                        >
-                            No collections found.
-                        </div>
+                            <ng-template let-name>
+                                <button
+                                    (click)="selectCollection(name)"
+                                    class="ui-list-item"
+                                    [ngClass]="{
+                                        'bg-muted text-foreground': selectedCollection === name,
+                                        'text-muted-foreground': selectedCollection !== name
+                                    }"
+                                >
+                                    <span class="truncate">{{ name }}</span>
+                                </button>
+                            </ng-template>
+                        </app-virtual-list>
                     </div>
                 </div>
             </div>
@@ -167,11 +171,18 @@
                             <div class="text-xs font-semibold text-foreground">Sample documents</div>
                             <div class="mt-2 space-y-2">
                                 <pre
-                                    *ngFor="let doc of collectionInfo.sampleDocuments"
+                                    *ngFor="let doc of limitedSampleDocuments"
                                     class="text-xs whitespace-pre-wrap bg-muted border border-border rounded p-2 text-foreground"
                                 >
 {{ doc | json }}</pre
                                 >
+                                <button
+                                    *ngIf="hasMoreSampleDocuments"
+                                    (click)="toggleSampleDocuments()"
+                                    class="btn btn-ghost btn-sm"
+                                >
+                                    {{ showAllSampleDocuments ? "Show less" : "Show all" }}
+                                </button>
                                 <div
                                     *ngIf="!collectionInfo.sampleDocuments || collectionInfo.sampleDocuments.length === 0"
                                     class="text-xs text-muted-foreground"
@@ -426,3 +437,7 @@
         </div>
     </div>
 </div>
+
+
+
+

@@ -1,4 +1,6 @@
 const logger = require("../../utils/logger");
+const { buildColumnsFromRecords } = require("../../utils/metadata-sampler");
+const { getQueryParts, resolveOperation } = require("../../utils/query-normalizer");
 
 const NoSQLStrategy = require("./base/nosql-strategy");
 
@@ -111,12 +113,7 @@ class CosmosDBStrategy extends NoSQLStrategy {
     }
 
     const sampleDocuments = await this._sampleDocuments(container);
-    const fields = Object.entries(this._inferFieldTypes(sampleDocuments)).map(
-      ([name, dataType]) => ({
-        column_name: name,
-        data_type: dataType,
-      }),
-    );
+    const fields = buildColumnsFromRecords(sampleDocuments);
 
     const indexes = [];
     if (containerInfo?.partitionKey?.paths?.length) {
@@ -360,36 +357,28 @@ class CosmosDBStrategy extends NoSQLStrategy {
       return { operation: "query", statement: query, options };
     }
 
-    const payload = query?.payload || {};
-    const operation = (
-      query?.operation ||
-      query?.action ||
-      payload.operation ||
-      payload.action ||
-      "query"
-    )
-      .toString()
-      .toLowerCase();
+    const { raw, payload } = getQueryParts(query);
+    const operation = resolveOperation(raw, payload, { defaultOperation: "query" });
 
     return {
       operation,
-      statement: query?.statement || query?.query || payload.statement || payload.query || "",
-      queryOptions: query?.queryOptions || payload.queryOptions,
-      collection: query?.collection || payload.collection || query?.container,
-      database: query?.database || payload.database,
-      id: query?.id || payload.id,
-      partitionKey: query?.partitionKey || payload.partitionKey,
-      document: query?.document || payload.document,
-      patch: query?.patch || payload.patch,
-      operations: query?.operations || payload.operations,
-      limit: query?.limit || payload.limit,
-      continuationToken: query?.continuationToken || payload.continuationToken,
-      containerDefinition: query?.containerDefinition || payload.containerDefinition,
+      statement: raw.statement || raw.query || payload.statement || payload.query || "",
+      queryOptions: raw.queryOptions || payload.queryOptions,
+      collection: raw.collection || payload.collection || raw.container,
+      database: raw.database || payload.database,
+      id: raw.id || payload.id,
+      partitionKey: raw.partitionKey || payload.partitionKey,
+      document: raw.document || payload.document,
+      patch: raw.patch || payload.patch,
+      operations: raw.operations || payload.operations,
+      limit: raw.limit || payload.limit,
+      continuationToken: raw.continuationToken || payload.continuationToken,
+      containerDefinition: raw.containerDefinition || payload.containerDefinition,
       storedProcedureId:
-        query?.storedProcedureId || payload.storedProcedureId || query?.sprocId || payload.sprocId,
-      body: query?.body || payload.body,
-      params: query?.params || payload.params,
-      throughput: query?.throughput || payload.throughput,
+        raw.storedProcedureId || payload.storedProcedureId || raw.sprocId || payload.sprocId,
+      body: raw.body || payload.body,
+      params: raw.params || payload.params,
+      throughput: raw.throughput || payload.throughput,
       options,
     };
   }
@@ -404,27 +393,6 @@ class CosmosDBStrategy extends NoSQLStrategy {
       logger.debug("Cosmos DB sample query failed:", error.message || error);
       return [];
     }
-  }
-
-  _inferFieldTypes(documents) {
-    const map = {};
-    for (const doc of documents || []) {
-      if (!doc || typeof doc !== "object") continue;
-      for (const [key, value] of Object.entries(doc)) {
-        if (!map[key]) {
-          map[key] = this._typeOfValue(value);
-        }
-      }
-    }
-    return map;
-  }
-
-  _typeOfValue(value) {
-    if (Array.isArray(value)) return "array";
-    if (value === null) return "null";
-    const type = typeof value;
-    if (type === "object") return "object";
-    return type;
   }
 }
 

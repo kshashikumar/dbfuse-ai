@@ -7,7 +7,7 @@ const chalk = require("chalk");
 
 const dbContext = require("../config/database-context");
 const { connectionManager } = require("../config");
-const { getStrategyMetadata } = require("../config/create-strategy");
+const { getCapabilityModel, getStrategyMetadata } = require("../config/create-strategy");
 const databaseService = require("../services/DatabaseService");
 const {
   HEADERS,
@@ -38,6 +38,54 @@ class DatabaseController extends BaseController {
   }
 
   /**
+   * Build envelope request context from headers
+   * @private
+   */
+  _buildEnvelopeRequest(req, connectionId = null) {
+    return {
+      dbType: this._getDbType(req) || null,
+      connectionId: connectionId || null,
+    };
+  }
+
+  /**
+   * Resolve capabilities for the current request
+   * @private
+   */
+  _resolveCapabilities(req, connectionId = null) {
+    if (connectionId) {
+      try {
+        const strategy = connectionManager.getConnection(connectionId);
+        if (strategy && typeof strategy.getCapabilities === "function") {
+          return strategy.getCapabilities();
+        }
+      } catch {
+        // Ignore lookup errors and fall back to header-based model.
+      }
+    }
+
+    const dbType = this._getDbType(req);
+    if (dbType) {
+      return getCapabilityModel(dbType);
+    }
+
+    return { type: "unknown", operations: [], features: [], limits: {} };
+  }
+
+  /**
+   * Build unified envelope options for responses
+   * @private
+   */
+  _buildEnvelopeOptions(req, connectionId, kind, operation) {
+    return {
+      kind,
+      request: this._buildEnvelopeRequest(req, connectionId),
+      meta: { operation },
+      capabilities: this._resolveCapabilities(req, connectionId),
+    };
+  }
+
+  /**
    * Get databases for connection
    */
   async getDatabases(req, res) {
@@ -53,7 +101,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("getDatabases", { connectionId });
       const result = await databaseService.getDatabases(connectionId);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getDatabases"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching databases");
     }
@@ -77,7 +129,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("getTables", { connectionId, dbName });
       const result = await databaseService.getTables(connectionId, dbName);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getTables"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching tables");
     }
@@ -106,7 +162,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("getTableInfo", { connectionId, table, dbName });
       const result = await databaseService.getTableInfo(connectionId, table, dbName);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getTableInfo"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching table information");
     }
@@ -138,7 +198,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("getMultipleTablesInfo", { connectionId, count: tables.length });
       const result = await databaseService.getMultipleTablesInfo(connectionId, tables, dbName);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getMultipleTablesInfo"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching multiple tables information");
     }
@@ -199,11 +263,15 @@ class DatabaseController extends BaseController {
 
       // Handle batch query response
       if (result && Array.isArray(result.queries)) {
-        return this.sendSuccess(res, {
-          queries: result.queries,
-          totalQueries: result.totalQueries,
-          executedAt: result.executedAt,
-        });
+        return this.sendSuccessWithEnvelope(
+          res,
+          {
+            queries: result.queries,
+            totalQueries: result.totalQueries,
+            executedAt: result.executedAt,
+          },
+          this._buildEnvelopeOptions(req, connectionId, "query", "executeQuery"),
+        );
       }
 
       // Handle string query response with pagination
@@ -222,14 +290,22 @@ class DatabaseController extends BaseController {
           cached: result.cached || false,
         };
 
-        return this.sendSuccess(res, response);
+        return this.sendSuccessWithEnvelope(
+          res,
+          response,
+          this._buildEnvelopeOptions(req, connectionId, "query", "executeQuery"),
+        );
       }
 
-      return this.sendSuccess(res, {
-        ...result,
-        executedAt: new Date().toISOString(),
-        cached: result.cached || false,
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          ...result,
+          executedAt: new Date().toISOString(),
+          cached: result.cached || false,
+        },
+        this._buildEnvelopeOptions(req, connectionId, "query", "executeQuery"),
+      );
     } catch (error) {
       this.handleError(res, error, "executing query");
     }
@@ -253,7 +329,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("getCollections", { connectionId, dbName });
       const result = await databaseService.getCollections(connectionId, dbName);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getCollections"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching collections");
     }
@@ -282,7 +362,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("getCollectionInfo", { connectionId, collection, dbName });
       const result = await databaseService.getCollectionInfo(connectionId, collection, dbName);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getCollectionInfo"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching collection information");
     }
@@ -306,7 +390,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("getKeyPatterns", { connectionId, pattern });
       const result = await databaseService.getKeyPatterns(connectionId, pattern);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getKeyPatterns"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching key patterns");
     }
@@ -406,13 +494,17 @@ class DatabaseController extends BaseController {
       // Register existing connection
       connectionManager.registerExistingConnection(connectionId, strategy, config);
 
-      return this.sendSuccess(res, {
-        message: `Connected to ${dbType} ${
-          dbType === DB_TYPES.SQLITE ? `database: ${database}` : `server @ ${host}:${port}`
-        }`,
-        database: database || "default",
-        connectionId,
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          message: `Connected to ${dbType} ${
+            dbType === DB_TYPES.SQLITE ? `database: ${database}` : `server @ ${host}:${port}`
+          }`,
+          database: database || "default",
+          connectionId,
+        },
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "connect"),
+      );
     } catch (error) {
       this.handleError(res, error, "connecting to database");
     }
@@ -440,7 +532,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("switchDatabase", { connectionId, dbName });
       const result = await databaseService.switchDatabase(connectionId, dbName);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "switchDatabase"),
+      );
     } catch (error) {
       this.handleError(res, error, "switching database");
     }
@@ -472,7 +568,11 @@ class DatabaseController extends BaseController {
 
       this.logOperation("executeBatch", { connectionId, count: queries.length });
       const result = await databaseService.executeBatch(connectionId, queries, dbName);
-      return this.sendSuccess(res, result);
+      return this.sendSuccessWithEnvelope(
+        res,
+        result,
+        this._buildEnvelopeOptions(req, connectionId, "query", "executeBatch"),
+      );
     } catch (error) {
       this.handleError(res, error, "executing batch queries");
     }
@@ -484,17 +584,25 @@ class DatabaseController extends BaseController {
   async getConnectionHealth(req, res) {
     try {
       const isHealthy = await dbContext.validateConnection();
-      return this.sendSuccess(res, {
-        status: isHealthy ? "healthy" : "unhealthy",
-        connected: dbContext.isConnectionActive(),
-        dbType: dbContext.getCurrentDbType(),
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          status: isHealthy ? "healthy" : "unhealthy",
+          connected: dbContext.isConnectionActive(),
+          dbType: dbContext.getCurrentDbType(),
+        },
+        this._buildEnvelopeOptions(req, null, "metadata", "getConnectionHealth"),
+      );
     } catch (error) {
-      return this.sendSuccess(res, {
-        status: "unhealthy",
-        connected: false,
-        error: error.message,
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          status: "unhealthy",
+          connected: false,
+          error: error.message,
+        },
+        this._buildEnvelopeOptions(req, null, "metadata", "getConnectionHealth"),
+      );
     }
   }
 
@@ -521,11 +629,15 @@ class DatabaseController extends BaseController {
         queryLength: query.length,
       };
 
-      return this.sendSuccess(res, {
-        query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
-        analysis,
-        analyzedAt: new Date().toISOString(),
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          query: query.substring(0, 100) + (query.length > 100 ? "..." : ""),
+          analysis,
+          analyzedAt: new Date().toISOString(),
+        },
+        this._buildEnvelopeOptions(req, null, "metadata", "analyzeQuery"),
+      );
     } catch (error) {
       this.handleError(res, error, "analyzing query");
     }
@@ -565,12 +677,16 @@ class DatabaseController extends BaseController {
       const currentDb = dbName || info?.currentDatabase || info?.config?.database;
       const views = await strategy.getViews(currentDb);
 
-      return this.sendSuccess(res, {
-        views,
-        count: Array.isArray(views) ? views.length : 0,
-        database: currentDb,
-        retrievedAt: new Date().toISOString(),
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          views,
+          count: Array.isArray(views) ? views.length : 0,
+          database: currentDb,
+          retrievedAt: new Date().toISOString(),
+        },
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getViews"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching views");
     }
@@ -610,12 +726,16 @@ class DatabaseController extends BaseController {
       const currentDb = dbName || info?.currentDatabase || info?.config?.database;
       const procedures = await strategy.getProcedures(currentDb);
 
-      return this.sendSuccess(res, {
-        procedures,
-        count: Array.isArray(procedures) ? procedures.length : 0,
-        database: currentDb,
-        retrievedAt: new Date().toISOString(),
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          procedures,
+          count: Array.isArray(procedures) ? procedures.length : 0,
+          database: currentDb,
+          retrievedAt: new Date().toISOString(),
+        },
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getProcedures"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching procedures");
     }
@@ -652,11 +772,15 @@ class DatabaseController extends BaseController {
         );
       }
 
-      return this.sendSuccess(res, {
-        dbType,
-        metadata,
-        retrievedAt: new Date().toISOString(),
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          dbType,
+          metadata,
+          retrievedAt: new Date().toISOString(),
+        },
+        this._buildEnvelopeOptions(req, connectionId, "metadata", "getStrategyMetadata"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching strategy metadata");
     }
@@ -668,7 +792,11 @@ class DatabaseController extends BaseController {
   async getMetrics(req, res) {
     try {
       const metrics = databaseService.getMetrics();
-      return this.sendSuccess(res, { metrics });
+      return this.sendSuccessWithEnvelope(
+        res,
+        { metrics },
+        this._buildEnvelopeOptions(req, null, "metadata", "getMetrics"),
+      );
     } catch (error) {
       this.handleError(res, error, "fetching database metrics");
     }
@@ -680,9 +808,13 @@ class DatabaseController extends BaseController {
   async clearCache(req, res) {
     try {
       databaseService.clearCache();
-      return this.sendSuccess(res, {
-        message: "Query cache cleared successfully",
-      });
+      return this.sendSuccessWithEnvelope(
+        res,
+        {
+          message: "Caches cleared successfully",
+        },
+        this._buildEnvelopeOptions(req, null, "metadata", "clearCache"),
+      );
     } catch (error) {
       this.handleError(res, error, "clearing cache");
     }

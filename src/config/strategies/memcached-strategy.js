@@ -1,4 +1,6 @@
 const logger = require("../../utils/logger");
+const { limitSample } = require("../../utils/metadata-sampler");
+const { getQueryParts, resolveOperation } = require("../../utils/query-normalizer");
 
 const CacheStrategy = require("./base/cache-strategy");
 
@@ -106,7 +108,7 @@ class MemcachedStrategy extends CacheStrategy {
     const prefix = tableName || "default";
     const pattern = prefix === "default" ? "*" : `${prefix}:*`;
     const keys = await this.getKeys(pattern);
-    const sampled = keys.slice(0, 25);
+    const sampled = limitSample(keys, 25);
 
     const columns = [];
     const sampleKeys = [];
@@ -237,27 +239,19 @@ class MemcachedStrategy extends CacheStrategy {
     if (typeof query === "string") {
       return { operation: "get", key: query };
     }
-    const payload = query?.payload || {};
-    const operation = (
-      query?.operation ||
-      query?.action ||
-      payload.operation ||
-      payload.action ||
-      "get"
-    )
-      .toString()
-      .toLowerCase();
+    const { raw, payload } = getQueryParts(query);
+    const operation = resolveOperation(raw, payload, { defaultOperation: "get" });
 
-    const key = query?.key || payload.key;
-    const keys = query?.keys || payload.keys || (key ? [key] : []);
+    const key = raw.key || payload.key;
+    const keys = raw.keys || payload.keys || (key ? [key] : []);
     return {
       operation,
       key,
       keys: Array.isArray(keys) ? keys : [keys],
-      value: query?.value || payload.value,
-      delta: query?.delta || payload.delta,
-      initial: query?.initial || payload.initial,
-      ttl: query?.ttl || payload.ttl || options?.ttl,
+      value: raw.value || payload.value,
+      delta: raw.delta || payload.delta,
+      initial: raw.initial || payload.initial,
+      ttl: raw.ttl || payload.ttl || options?.ttl,
     };
   }
 

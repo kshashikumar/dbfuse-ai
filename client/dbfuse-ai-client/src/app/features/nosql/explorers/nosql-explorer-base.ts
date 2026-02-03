@@ -1,7 +1,8 @@
-import { ChangeDetectorRef, SimpleChanges } from '@angular/core';
+import { ChangeDetectorRef, SimpleChanges, inject } from '@angular/core';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DatabaseStats, DatabaseType, TableInfo } from '@core/utils/storage/storage.types';
 import { getSafeSessionStorage } from '@core/utils/browser-adapter';
+import { ConfirmationOptions, ConfirmationService } from '@shared/services/confirmation.service';
 
 export abstract class NosqlExplorerBase {
     dbType: DatabaseType = 'mongodb';
@@ -22,6 +23,12 @@ export abstract class NosqlExplorerBase {
     actionMessage = '';
     strategyMetadata: any | null = null;
     actionResult: any | null = null;
+    showAllSampleDocuments = false;
+    protected readonly sampleDocumentsLimit = 5;
+    readonly virtualItemSize = 40;
+    readonly trackByDatabase = (_index: number, db: { name?: string } | null): string | number => db?.name ?? _index;
+    readonly trackByCollection = (_index: number, name: string | null): string | number => name ?? _index;
+    protected readonly confirmation = inject(ConfirmationService);
 
     protected constructor(
         protected readonly backend: BackendService,
@@ -121,6 +128,7 @@ export abstract class NosqlExplorerBase {
         this.persistSelectedDatabase(dbName);
         this.selectedCollection = '';
         this.collectionInfo = null;
+        this.showAllSampleDocuments = false;
         this.collections = [];
         this.filteredCollections = [];
         this.loadCollections(dbName);
@@ -141,7 +149,29 @@ export abstract class NosqlExplorerBase {
         this.collectionInfo = null;
         this.actionMessage = '';
         this.actionResult = null;
+        this.showAllSampleDocuments = false;
         this.loadCollectionInfo(this.selectedDatabase, name);
+    }
+
+    get sampleDocuments(): any[] {
+        const docs = this.collectionInfo?.sampleDocuments;
+        return Array.isArray(docs) ? docs : [];
+    }
+
+    get limitedSampleDocuments(): any[] {
+        if (this.showAllSampleDocuments) {
+            return this.sampleDocuments;
+        }
+        return this.sampleDocuments.slice(0, this.sampleDocumentsLimit);
+    }
+
+    get hasMoreSampleDocuments(): boolean {
+        return this.sampleDocuments.length > this.sampleDocumentsLimit;
+    }
+
+    toggleSampleDocuments(): void {
+        this.showAllSampleDocuments = !this.showAllSampleDocuments;
+        this.cdr.markForCheck();
     }
 
     protected parseJsonInput(value: string, label: string): any | null {
@@ -178,6 +208,16 @@ export abstract class NosqlExplorerBase {
         return raw.split(/\s+/).filter(Boolean);
     }
 
+    protected async confirmDestructive(message: string, options: Partial<ConfirmationOptions> = {}): Promise<boolean> {
+        return this.confirmation.confirm({
+            message,
+            title: options.title ?? 'Confirm action',
+            confirmLabel: options.confirmLabel ?? 'Confirm',
+            cancelLabel: options.cancelLabel ?? 'Cancel',
+            confirmVariant: options.confirmVariant ?? 'danger',
+        });
+    }
+
     protected executeAction(payload: any): void {
         this.actionLoading = true;
         this.errorMessage = '';
@@ -212,9 +252,9 @@ export abstract class NosqlExplorerBase {
 
     protected loadCollections(dbName: string): void {
         this.loadingCollections = true;
-        this.backend.getTables(dbName).subscribe({
+        this.backend.getCollections(dbName).subscribe({
             next: (response) => {
-                const list = Array.isArray(response?.tables) ? response.tables : [];
+                const list = Array.isArray(response?.collections) ? response.collections : [];
                 this.collections = list;
                 this.filteredCollections = [...list];
                 this.loadingCollections = false;
@@ -287,6 +327,7 @@ export abstract class NosqlExplorerBase {
         this.actionMessage = '';
         this.actionResult = null;
         this.strategyMetadata = null;
+        this.showAllSampleDocuments = false;
         this.cdr.markForCheck();
     }
 }

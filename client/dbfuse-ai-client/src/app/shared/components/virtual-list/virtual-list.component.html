@@ -1,0 +1,22 @@
+<div class="flex-1 min-h-0" [ngClass]="containerClass">
+    <div *ngIf="loading" class="text-xs text-muted-foreground px-2 py-1">
+        {{ loadingText }}
+    </div>
+    <cdk-virtual-scroll-viewport
+        *ngIf="!loading && hasItems"
+        [itemSize]="itemSize"
+        [ngClass]="viewportClass"
+    >
+        <ng-container *cdkVirtualFor="let item of items; trackBy: trackBy">
+            <ng-container
+                *ngIf="itemTemplate"
+                [ngTemplateOutlet]="itemTemplate"
+                [ngTemplateOutletContext]="{ $implicit: item }"
+            ></ng-container>
+        </ng-container>
+    </cdk-virtual-scroll-viewport>
+    <div *ngIf="!loading && !hasItems" class="text-xs text-muted-foreground px-2 py-1 flex items-center gap-2">
+        <span *ngIf="emptyIcon" [class]="emptyIcon" [ngClass]="emptyIconClass"></span>
+        {{ emptyText }}
+    </div>
+</div>
