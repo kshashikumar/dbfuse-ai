@@ -244,14 +244,14 @@
 
     <!-- Results Grid - Takes remaining space -->
     <div class="flex-1 min-h-0">
-        <app-resultgrid
+        <app-resultgrid-host
             class="h-full"
             [triggerQuery]="triggerQuery"
             [dbName]="selectedDB"
             [tabId]="currentTabId"
             [executeTriggered]="executeTriggered"
             (resultsChanged)="onResultsChanged($event)"
-        ></app-resultgrid>
+        ></app-resultgrid-host>
     </div>
 </div>
 

@@ -321,11 +321,11 @@
 
         <!-- Result Grid Content -->
         <div class="flex-1 min-h-0 bg-background relative">
-            <app-resultgrid
+            <app-resultgrid-host
                 *ngIf="queryResults[activeResultIndex]"
                 [externalResult]="queryResults[activeResultIndex]"
                 class="h-full block"
-            ></app-resultgrid>
+            ></app-resultgrid-host>
         </div>
     </div>
 </div>

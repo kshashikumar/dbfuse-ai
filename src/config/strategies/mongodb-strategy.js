@@ -56,26 +56,49 @@ class MongoDBStrategy extends NoSQLStrategy {
     if (!this.client) throw new Error("MongoDB connection not initialized");
     const adminDb = this.client.db("admin");
     const admin = typeof adminDb.admin === "function" ? adminDb.admin() : this.client.db().admin();
-    const dbs = await admin.listDatabases();
-    const results = [];
+    try {
+      const dbs = await admin.listDatabases();
+      const results = [];
 
-    for (const db of dbs.databases || []) {
-      const dbName = db.name;
+      for (const db of dbs.databases || []) {
+        const dbName = db.name;
+        let collections = [];
+        try {
+          collections = await this.getCollections(dbName);
+        } catch {
+          collections = [];
+        }
+        results.push({
+          name: dbName,
+          sizeOnDisk: db.sizeOnDisk || 0,
+          tables: collections.map((name) => ({ name })),
+          views: [],
+        });
+      }
+
+      return results;
+    } catch (error) {
+      logger.warn("MongoDB listDatabases failed, falling back to current database", error);
+      const fallbackDb = this.currentDatabase || this.connectionConfig?.database;
+      if (!fallbackDb) {
+        throw error;
+      }
       let collections = [];
       try {
-        collections = await this.getCollections(dbName);
+        collections = await this.getCollections(fallbackDb);
       } catch {
         collections = [];
       }
-      results.push({
-        name: dbName,
-        sizeOnDisk: db.sizeOnDisk || 0,
-        tables: collections.map((name) => ({ name })),
-        views: [],
-      });
+      return [
+        {
+          name: fallbackDb,
+          sizeOnDisk: 0,
+          tables: collections.map((name) => ({ name })),
+          views: [],
+          error: "listDatabases failed; showing current database only.",
+        },
+      ];
     }
-
-    return results;
   }
 
   async switchDatabase(dbName) {
@@ -86,7 +109,7 @@ class MongoDBStrategy extends NoSQLStrategy {
 
   async getCollections(dbName) {
     if (!this.client) throw new Error("MongoDB connection not initialized");
-    const targetDb = dbName || this.currentDatabase;
+    const targetDb = dbName || this.currentDatabase || this.connectionConfig?.database;
     if (!targetDb) {
       throw new Error("No database selected for MongoDB collections.");
     }
@@ -97,43 +120,62 @@ class MongoDBStrategy extends NoSQLStrategy {
 
   async getCollectionInfo(dbName, collectionName) {
     if (!this.client) throw new Error("MongoDB connection not initialized");
-    const targetDb = dbName || this.currentDatabase;
+    const targetDb = dbName || this.currentDatabase || this.connectionConfig?.database;
     if (!targetDb) {
       throw new Error("No database selected for MongoDB collection info.");
     }
 
     const collection = this.client.db(targetDb).collection(collectionName);
-    const sample = await collection.find({}).limit(20).toArray();
-    const fields = buildColumnsFromRecords(sample);
-
-    let indexes = [];
     try {
-      indexes = await collection.indexes();
-    } catch {
-      indexes = [];
-    }
+      const sample = await collection.find({}).limit(20).toArray();
+      const fields = buildColumnsFromRecords(sample);
 
-    let documentCount = null;
-    try {
-      documentCount = await collection.estimatedDocumentCount();
-    } catch {
-      documentCount = null;
-    }
+      let indexes = [];
+      try {
+        indexes = await collection.indexes();
+      } catch {
+        indexes = [];
+      }
 
-    return {
-      db_name: targetDb,
-      table_name: collectionName,
-      columns: fields,
-      indexes: indexes.map((idx) => ({
-        index_name: idx.name,
-        is_unique: Boolean(idx.unique),
-        type: idx?.key ? Object.keys(idx.key).join(",") : undefined,
-      })),
-      foreign_keys: [],
-      triggers: [],
-      sampleDocuments: sample,
-      documentCount,
-    };
+      let documentCount = null;
+      try {
+        documentCount = await collection.estimatedDocumentCount();
+      } catch {
+        documentCount = null;
+      }
+
+      return {
+        db_name: targetDb,
+        table_name: collectionName,
+        columns: fields,
+        indexes: indexes.map((idx) => ({
+          index_name: idx.name,
+          is_unique: Boolean(idx.unique),
+          type: idx?.key ? Object.keys(idx.key).join(",") : undefined,
+        })),
+        foreign_keys: [],
+        triggers: [],
+        sampleDocuments: sample,
+        documentCount,
+      };
+    } catch (error) {
+      const message = error?.message || "Failed to load collection info.";
+      if (String(message).toLowerCase().includes("not authorized")) {
+        logger.warn(`MongoDB collection access denied: ${targetDb}.${collectionName}`);
+        return {
+          db_name: targetDb,
+          table_name: collectionName,
+          columns: [],
+          indexes: [],
+          foreign_keys: [],
+          triggers: [],
+          sampleDocuments: [],
+          documentCount: null,
+          error: "Not authorized to read this collection.",
+        };
+      }
+      throw error;
+    }
   }
 
   async getTables(dbName) {
@@ -171,27 +213,49 @@ class MongoDBStrategy extends NoSQLStrategy {
       case "find": {
         if (!collection) throw new Error("MongoDB collection is required");
         const { filter, projection, sort, pagination } = normalized;
-        let cursor = collection.find(filter || {}, projection ? { projection } : undefined);
-        if (sort) cursor = cursor.sort(sort);
-        if (pagination.skip > 0) cursor = cursor.skip(pagination.skip);
-        if (pagination.limit > 0) cursor = cursor.limit(pagination.limit);
+        try {
+          let cursor = collection.find(filter || {}, projection ? { projection } : undefined);
+          if (sort) cursor = cursor.sort(sort);
+          if (pagination.skip > 0) cursor = cursor.skip(pagination.skip);
+          if (pagination.limit > 0) cursor = cursor.limit(pagination.limit);
 
-        const documents = await cursor.toArray();
-        const includeTotal = normalized.options.includeTotal ?? pagination.hasPaging;
-        const totalRows = includeTotal ? await collection.countDocuments(filter || {}) : null;
+          const documents = await cursor.toArray();
+          const includeTotal = normalized.options.includeTotal ?? pagination.hasPaging;
+          const totalRows = includeTotal ? await collection.countDocuments(filter || {}) : null;
 
-        return {
-          documents,
-          totalRows,
-          pagination: pagination.hasPaging
-            ? {
-                page: pagination.page,
-                pageSize: pagination.limit,
-                totalPages: totalRows ? Math.ceil(totalRows / pagination.limit) : null,
-                hasMore: totalRows ? pagination.page * pagination.limit < totalRows : null,
-              }
-            : null,
-        };
+          return {
+            documents,
+            totalRows,
+            pagination: pagination.hasPaging
+              ? {
+                  page: pagination.page,
+                  pageSize: pagination.limit,
+                  totalPages: totalRows ? Math.ceil(totalRows / pagination.limit) : null,
+                  hasMore: totalRows ? pagination.page * pagination.limit < totalRows : null,
+                }
+              : null,
+          };
+        } catch (error) {
+          if (this._isNotAuthorized(error)) {
+            logger.warn(
+              `MongoDB find access denied: ${this.currentDatabase}.${normalized.collection}`,
+            );
+            return {
+              documents: [],
+              totalRows: null,
+              pagination: pagination.hasPaging
+                ? {
+                    page: pagination.page,
+                    pageSize: pagination.limit,
+                    totalPages: null,
+                    hasMore: null,
+                  }
+                : null,
+              error: "Not authorized to read this collection.",
+            };
+          }
+          throw error;
+        }
       }
       case "findone": {
         if (!collection) throw new Error("MongoDB collection is required");
@@ -471,6 +535,11 @@ class MongoDBStrategy extends NoSQLStrategy {
     }
     this.currentDatabase = targetDb;
     return this.client.db(targetDb);
+  }
+
+  _isNotAuthorized(error) {
+    const message = String(error?.message || "").toLowerCase();
+    return message.includes("not authorized") || message.includes("unauthorized");
   }
 
   /**

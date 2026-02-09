@@ -1,27 +1,27 @@
 import { Routes } from '@angular/router';
 import { AuthGuard } from '@core/guards/auth.guard';
-import { LoginComponent } from '@features/auth/login/login.component';
-import { LandingComponent } from '@features/landing/landing/landing.component';
-import { ConfigComponent } from '@features/settings/config/config.component';
-import { LayoutHorizontalComponent } from '@layouts/layout-horizontal/layout-horizontal.component';
 
 export const routes: Routes = [
     { path: '', pathMatch: 'full', redirectTo: 'landing' },
-    { path: 'login', component: LoginComponent },
+    {
+        path: 'login',
+        loadComponent: () => import('@features/auth/login/login.component').then((m) => m.LoginComponent),
+    },
     {
         path: 'landing',
         canActivate: [AuthGuard],
-        component: LandingComponent,
+        loadComponent: () => import('@features/landing/landing/landing.component').then((m) => m.LandingComponent),
     },
     {
         path: 'connection',
         canActivate: [AuthGuard],
-        component: LayoutHorizontalComponent,
+        loadComponent: () =>
+            import('@layouts/layout-horizontal/layout-horizontal.component').then((m) => m.LayoutHorizontalComponent),
     },
     {
         path: 'config',
         canActivate: [AuthGuard],
-        component: ConfigComponent,
+        loadComponent: () => import('@features/settings/config/config.component').then((m) => m.ConfigComponent),
     },
     { path: '**', redirectTo: 'landing' },
 ];

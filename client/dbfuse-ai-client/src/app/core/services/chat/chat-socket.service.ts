@@ -172,6 +172,8 @@ export class ChatSocketService {
         if (params.sessionId) {
             url.searchParams.set('sessionId', params.sessionId);
         }
+        url.searchParams.set('compact', '1');
+        url.searchParams.set('entityPreviewLimit', '20');
 
         const token = getSafeSessionStorage().getItem('token');
         if (token) {

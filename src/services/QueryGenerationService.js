@@ -1,6 +1,7 @@
 const llmService = require("./LLMService");
 const logger = require("../utils/logger");
 const QueryOrchestrator = require("../rag/orchestrator/QueryOrchestrator");
+const { compactTaskSteps } = require("../utils/compactTaskSteps");
 
 class QueryGenerationService {
   constructor(options = {}) {
@@ -18,6 +19,7 @@ class QueryGenerationService {
     selectedTables = [],
     dbMeta,
     enrichedContext,
+    compactTaskSteps: compactSteps = false,
     llmOptions = {},
   } = {}) {
     if (!prompt) {
@@ -52,12 +54,16 @@ class QueryGenerationService {
         },
       });
 
+      const taskSteps = compactSteps
+        ? compactTaskSteps(orchestratorResult?.taskSteps)
+        : orchestratorResult?.taskSteps;
+
       return {
         query: orchestratorResult?.query,
         source: "orchestrator",
         strategy: orchestratorResult?.strategy,
         analysis: orchestratorResult?.analysis,
-        taskSteps: orchestratorResult?.taskSteps,
+        taskSteps,
       };
     }
 

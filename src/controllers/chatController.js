@@ -106,12 +106,23 @@ class ChatController extends BaseController {
 
       const chatService = require("../chat/ChatService");
 
+      const normalizedOptions = {
+        compact: options?.compact === true,
+        includeEntities: options?.includeEntities,
+        entityPreviewLimit: Number.isFinite(Number(options?.entityPreviewLimit))
+          ? Number(options?.entityPreviewLimit)
+          : undefined,
+        skipCache: options?.skipCache,
+        forceFullEnrichment: options?.forceFullEnrichment,
+        intentTimeoutMs: options?.intentTimeoutMs,
+      };
+
       const enrichedContext = await chatService.enrichQuery({
         connectionId,
         dbType,
         dbName: dbName || null,
         prompt,
-        options: options || {},
+        options: normalizedOptions,
       });
 
       return this.sendSuccess(res, {

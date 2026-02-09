@@ -58,11 +58,11 @@
                     [dbType]="effectiveDbType"
                     [databases]="databases"
                 ></app-nosql-explorer-shell>
-                <app-chat
+                <app-chat-host
                     *ngIf="activeView === 'chat'"
                     class="h-full"
                     (sendToEditor)="handleChatSendToEditor($event)"
-                ></app-chat>
+                ></app-chat-host>
             </main>
         </div>
     </div>

@@ -1,6 +1,7 @@
 const argv = require("minimist")(process.argv.slice(2));
 
 const { FALLBACK_AI_MODEL, SCHEMA_PROMPT_BUDGET_CHARS } = require("../core/constants");
+const { getDbTypeEntry } = require("../core/dbTypeRegistry");
 const { inferProviderFromModel, PROVIDER_API_ENV_KEYS } = require("../core/env");
 const { getAIModel } = require("../models/model");
 const { buildTableCatalog, buildSchemaDSL } = require("../utils/schemaCompressor");
@@ -166,8 +167,9 @@ Respond with only JSON: {"tables":[...]} (names must come from the catalog).`;
    * Build system prompt for single table SQL generation
    */
   _buildSingleTablePrompt(dbType, databaseName, tableName, tableColumns, userPrompt) {
+    const dialectNotes = this._buildDialectNotes(dbType);
     return `
-You are an AI expert in generating ${dbType} SQL queries. You must generate a single-line SQL query based on the user's request, using the provided schema. Follow these rules strictly:
+${dialectNotes ? `${dialectNotes}\n` : ""}You are an AI expert in generating ${dbType} SQL queries. You must generate a single-line SQL query based on the user's request, using the provided schema. Follow these rules strictly:
 - Output only the SQL query as plain text, with no explanations, comments, quotes, or additional text.
 - Ensure the query is valid for ${dbType}, using correct syntax (e.g., no double quotes for identifiers unless required by ${dbType}).
 - Use table aliases for joins and subqueries to avoid ambiguity.
@@ -199,9 +201,10 @@ Output only the SQL query.
    */
   _buildMultiTablePrompt(dbType, databaseName, catalog, schemaDSL, userPrompt) {
     const catalogLine = `Tables: ${catalog.join(", ")}`;
+    const dialectNotes = this._buildDialectNotes(dbType);
 
     return `
-You are an AI expert in generating ${dbType} SQL queries. You must generate a single-line SQL query based on the user's request, using the provided schema. Follow these rules strictly:
+${dialectNotes ? `${dialectNotes}\n` : ""}You are an AI expert in generating ${dbType} SQL queries. You must generate a single-line SQL query based on the user's request, using the provided schema. Follow these rules strictly:
 - Output only the SQL query as plain text, with no explanations, comments, quotes, or additional text.
 - Ensure the query is valid for ${dbType}, using correct syntax (e.g., no double quotes for identifiers unless required by ${dbType}).
 - Use table aliases for joins and subqueries to avoid ambiguity.
@@ -254,6 +257,14 @@ Output only the SQL query.
         return typeStr ? `${name} ${typeStr}${flagStr}` : `${name}${flagStr}`;
       })
       .join(", ");
+  }
+
+  _buildDialectNotes(dbType) {
+    const entry = getDbTypeEntry(dbType);
+    if (!entry?.promptHints || entry.promptHints.length === 0) {
+      return "";
+    }
+    return `Dialect Notes: ${entry.promptHints.join(" ")}`;
   }
 
   /**

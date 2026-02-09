@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, inject } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { HomeComponent } from '@features/home/home/home.component';
-import { ChatComponent } from '@features/chat/chat.component';
+import { ChatHostComponent } from '@features/chat/chat-host.component';
 import { NosqlExplorerShellComponent } from '@features/nosql/nosql-explorer-shell/nosql-explorer-shell.component';
 import { NavbarComponent } from '@layouts/components/navbar/navbar.component';
 import { SideBarComponent } from '@layouts/components/sidebar/sidebar.component';
@@ -21,7 +21,7 @@ import { getDbTypeEntry } from '@core/registry/db-type.registry';
         NavbarComponent,
         SideBarComponent,
         HomeComponent,
-        ChatComponent,
+        ChatHostComponent,
         NosqlExplorerShellComponent,
     ],
     templateUrl: './layout-horizontal.component.html',

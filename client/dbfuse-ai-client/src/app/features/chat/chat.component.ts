@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ScrollingModule, CdkVirtualScrollViewport } from '@angular/cdk/scrolling';
-import { ResultGridComponent } from '../sql-editor/components/resultgrid/resultgrid.component';
+import { ResultGridHostComponent } from '../sql-editor/components/resultgrid/resultgrid-host.component';
 import { DatabaseType, EnrichedQueryContext } from '@core/utils/storage/storage.types';
 import { ChatSocketService, ChatEnvelope } from '@core/services/chat/chat-socket.service';
 import { BackendService } from '@core/services/backend/backend.service';
@@ -44,7 +44,7 @@ type ChatStep = {
 @Component({
     selector: 'app-chat',
     standalone: true,
-    imports: [CommonModule, FormsModule, ScrollingModule, ResultGridComponent],
+    imports: [CommonModule, FormsModule, ScrollingModule, ResultGridHostComponent],
     templateUrl: './chat.component.html',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -264,7 +264,9 @@ export class ChatComponent implements OnDestroy {
             } else {
                 this.clearAllPending();
             }
-            const steps = this.consumeSteps(payload.requestId) || payload.steps;
+            const payloadSteps = Array.isArray(payload.steps) ? payload.steps : null;
+            const pendingSteps = payload.requestId ? this.consumeSteps(payload.requestId) : null;
+            const steps = payloadSteps && payloadSteps.length ? payloadSteps : pendingSteps || payload.steps;
 
             const fullText = payload.content || 'No response returned.';
             const message: ChatMessage = {
@@ -315,7 +317,9 @@ export class ChatComponent implements OnDestroy {
             } else {
                 this.clearAllPending();
             }
-            const steps = this.consumeSteps(payload.requestId) || payload.steps;
+            const payloadSteps = Array.isArray(payload.steps) ? payload.steps : null;
+            const pendingSteps = payload.requestId ? this.consumeSteps(payload.requestId) : null;
+            const steps = payloadSteps && payloadSteps.length ? payloadSteps : pendingSteps || payload.steps;
             const message: ChatMessage = {
                 id: payload.messageId || `assistant-${Date.now()}`,
                 role: 'assistant',
@@ -348,7 +352,9 @@ export class ChatComponent implements OnDestroy {
             } else {
                 this.clearAllPending();
             }
-            const steps = this.consumeSteps(payload.requestId) || payload.steps;
+            const payloadSteps = Array.isArray(payload.steps) ? payload.steps : null;
+            const pendingSteps = payload.requestId ? this.consumeSteps(payload.requestId) : null;
+            const steps = payloadSteps && payloadSteps.length ? payloadSteps : pendingSteps || payload.steps;
             if (this.streamingMessageId) {
                 const messageIndex = this.messages.findIndex((m) => m.id === this.streamingMessageId);
                 if (messageIndex !== -1) {

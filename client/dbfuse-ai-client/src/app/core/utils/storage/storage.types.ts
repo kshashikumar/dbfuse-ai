@@ -492,7 +492,9 @@ export interface EnrichedQueryContext {
     selectedStrategy: string;
     alternativeStrategies: AlternativeStrategy[];
     plannedSteps: PlannedStep[];
-    availableEntities: string[];
+    availableEntities?: string[];
+    availableEntitiesCount?: number;
+    availableEntitiesPreview?: string[];
     relevantEntities: EnrichedEntity[];
     capabilities: QueryCapabilities;
     phase: 'quick' | 'semantic' | 'full' | 'fallback';

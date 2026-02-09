@@ -21,7 +21,7 @@ import {
     newTabData,
     openAIEvent,
 } from '@core/utils/storage/storage.types';
-import { ResultGridComponent } from '@features/sql-editor/components/resultgrid/resultgrid.component';
+import { ResultGridHostComponent } from '@features/sql-editor/components/resultgrid/resultgrid-host.component';
 import { BackendService } from '@core/services/backend/backend.service';
 import { DragDropTabDirective } from '@shared/directives/drag-drop.directive';
 import { MonacoEditorComponent } from '@app/editor/components/monaco-editor/monaco-editor.component';
@@ -45,7 +45,7 @@ type AIMeta = {
         CommonModule,
         RouterModule,
         FormsModule,
-        ResultGridComponent,
+        ResultGridHostComponent,
         DragDropTabDirective,
         MonacoEditorComponent,
     ],
@@ -57,7 +57,7 @@ export class HomeComponent implements OnInit, OnChanges, OnDestroy {
     @Input() openAIEnabled!: openAIEvent;
     @Input() InitDBInfo!: any;
     @Input() pendingQuery?: { sql: string; dbName?: string; id?: number } | null;
-    @ViewChild(ResultGridComponent) resultGrid!: ResultGridComponent;
+    @ViewChild(ResultGridHostComponent) resultGrid!: ResultGridHostComponent;
 
     tabs: { id: string; dbName: string; tableName: string; displayName: string }[] = [];
     selectedTab = -1;

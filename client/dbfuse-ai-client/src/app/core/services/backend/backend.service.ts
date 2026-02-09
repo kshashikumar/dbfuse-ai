@@ -248,7 +248,7 @@ export class BackendService {
             useRag?: boolean;
         } = {},
     ): Observable<RAGPromptResponse> {
-        const payload: any = { databaseName, prompt, ...options };
+        const payload: any = { databaseName, prompt, responseMode: 'compact', ...options };
         return this.withReconnect(() =>
             this._http.post<RAGPromptResponse>(`${this.BASE_URL}/api/rag/query`, payload, {
                 headers: this.getHeaders(),

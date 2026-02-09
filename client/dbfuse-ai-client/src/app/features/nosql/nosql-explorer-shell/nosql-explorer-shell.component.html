@@ -1,53 +1,14 @@
-<ng-container [ngSwitch]="dbType">
-    <app-mongodb-explorer
-        *ngSwitchCase="'mongodb'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-mongodb-explorer>
-    <app-redis-explorer
-        *ngSwitchCase="'redis'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-redis-explorer>
-    <app-dynamodb-explorer
-        *ngSwitchCase="'dynamodb'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-dynamodb-explorer>
-    <app-cassandra-explorer
-        *ngSwitchCase="'cassandra'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-cassandra-explorer>
-    <app-couchdb-explorer
-        *ngSwitchCase="'couchdb'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-couchdb-explorer>
-    <app-cosmosdb-explorer
-        *ngSwitchCase="'cosmosdb'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-cosmosdb-explorer>
-    <app-firestore-explorer
-        *ngSwitchCase="'firestore'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-firestore-explorer>
-    <app-hbase-explorer
-        *ngSwitchCase="'hbase'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-hbase-explorer>
-    <app-memcached-explorer
-        *ngSwitchCase="'memcached'"
-        [dbType]="dbType"
-        [databases]="databases"
-    ></app-memcached-explorer>
+<ng-container *ngIf="explorerComponent; else noExplorer">
+    <ng-container
+        *ngComponentOutlet="explorerComponent; inputs: { dbType: dbType, databases: databases }"
+    ></ng-container>
+</ng-container>
+<ng-template #noExplorer>
     <div
-        *ngSwitchDefault
         class="h-full flex items-center justify-center text-sm text-muted-foreground"
     >
-        No explorer is registered for "{{ dbType }}".
+        <span *ngIf="loading">Loading explorer...</span>
+        <span *ngIf="!loading && loadError">{{ loadError }}</span>
+        <span *ngIf="!loading && !loadError">No explorer is registered for "{{ dbType }}".</span>
     </div>
-</ng-container>
+</ng-template>

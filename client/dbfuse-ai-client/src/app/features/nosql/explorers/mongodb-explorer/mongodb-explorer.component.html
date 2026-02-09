@@ -1,27 +1,4 @@
-<div class="flex h-full flex-col bg-background">
-    <div class="border-b border-border px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-lg font-semibold text-foreground">MongoDB Explorer</h2>
-            <p class="text-sm text-muted-foreground">
-                Browse collections, inspect schema, and run actions in a Compass-style layout.
-            </p>
-        </div>
-        <div class="flex items-center gap-3">
-            <div class="text-xs text-muted-foreground">
-                <div *ngIf="selectedDatabase">DB: {{ selectedDatabase }}</div>
-                <div *ngIf="selectedCollection">Collection: {{ selectedCollection }}</div>
-            </div>
-            <button
-                (click)="refreshDatabases()"
-                [disabled]="loadingDatabases"
-                class="btn btn-secondary btn-sm"
-            >
-                <span class="icon-[mdi--refresh] w-3 h-3 mr-1" [class.animate-spin]="loadingDatabases"></span>
-                Refresh
-            </button>
-        </div>
-    </div>
-
+﻿<div class="flex h-full flex-col bg-background">
     <div
         *ngIf="errorMessage"
         class="px-6 py-2 text-xs text-destructive border-b border-destructive/20 bg-destructive/10"
@@ -36,408 +13,662 @@
     </div>
 
     <div class="flex-1 min-h-0 overflow-hidden p-4">
-        <div class="grid h-full grid-cols-12 gap-4">
-            <div class="col-span-12 xl:col-span-3 h-full flex flex-col gap-4">
+        <div class="grid h-full grid-cols-1 xl:grid-cols-[280px,1fr] gap-4">
+            <aside class="h-full flex flex-col gap-4">
                 <div class="ui-card flex-1 overflow-hidden flex flex-col">
-                    <div class="px-4 py-2 border-b border-border text-xs font-semibold text-muted-foreground">
-                        Databases
-                    </div>
-                    <div class="flex-1 min-h-0 p-2">
-                        <app-virtual-list
-                            [items]="availableDatabases"
-                            [trackByFn]="trackByDatabase"
-                            [loading]="loadingDatabases"
-                            loadingText="Loading databases..."
-                            emptyText="No databases found."
-                            emptyIcon="icon-[mdi--database]"
-                            [itemSize]="virtualItemSize"
-                        >
-                            <ng-template let-db>
+                    <div class="px-4 py-2 border-b border-border space-y-2">
+                        <div class="flex items-center justify-between">
+                            <div class="text-xs font-semibold text-muted-foreground">Databases</div>
+                            <div class="flex items-center gap-1">
                                 <button
-                                    (click)="selectDatabase(db.name)"
-                                    class="ui-list-item"
-                                    [ngClass]="{
-                                        'bg-muted text-foreground': selectedDatabase === db.name,
-                                        'text-muted-foreground': selectedDatabase !== db.name
-                                    }"
+                                    (click)="toggleAddDatabase()"
+                                    class="btn btn-ghost btn-xs"
+                                    title="Add database"
                                 >
-                                    <div class="flex items-center justify-between">
-                                        <span class="truncate">{{ db.name }}</span>
-                                        <span class="text-xs text-muted-foreground">{{ db.tables?.length || 0 }}</span>
-                                    </div>
+                                    <span class="icon-[mdi--database-plus] w-4 h-4"></span>
                                 </button>
-                            </ng-template>
-                        </app-virtual-list>
-                    </div>
-                </div>
-
-                <div class="ui-card flex-1 overflow-hidden flex flex-col">
-                    <div class="px-4 py-2 border-b border-border">
-                        <div class="text-xs font-semibold text-muted-foreground">Collections</div>
+                                <button
+                                    (click)="toggleAddCollection()"
+                                    class="btn btn-ghost btn-xs"
+                                    title="Add collection"
+                                >
+                                    <span class="icon-[mdi--folder-plus-outline] w-4 h-4"></span>
+                                </button>
+                            </div>
+                        </div>
                         <div class="mt-2 relative">
                             <span class="icon-[mdi--magnify] w-3 h-3 absolute left-2 top-2 text-muted-foreground"></span>
                             <input
                                 [(ngModel)]="filterText"
                                 (input)="filterCollectionsList()"
                                 type="text"
-                                placeholder="Filter collections"
+                                placeholder="Search collections"
                                 class="w-full pl-7 pr-2 py-1 text-xs border border-border rounded bg-background text-foreground"
                             />
+                        </div>
+                        <div *ngIf="showAddDatabase" class="space-y-2">
+                            <input
+                                [(ngModel)]="newDatabaseName"
+                                type="text"
+                                placeholder="New database name"
+                                class="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                            />
+                            <input
+                                [(ngModel)]="newDatabaseCollectionName"
+                                type="text"
+                                placeholder="Initial collection"
+                                class="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                            />
+                            <button (click)="createDatabase()" class="btn btn-secondary btn-xs w-full">
+                                Create database
+                            </button>
+                        </div>
+                        <div *ngIf="showAddCollection" class="space-y-2">
+                            <input
+                                [(ngModel)]="newCollectionName"
+                                type="text"
+                                placeholder="New collection name"
+                                class="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                            />
+                            <button (click)="createCollectionFromSidebar()" class="btn btn-secondary btn-xs w-full">
+                                Create collection
+                            </button>
                         </div>
                     </div>
                     <div class="flex-1 min-h-0 p-2">
                         <app-virtual-list
-                            [items]="filteredCollections"
-                            [trackByFn]="trackByCollection"
-                            [loading]="loadingCollections"
-                            loadingText="Loading collections..."
-                            emptyText="No collections found."
+                            class="h-full w-full"
+                            [items]="mongoTreeItems"
+                            [trackByFn]="trackByTreeItem"
+                            [loading]="loadingDatabases"
+                            loadingText="Loading databases..."
+                            emptyText="No databases found."
                             emptyIcon="icon-[mdi--database]"
                             [itemSize]="virtualItemSize"
+                            containerClass="h-full w-full min-h-[240px]"
+                            viewportClass="h-full w-full min-h-[240px] scrollbar-hidden"
                         >
-                            <ng-template let-name>
+                            <ng-template let-item>
                                 <button
-                                    (click)="selectCollection(name)"
-                                    class="ui-list-item"
+                                    *ngIf="item.type === 'db'"
+                                    (click)="toggleDatabaseNode(item.name)"
+                                    class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors"
                                     [ngClass]="{
-                                        'bg-muted text-foreground': selectedCollection === name,
-                                        'text-muted-foreground': selectedCollection !== name
+                                        'bg-emerald-500/15 text-foreground ring-1 ring-emerald-500/30': selectedDatabase === item.name,
+                                        'text-muted-foreground hover:bg-muted/40 hover:text-foreground': selectedDatabase !== item.name
                                     }"
                                 >
-                                    <span class="truncate">{{ name }}</span>
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            class="icon-[mdi--chevron-right] w-4 h-4 text-muted-foreground"
+                                            [ngClass]="{ 'rotate-90': item.expanded }"
+                                        ></span>
+                                        <span class="icon-[mdi--database] w-4 h-4 text-muted-foreground"></span>
+                                        <span class="truncate font-medium">{{ item.name }}</span>
+                                    </div>
+                                    <span class="text-[11px] text-muted-foreground">
+                                        {{ item.count ?? 0 }}
+                                    </span>
                                 </button>
+                                <button
+                                    *ngIf="item.type === 'collection'"
+                                    (click)="selectCollection(item.name)"
+                                    class="ml-8 mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1 text-[11px] transition-colors"
+                                    [ngClass]="{
+                                        'bg-emerald-500/5 text-foreground ring-1 ring-emerald-500/10': selectedCollection === item.name,
+                                        'text-muted-foreground hover:bg-muted/30 hover:text-foreground': selectedCollection !== item.name
+                                    }"
+                                >
+                                    <div class="flex items-center gap-2">
+                                        <span class="icon-[mdi--folder-outline] w-4 h-4 text-muted-foreground"></span>
+                                        <span class="truncate">{{ item.name }}</span>
+                                    </div>
+                                </button>
+                                <div
+                                    *ngIf="item.type === 'loading' || item.type === 'empty'"
+                                    class="px-2 py-1 text-xs text-muted-foreground ml-6"
+                                >
+                                    {{ item.name }}
+                                </div>
                             </ng-template>
                         </app-virtual-list>
                     </div>
                 </div>
-            </div>
+            </aside>
 
-            <div class="col-span-12 xl:col-span-6 h-full overflow-hidden ui-card flex flex-col">
-                <div class="px-4 py-3 border-b border-border flex items-center justify-between">
-                    <div>
-                        <div class="text-xs font-semibold text-muted-foreground">Collection details</div>
-                        <div class="text-sm text-foreground truncate">
-                            {{ selectedCollection || 'Select a collection' }}
+            <section class="ui-card h-full overflow-hidden flex flex-col">
+                <div class="px-4 py-3 border-b border-border space-y-2">
+                    <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-semibold text-foreground">Project</span>
+                            <span>›</span>
+                            <span class="font-semibold text-foreground">{{ selectedDatabase || 'Database' }}</span>
+                            <span>›</span>
+                            <span class="font-semibold text-foreground">{{ selectedCollection || 'Collection' }}</span>
                         </div>
                     </div>
-                    <div class="text-xs text-muted-foreground" *ngIf="collectionInfo?.documentCount !== null">
-                        {{ collectionInfo?.documentCount }} docs
+                    <div class="-mx-4 border-b border-border px-4">
+                        <div class="flex flex-wrap items-center gap-6 text-sm font-medium">
+                            <button
+                                *ngFor="let tab of mongoTabs"
+                                (click)="setActiveTab(tab.id)"
+                                class="py-2 border-b-2 transition-colors"
+                                [ngClass]="{
+                                    'border-emerald-600 text-emerald-700': activeTab === tab.id,
+                                    'border-transparent text-muted-foreground hover:text-foreground': activeTab !== tab.id
+                                }"
+                            >
+                                {{ tab.label }}
+                                <span
+                                    *ngIf="tab.id === 'documents' && collectionInfo?.documentCount !== null"
+                                    class="ml-2 text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full"
+                                >
+                                    {{ collectionInfo?.documentCount }}
+                                </span>
+                                <span
+                                    *ngIf="tab.id === 'indexes' && mongoIndexes.length"
+                                    class="ml-2 text-[11px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full"
+                                >
+                                    {{ mongoIndexes.length }}
+                                </span>
+                            </button>
+                        </div>
                     </div>
                 </div>
+
                 <div class="flex-1 overflow-auto p-4 space-y-4 scrollbar-hidden">
-                    <div *ngIf="loadingDetails" class="text-xs text-muted-foreground">
-                        Loading details...
-                    </div>
-                    <div *ngIf="!loadingDetails && !collectionInfo" class="text-xs text-muted-foreground">
-                        Select a collection to view details.
-                    </div>
+                    <div *ngIf="loadingDetails" class="text-xs text-muted-foreground">Loading details...</div>
 
-                    <ng-container *ngIf="collectionInfo">
-                        <div>
-                            <div class="text-xs font-semibold text-foreground">Schema fields</div>
-                            <div class="mt-2 space-y-1">
-                                <div
-                                    *ngFor="let field of collectionInfo.columns"
-                                    class="flex items-center justify-between text-xs text-muted-foreground border-b border-border py-1"
-                                >
-                                    <span class="truncate">{{ field.column_name }}</span>
-                                    <span>{{ field.data_type || 'unknown' }}</span>
+                    <ng-container [ngSwitch]="activeTab">
+                        <div *ngSwitchCase="'documents'" class="space-y-4">
+                            <div *ngIf="!loadingDetails && !collectionInfo" class="text-xs text-muted-foreground">
+                                Select a collection to browse documents.
+                            </div>
+                            <div *ngIf="collectionInfo" class="space-y-4">
+                                <div class="border border-border/70 rounded-md bg-muted/30 px-3 py-2 space-y-3">
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <div class="flex min-w-[260px] flex-1 items-center gap-2 text-xs text-muted-foreground">
+                                            <span class="icon-[mdi--filter-variant] w-4 h-4"></span>
+                                            <input
+                                                [(ngModel)]="mongoFindFilter"
+                                                class="flex-1 min-w-[240px] text-xs border border-border/70 rounded bg-background/80 text-foreground px-2 py-1 font-mono"
+                                                placeholder="Type a query: { field: 'value' }"
+                                            />
+                                            <span class="text-muted-foreground">or</span>
+                                            <button class="text-emerald-700 font-semibold inline-flex items-center gap-1 underline decoration-emerald-400/60">
+                                                Generate query
+                                                <span class="icon-[mdi--sparkles] w-3 h-3"></span>
+                                            </button>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <button (click)="runMongoFindExplain()" class="btn btn-secondary btn-sm">Explain</button>
+                                            <button (click)="clearMongoFind()" class="btn btn-ghost btn-sm">Reset</button>
+                                            <button (click)="runMongoFind()" class="btn btn-primary btn-sm">Find</button>
+                                            <button class="btn btn-ghost btn-sm" title="Code view">
+                                                <span class="icon-[mdi--code-json] w-4 h-4"></span>
+                                            </button>
+                                            <button (click)="toggleQueryOptions()" class="btn btn-ghost btn-sm text-sky-600">
+                                                Options
+                                                <span class="icon-[mdi--chevron-down] w-4 h-4 ml-1"></span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div *ngIf="showQueryOptions" class="flex flex-wrap items-center gap-2">
+                                        <input
+                                            [(ngModel)]="mongoFindProjection"
+                                            class="flex-1 min-w-[160px] text-xs border border-border rounded bg-background/80 text-foreground p-2 font-mono"
+                                            placeholder="Project { field: 1 }"
+                                        />
+                                        <input
+                                            [(ngModel)]="mongoFindSort"
+                                            class="flex-1 min-w-[160px] text-xs border border-border rounded bg-background/80 text-foreground p-2 font-mono"
+                                            placeholder="Sort { createdAt: -1 }"
+                                        />
+                                        <input
+                                            [(ngModel)]="mongoFindCollation"
+                                            class="flex-1 min-w-[160px] text-xs border border-border rounded bg-background/80 text-foreground p-2 font-mono"
+                                            placeholder='Collation { locale: "en" }'
+                                        />
+                                        <input
+                                            [(ngModel)]="mongoFindSkip"
+                                            type="number"
+                                            class="w-24 text-xs border border-border rounded bg-background/80 text-foreground p-2"
+                                            placeholder="Skip"
+                                        />
+                                        <input
+                                            [(ngModel)]="mongoFindLimit"
+                                            type="number"
+                                            class="w-24 text-xs border border-border rounded bg-background/80 text-foreground p-2"
+                                            placeholder="Limit"
+                                        />
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                        <span *ngIf="actionLoading">Running query...</span>
+                                        <span *ngIf="mongoFindResults">{{ mongoFindTotal ?? mongoFindResults.length }} results</span>
+                                    </div>
                                 </div>
-                                <div *ngIf="collectionInfo.columns?.length === 0" class="text-xs text-muted-foreground">
-                                    No fields detected.
+
+                                <div class="border border-border rounded-lg bg-background px-3 py-2">
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <button (click)="toggleInsertPanel()" class="btn btn-secondary btn-sm uppercase">
+                                                <span class="icon-[mdi--plus] w-4 h-4 mr-1"></span>
+                                                Add Data
+                                            </button>
+                                            <div class="relative">
+                                                <button (click)="toggleExportMenu()" class="btn btn-secondary btn-sm uppercase">
+                                                    <span class="icon-[mdi--tray-arrow-down] w-4 h-4 mr-1"></span>
+                                                    Export Data
+                                                </button>
+                                                <div *ngIf="showExportMenu" class="absolute left-0 mt-2 w-32 ui-card p-2 z-[20]">
+                                                    <button class="ui-list-item text-xs" (click)="exportMongoResults('json')">
+                                                        Export JSON
+                                                    </button>
+                                                    <button class="ui-list-item text-xs" (click)="exportMongoResults('csv')">
+                                                        Export CSV
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <button (click)="toggleUpdatePanel()" class="btn btn-secondary btn-sm uppercase">
+                                                <span class="icon-[mdi--pencil] w-4 h-4 mr-1"></span>
+                                                Update
+                                            </button>
+                                            <button (click)="toggleDeletePanel()" class="btn btn-secondary btn-sm uppercase">
+                                                <span class="icon-[mdi--trash-can-outline] w-4 h-4 mr-1"></span>
+                                                Delete
+                                            </button>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                            <select
+                                                [ngModel]="mongoFindPageSize"
+                                                (ngModelChange)="setPageSize($event)"
+                                                class="text-xs border border-border rounded bg-background text-foreground px-2 py-1"
+                                            >
+                                                <option *ngFor="let size of pageSizeOptions" [value]="size">{{ size }}</option>
+                                            </select>
+                                            <span>{{ mongoRangeLabel }}</span>
+                                            <button class="btn btn-ghost btn-sm" (click)="goToPrevPage()" [disabled]="!mongoCanPrev">
+                                                <span class="icon-[mdi--chevron-left] w-4 h-4"></span>
+                                            </button>
+                                            <button class="btn btn-ghost btn-sm" (click)="goToNextPage()" [disabled]="!mongoCanNext">
+                                                <span class="icon-[mdi--chevron-right] w-4 h-4"></span>
+                                            </button>
+                                            <button
+                                                class="btn btn-ghost btn-sm"
+                                                (click)="setViewMode('list')"
+                                                [ngClass]="{ 'text-emerald-600 bg-emerald-500/10': viewMode === 'list' }"
+                                            >
+                                                <span class="icon-[mdi--format-list-bulleted] w-4 h-4"></span>
+                                            </button>
+                                            <button
+                                                class="btn btn-ghost btn-sm"
+                                                (click)="setViewMode('json')"
+                                                [ngClass]="{ 'text-emerald-600 bg-emerald-500/10': viewMode === 'json' }"
+                                            >
+                                                <span class="icon-[mdi--code-json] w-4 h-4"></span>
+                                            </button>
+                                            <button
+                                                class="btn btn-ghost btn-sm"
+                                                (click)="setViewMode('table')"
+                                                [ngClass]="{ 'text-emerald-600 bg-emerald-500/10': viewMode === 'table' }"
+                                            >
+                                                <span class="icon-[mdi--table] w-4 h-4"></span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div *ngIf="showInsertPanel" class="ui-card p-3 space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <div class="text-xs font-semibold text-foreground">Insert document</div>
+                                        <button (click)="runMongoInsert()" class="btn btn-primary btn-sm" [disabled]="!supportsCrud">
+                                            Insert
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        [(ngModel)]="mongoInsertPayload"
+                                        rows="3"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder='{ "field": "value" }'
+                                    ></textarea>
+                                </div>
+
+                                <div *ngIf="showUpdatePanel" class="ui-card p-3 space-y-2">
+                                    <div class="text-xs font-semibold text-foreground">Update</div>
+                                    <textarea
+                                        [(ngModel)]="mongoUpdateFilter"
+                                        rows="2"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder="Filter JSON"
+                                    ></textarea>
+                                    <textarea
+                                        [(ngModel)]="mongoUpdatePayload"
+                                        rows="2"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder="Update JSON"
+                                    ></textarea>
+                                    <div class="flex items-center gap-2">
+                                        <select
+                                            [(ngModel)]="mongoUpdateMode"
+                                            class="w-32 text-xs border border-border rounded bg-background text-foreground px-2 py-1"
+                                        >
+                                            <option value="updateOne">updateOne</option>
+                                            <option value="updateMany">updateMany</option>
+                                        </select>
+                                        <button (click)="runMongoUpdate()" class="btn btn-primary btn-sm" [disabled]="!supportsCrud">
+                                            Update
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div *ngIf="showDeletePanel" class="ui-card p-3 space-y-2">
+                                    <div class="text-xs font-semibold text-foreground">Delete</div>
+                                    <textarea
+                                        [(ngModel)]="mongoDeleteFilter"
+                                        rows="2"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder="Filter JSON"
+                                    ></textarea>
+                                    <div class="flex items-center gap-2">
+                                        <select
+                                            [(ngModel)]="mongoDeleteMode"
+                                            class="w-32 text-xs border border-border rounded bg-background text-foreground px-2 py-1"
+                                        >
+                                            <option value="deleteOne">deleteOne</option>
+                                            <option value="deleteMany">deleteMany</option>
+                                        </select>
+                                        <button (click)="runMongoDelete()" class="btn btn-danger btn-sm" [disabled]="!supportsCrud">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="ui-card p-3 space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <div class="text-xs font-semibold text-foreground">
+                                            {{ mongoFindResults !== null ? 'Query results' : 'Sample documents' }}
+                                        </div>
+                                        <div class="text-xs text-muted-foreground" *ngIf="mongoFindResults !== null">
+                                            {{ mongoRangeLabel }}
+                                        </div>
+                                    </div>
+
+                                    <div *ngIf="viewMode === 'list'" class="space-y-3">
+                                        <span class="hidden text-amber-700 text-emerald-700 text-sky-600 text-fuchsia-600 text-gray-500"></span>
+                                        <app-virtual-list
+                                            [items]="mongoResultDocs"
+                                            [loading]="actionLoading"
+                                            loadingText="Loading documents..."
+                                            emptyText="No documents found."
+                                            emptyIcon="icon-[mdi--file-document-outline]"
+                                            [itemSize]="mongoDocItemSize"
+                                            containerClass="h-[55vh] w-full"
+                                            viewportClass="h-full w-full scrollbar-hidden"
+                                        >
+                                            <ng-template let-doc let-i="index">
+                                                <div class="rounded-lg border border-border/60 bg-background shadow-sm overflow-hidden mb-4">
+                                                    <div class="flex items-center justify-between px-3 py-2 bg-muted/30 text-[11px] text-muted-foreground">
+                                                        <div class="flex items-center gap-2">
+                                                            <span class="font-semibold text-foreground">Document {{ i + 1 }}</span>
+                                                            <span *ngIf="doc?._id">• _id: {{ doc?._id }}</span>
+                                                        </div>
+                                                        <span class="badge badge-muted">JSON</span>
+                                                    </div>
+                                                    <pre
+                                                        class="text-xs whitespace-pre-wrap p-4 text-foreground"
+                                                        [innerHTML]="formatJson(doc)"
+                                                    ></pre>
+                                                </div>
+                                            </ng-template>
+                                        </app-virtual-list>
+                                    </div>
+
+                                    <div *ngIf="viewMode === 'json'">
+                                        <pre
+                                            class="text-xs whitespace-pre-wrap bg-muted/30 border border-border/60 rounded-lg p-4 text-foreground shadow-sm"
+                                            [innerHTML]="formatJson(mongoResultDocs)"
+                                        ></pre>
+                                    </div>
+
+                                    <div *ngIf="viewMode === 'table'" class="overflow-auto mt-3">
+                                        <table class="w-full text-xs border border-border/60 rounded bg-muted/20">
+                                            <thead class="bg-muted/40 text-muted-foreground">
+                                                <tr>
+                                                    <th
+                                                        *ngFor="let col of mongoTableColumns"
+                                                        class="px-2 py-1 text-left border-b border-border"
+                                                    >
+                                                        {{ col }}
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr *ngFor="let doc of mongoResultDocs" class="border-b border-border/60">
+                                                    <td *ngFor="let col of mongoTableColumns" class="px-2 py-1 align-top">
+                                                        {{ doc?.[col] | json }}
+                                                    </td>
+                                                </tr>
+                                                <tr *ngIf="mongoResultDocs.length === 0">
+                                                    <td
+                                                        [attr.colspan]="mongoTableColumns.length || 1"
+                                                        class="px-2 py-2 text-muted-foreground"
+                                                    >
+                                                        No documents found.
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <div *ngSwitchCase="'aggregations'" class="space-y-4">
+                            <div *ngIf="!supportsAggregation" class="text-xs text-muted-foreground">
+                                Aggregations are not supported for this database.
+                            </div>
+                            <div *ngIf="supportsAggregation" class="space-y-3">
+                                <div class="text-xs font-semibold text-foreground">Aggregation pipeline</div>
+                                <textarea
+                                    [(ngModel)]="mongoAggregatePipeline"
+                                    rows="6"
+                                    class="w-full text-xs border border-border rounded bg-background text-foreground p-3 font-mono"
+                                    placeholder='[ { "$match": {} }, { "$limit": 20 } ]'
+                                ></textarea>
+                                <button (click)="runMongoAggregate()" class="btn btn-secondary btn-sm">Run aggregation</button>
+                            </div>
+                        </div>
+
+                        <div *ngSwitchCase="'schema'" class="space-y-4">
+                            <div *ngIf="!loadingDetails && !collectionInfo" class="text-xs text-muted-foreground">
+                                Select a collection to view schema.
+                            </div>
+                            <div *ngIf="collectionInfo" class="space-y-2">
+                                <div class="text-xs font-semibold text-foreground">Fields</div>
+                                <div class="space-y-1">
+                                    <div
+                                        *ngFor="let field of collectionInfo.columns"
+                                        class="flex items-center justify-between text-xs text-muted-foreground border-b border-border py-2"
+                                    >
+                                        <span class="truncate">{{ field.column_name }}</span>
+                                        <span>{{ field.data_type || 'unknown' }}</span>
+                                    </div>
+                                    <div *ngIf="collectionInfo.columns?.length === 0" class="text-xs text-muted-foreground">
+                                        No fields detected.
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div *ngIf="supportsIndexes">
-                            <div class="text-xs font-semibold text-foreground">Indexes</div>
-                            <div class="mt-2 space-y-1">
-                                <div
-                                    *ngFor="let idx of mongoIndexes"
-                                    class="flex items-center justify-between text-xs text-muted-foreground border-b border-border py-1"
-                                >
-                                    <span class="truncate">{{ idx.name }}</span>
-                                    <span>
-                                        {{ idx.type || 'unknown' }}{{ idx.unique ? ' (unique)' : '' }}
-                                    </span>
+                        <div *ngSwitchCase="'indexes'" class="space-y-4">
+                            <div *ngIf="!loadingDetails && !collectionInfo" class="text-xs text-muted-foreground">
+                                Select a collection to view indexes.
+                            </div>
+                            <div *ngIf="collectionInfo" class="space-y-2">
+                                <div class="text-xs font-semibold text-foreground">Indexes</div>
+                                <div class="space-y-1">
+                                    <div
+                                        *ngFor="let idx of mongoIndexes"
+                                        class="flex items-center justify-between text-xs text-muted-foreground border-b border-border py-2"
+                                    >
+                                        <span class="truncate">{{ idx.name }}</span>
+                                        <span>{{ idx.type || 'unknown' }}{{ idx.unique ? ' (unique)' : '' }}</span>
+                                    </div>
+                                    <div *ngIf="mongoIndexes.length === 0" class="text-xs text-muted-foreground">No indexes detected.</div>
                                 </div>
-                                <div *ngIf="mongoIndexes.length === 0" class="text-xs text-muted-foreground">
-                                    No indexes detected.
+                            </div>
+                            <div *ngIf="supportsIndexes" class="ui-card p-3 space-y-2">
+                                <div class="text-xs font-semibold text-foreground">Index management</div>
+                                <textarea
+                                    [(ngModel)]="mongoIndexKeys"
+                                    rows="3"
+                                    class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                    placeholder="Index keys JSON"
+                                ></textarea>
+                                <textarea
+                                    [(ngModel)]="mongoIndexOptions"
+                                    rows="2"
+                                    class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                    placeholder="Index options JSON (optional)"
+                                ></textarea>
+                                <div class="flex items-center gap-2">
+                                    <button (click)="runMongoCreateIndex()" class="btn btn-secondary btn-sm" [disabled]="!supportsCrud">
+                                        Create
+                                    </button>
+                                    <button (click)="runMongoDropIndex()" class="btn btn-danger btn-sm" [disabled]="!supportsCrud">
+                                        Drop
+                                    </button>
+                                </div>
+                                <input
+                                    [(ngModel)]="mongoDropIndexName"
+                                    type="text"
+                                    class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                    placeholder="Index name to drop"
+                                />
+                            </div>
+                        </div>
+
+                        <div *ngSwitchCase="'validation'" class="space-y-4">
+                            <div class="ui-card p-3 text-xs text-muted-foreground">
+                                Validation rules are not configured yet. Use the advanced tools below for custom operations.
+                            </div>
+                            <button (click)="showAdvancedActions = !showAdvancedActions" class="btn btn-secondary btn-sm">
+                                {{ showAdvancedActions ? 'Hide advanced actions' : 'Show advanced actions' }}
+                            </button>
+                            <div *ngIf="showAdvancedActions" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div class="ui-card p-4 space-y-2">
+                                    <div class="text-xs font-semibold text-foreground">Explain payload</div>
+                                    <textarea
+                                        [(ngModel)]="mongoExplainPayload"
+                                        rows="4"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder='{"find": "collection", "filter": {}}'
+                                    ></textarea>
+                                    <button (click)="runMongoExplain()" class="btn btn-secondary btn-sm">Run explain</button>
+                                </div>
+                                <div class="ui-card p-4 space-y-2">
+                                    <div class="text-xs font-semibold text-foreground">Find one &amp; update</div>
+                                    <textarea
+                                        [(ngModel)]="mongoFindOneFilter"
+                                        rows="2"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder="Filter JSON"
+                                    ></textarea>
+                                    <textarea
+                                        [(ngModel)]="mongoFindOneUpdate"
+                                        rows="2"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder="Update JSON"
+                                    ></textarea>
+                                    <textarea
+                                        [(ngModel)]="mongoFindOneOptions"
+                                        rows="2"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder="Options JSON (optional)"
+                                    ></textarea>
+                                    <button (click)="runMongoFindOneAndUpdate()" class="btn btn-secondary btn-sm" [disabled]="!supportsCrud">
+                                        Run findOneAndUpdate
+                                    </button>
+                                </div>
+                                <div class="ui-card p-4 space-y-2">
+                                    <div class="text-xs font-semibold text-foreground">Find one &amp; delete</div>
+                                    <textarea
+                                        [(ngModel)]="mongoFindOneDeleteFilter"
+                                        rows="2"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder="Filter JSON"
+                                    ></textarea>
+                                    <button (click)="runMongoFindOneAndDelete()" class="btn btn-danger btn-sm" [disabled]="!supportsCrud">
+                                        Run findOneAndDelete
+                                    </button>
+                                </div>
+                                <div class="ui-card p-4 space-y-2">
+                                    <div class="text-xs font-semibold text-foreground">Bulk write</div>
+                                    <textarea
+                                        [(ngModel)]="mongoBulkWrite"
+                                        rows="3"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                        placeholder="Bulk operations JSON array"
+                                    ></textarea>
+                                    <button (click)="runMongoBulkWrite()" class="btn btn-danger btn-sm" [disabled]="!supportsCrud">
+                                        Run bulk write
+                                    </button>
+                                </div>
+                                <div class="ui-card p-4 space-y-2">
+                                    <div class="text-xs font-semibold text-foreground">Collection management</div>
+                                    <input
+                                        [(ngModel)]="mongoCreateCollectionName"
+                                        type="text"
+                                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="New collection name"
+                                    />
+                                    <button (click)="runMongoCreateCollection()" class="btn btn-secondary btn-sm" [disabled]="!supportsCrud">
+                                        Create collection
+                                    </button>
+                                    <input
+                                        [(ngModel)]="mongoRenameTo"
+                                        type="text"
+                                        class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                        placeholder="Rename selected collection to"
+                                    />
+                                    <div class="mt-2 flex flex-wrap gap-2">
+                                        <button (click)="runMongoRenameCollection()" class="btn btn-secondary btn-sm" [disabled]="!supportsCrud">
+                                            Rename
+                                        </button>
+                                        <button (click)="runMongoDropCollection()" class="btn btn-danger btn-sm" [disabled]="!supportsCrud">
+                                            Drop
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div>
-                            <div class="text-xs font-semibold text-foreground">Sample documents</div>
-                            <div class="mt-2 space-y-2">
-                                <pre
-                                    *ngFor="let doc of limitedSampleDocuments"
-                                    class="text-xs whitespace-pre-wrap bg-muted border border-border rounded p-2 text-foreground"
-                                >
-{{ doc | json }}</pre
-                                >
-                                <button
-                                    *ngIf="hasMoreSampleDocuments"
-                                    (click)="toggleSampleDocuments()"
-                                    class="btn btn-ghost btn-sm"
-                                >
-                                    {{ showAllSampleDocuments ? "Show less" : "Show all" }}
-                                </button>
-                                <div
-                                    *ngIf="!collectionInfo.sampleDocuments || collectionInfo.sampleDocuments.length === 0"
-                                    class="text-xs text-muted-foreground"
-                                >
-                                    No documents sampled.
-                                </div>
-                            </div>
-                        </div>
+                        <div *ngSwitchDefault class="text-xs text-muted-foreground">Select a tab to view details.</div>
                     </ng-container>
+
                 </div>
-            </div>
-
-            <div class="col-span-12 xl:col-span-3 h-full overflow-hidden ui-card flex flex-col">
-                <div class="px-4 py-3 border-b border-border">
-                    <div class="text-xs font-semibold text-muted-foreground">Actions</div>
-                </div>
-                <div class="flex-1 overflow-auto p-4 space-y-4 scrollbar-hidden">
-                    <div *ngIf="!supportsCrud" class="text-xs text-muted-foreground">
-                        Write operations are disabled for this database.
-                    </div>
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Insert</div>
-                        <textarea
-                            [(ngModel)]="mongoInsertPayload"
-                            rows="4"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Document JSON"
-                        ></textarea>
-                        <button (click)="runMongoInsert()" class="btn btn-primary btn-sm mt-2" [disabled]="!supportsCrud">
-                            Insert
-                        </button>
-                    </div>
-
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Update</div>
-                        <textarea
-                            [(ngModel)]="mongoUpdateFilter"
-                            rows="3"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Filter JSON"
-                        ></textarea>
-                        <textarea
-                            [(ngModel)]="mongoUpdatePayload"
-                            rows="3"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Update JSON"
-                        ></textarea>
-                        <div class="mt-2 flex items-center gap-2">
-                            <select
-                                [(ngModel)]="mongoUpdateMode"
-                                class="w-32 text-xs border border-border rounded bg-background text-foreground px-2 py-1"
-                            >
-                                <option value="updateOne">updateOne</option>
-                                <option value="updateMany">updateMany</option>
-                            </select>
-                            <button
-                                (click)="runMongoUpdate()"
-                                class="btn btn-primary btn-sm"
-                                [disabled]="!supportsCrud"
-                            >
-                                Update
-                            </button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Find one &amp; update</div>
-                        <textarea
-                            [(ngModel)]="mongoFindOneFilter"
-                            rows="2"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Filter JSON"
-                        ></textarea>
-                        <textarea
-                            [(ngModel)]="mongoFindOneUpdate"
-                            rows="2"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Update JSON"
-                        ></textarea>
-                        <textarea
-                            [(ngModel)]="mongoFindOneOptions"
-                            rows="2"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Options JSON (optional)"
-                        ></textarea>
-                        <button
-                            (click)="runMongoFindOneAndUpdate()"
-                            class="btn btn-secondary btn-sm mt-2"
-                            [disabled]="!supportsCrud"
-                        >
-                            Run findOneAndUpdate
-                        </button>
-                    </div>
-
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Delete</div>
-                        <textarea
-                            [(ngModel)]="mongoDeleteFilter"
-                            rows="3"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Filter JSON"
-                        ></textarea>
-                        <div class="mt-2 flex items-center gap-2">
-                            <select
-                                [(ngModel)]="mongoDeleteMode"
-                                class="w-32 text-xs border border-border rounded bg-background text-foreground px-2 py-1"
-                            >
-                                <option value="deleteOne">deleteOne</option>
-                                <option value="deleteMany">deleteMany</option>
-                            </select>
-                            <button
-                                (click)="runMongoDelete()"
-                                class="btn btn-danger btn-sm"
-                                [disabled]="!supportsCrud"
-                            >
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Find one &amp; delete</div>
-                        <textarea
-                            [(ngModel)]="mongoFindOneDeleteFilter"
-                            rows="2"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Filter JSON"
-                        ></textarea>
-                        <button
-                            (click)="runMongoFindOneAndDelete()"
-                            class="btn btn-danger btn-sm mt-2"
-                            [disabled]="!supportsCrud"
-                        >
-                            Run findOneAndDelete
-                        </button>
-                    </div>
-
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Bulk write</div>
-                        <textarea
-                            [(ngModel)]="mongoBulkWrite"
-                            rows="3"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Bulk operations JSON array"
-                        ></textarea>
-                        <button
-                            (click)="runMongoBulkWrite()"
-                            class="btn btn-danger btn-sm mt-2"
-                            [disabled]="!supportsCrud"
-                        >
-                            Run bulk write
-                        </button>
-                    </div>
-
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Collection management</div>
-                        <input
-                            [(ngModel)]="mongoCreateCollectionName"
-                            type="text"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="New collection name"
-                        />
-                        <button (click)="runMongoCreateCollection()" class="btn btn-secondary btn-sm mt-2" [disabled]="!supportsCrud">
-                            Create collection
-                        </button>
-                        <input
-                            [(ngModel)]="mongoRenameTo"
-                            type="text"
-                            class="mt-3 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Rename selected collection to"
-                        />
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            <button (click)="runMongoRenameCollection()" class="btn btn-secondary btn-sm" [disabled]="!supportsCrud">
-                                Rename
-                            </button>
-                            <button (click)="runMongoDropCollection()" class="btn btn-danger btn-sm" [disabled]="!supportsCrud">
-                                Drop
-                            </button>
-                        </div>
-                    </div>
-
-                    <div *ngIf="supportsIndexes">
-                        <div class="text-xs font-semibold text-foreground">Indexes</div>
-                        <textarea
-                            [(ngModel)]="mongoIndexKeys"
-                            rows="3"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Index keys JSON"
-                        ></textarea>
-                        <textarea
-                            [(ngModel)]="mongoIndexOptions"
-                            rows="2"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Index options JSON (optional)"
-                        ></textarea>
-                        <div class="mt-2 flex items-center gap-2">
-                            <button
-                                (click)="runMongoCreateIndex()"
-                                class="btn btn-secondary btn-sm"
-                                [disabled]="!supportsCrud"
-                            >
-                                Create
-                            </button>
-                            <button
-                                (click)="runMongoDropIndex()"
-                                class="btn btn-danger btn-sm"
-                                [disabled]="!supportsCrud"
-                            >
-                                Drop
-                            </button>
-                        </div>
-                        <input
-                            [(ngModel)]="mongoDropIndexName"
-                            type="text"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Index name to drop"
-                        />
-                    </div>
-
-                    <div *ngIf="supportsAggregation">
-                        <div class="text-xs font-semibold text-foreground">Aggregation</div>
-                        <textarea
-                            [(ngModel)]="mongoAggregatePipeline"
-                            rows="4"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Aggregation pipeline JSON"
-                        ></textarea>
-                        <button (click)="runMongoAggregate()" class="btn btn-secondary btn-sm mt-2">
-                            Run aggregation
-                        </button>
-                    </div>
-
-                    <div *ngIf="supportsExplain">
-                        <div class="text-xs font-semibold text-foreground">Explain</div>
-                        <textarea
-                            [(ngModel)]="mongoExplainPayload"
-                            rows="3"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Explain payload JSON"
-                        ></textarea>
-                        <button (click)="runMongoExplain()" class="btn btn-secondary btn-sm mt-2">
-                            Run explain
-                        </button>
-                    </div>
-
-                    <div *ngIf="actionResult">
-                        <div class="text-xs font-semibold text-foreground">Last action result</div>
-                        <pre class="mt-2 text-xs whitespace-pre-wrap bg-muted border border-border rounded p-2 text-foreground">{{ actionResult | json }}</pre>
-                    </div>
-                </div>
-            </div>
+            </section>
         </div>
     </div>
+
+    <div class="border-t border-border px-4 py-2 flex flex-wrap items-center justify-between text-xs text-muted-foreground">
+        <div class="flex flex-wrap items-center gap-3">
+            <span class="badge badge-muted">
+                {{ selectedDatabase ? 'Connected' : 'No database selected' }}
+            </span>
+            <span *ngIf="selectedDatabase">DB: {{ selectedDatabase }}</span>
+            <span *ngIf="selectedCollection">Collection: {{ selectedCollection }}</span>
+        </div>
+        <button
+            (click)="refreshDatabases()"
+            [disabled]="loadingDatabases"
+            class="btn btn-secondary btn-sm"
+        >
+            <span class="icon-[mdi--refresh] w-3 h-3 mr-1" [class.animate-spin]="loadingDatabases"></span>
+            Refresh
+        </button>
+    </div>
 </div>
-
-
 
 

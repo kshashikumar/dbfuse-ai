@@ -36,7 +36,7 @@ export abstract class NosqlExplorerBase {
     ) {}
 
     initExplorer(): void {
-        if (this.databases && this.databases.length > 0) {
+        if (Array.isArray(this.databases) && this.databases.length > 0) {
             this.applyDatabases(this.databases);
         } else {
             this.refreshDatabases();
@@ -49,7 +49,7 @@ export abstract class NosqlExplorerBase {
             this.resetState();
             this.loadStrategyMetadata();
         }
-        if (this.databases && this.databases.length > 0) {
+        if (Array.isArray(this.databases) && this.databases.length > 0) {
             this.applyDatabases(this.databases);
         } else if (changes['databases'] && !changes['databases'].firstChange) {
             this.refreshDatabases();
@@ -231,6 +231,12 @@ export abstract class NosqlExplorerBase {
                 if (this.selectedDatabase && this.selectedCollection) {
                     this.loadCollectionInfo(this.selectedDatabase, this.selectedCollection);
                 }
+                if (this.dbType === 'redis' && this.selectedDatabase) {
+                    this.loadCollections(this.selectedDatabase, {
+                        preserveSelection: true,
+                        preserveMessage: true,
+                    });
+                }
                 this.cdr.markForCheck();
             },
             error: (error) => {
@@ -243,25 +249,65 @@ export abstract class NosqlExplorerBase {
     }
 
     protected applyDatabases(list: DatabaseStats[]): void {
-        this.availableDatabases = list;
-        if (!this.selectedDatabase && list.length > 0) {
-            this.selectDatabase(list[0].name);
+        this.availableDatabases = list.map((db) => {
+            const extractedName = this.extractName((db as any)?.name ?? db);
+            return {
+                ...db,
+                name: extractedName || String((db as any)?.name ?? ''),
+            } as DatabaseStats;
+        });
+        const names = this.availableDatabases.map((db) => db.name);
+        if (this.selectedDatabase && !names.includes(this.selectedDatabase)) {
+            this.selectedDatabase = '';
+        }
+        if (!this.selectedDatabase && names.length > 0) {
+            this.selectDatabase(names[0]);
         }
         this.cdr.markForCheck();
     }
 
-    protected loadCollections(dbName: string): void {
+    protected loadCollections(
+        dbName: string,
+        options: { preserveSelection?: boolean; preserveMessage?: boolean } = {},
+    ): void {
         this.loadingCollections = true;
         this.backend.getCollections(dbName).subscribe({
             next: (response) => {
                 const list = Array.isArray(response?.collections) ? response.collections : [];
-                this.collections = list;
-                this.filteredCollections = [...list];
+                const normalized = list
+                    .map((item) => {
+                        const extracted = this.extractName(item);
+                        if (extracted) return extracted;
+                        try {
+                            return JSON.stringify(item);
+                        } catch {
+                            return '';
+                        }
+                    })
+                    .map((name) => String(name))
+                    .filter((name) => name && name !== 'null' && name !== 'undefined' && name !== '[object Object]');
+                this.collections = normalized;
+                this.filteredCollections = [...normalized];
                 this.loadingCollections = false;
-                if (list.length > 0) {
-                    this.selectCollection(list[0]);
+                const shouldPreserve =
+                    options.preserveSelection !== false &&
+                    this.selectedCollection &&
+                    normalized.includes(this.selectedCollection);
+
+                if (shouldPreserve) {
+                    this.loadCollectionInfo(this.selectedDatabase, this.selectedCollection);
+                } else {
+                    const safeFirst = normalized.find((name) => !name.startsWith('system.'));
+                    const isSystemDb = ['admin', 'local', 'config'].includes(String(dbName || '').toLowerCase());
+                    const defaultCollection = safeFirst || (isSystemDb ? '' : normalized[0]);
+                    if (defaultCollection) {
+                        this.selectCollection(defaultCollection);
+                    }
                 }
-                this.actionMessage = '';
+
+                if (!options.preserveMessage) {
+                    this.actionMessage = '';
+                }
                 this.cdr.markForCheck();
             },
             error: (error) => {
@@ -300,6 +346,38 @@ export abstract class NosqlExplorerBase {
                 this.cdr.markForCheck();
             },
         });
+    }
+
+    protected extractName(value: any, depth = 0): string {
+        if (!value && value !== 0) return '';
+        if (typeof value === 'string') return value;
+        if (typeof value === 'number') return String(value);
+        if (typeof value !== 'object' || depth > 2) return '';
+        const preferredKeys = [
+            'name',
+            'collection',
+            'collectionName',
+            'table',
+            'table_name',
+            'tableName',
+            'db',
+            'database',
+            'databaseName',
+            'id',
+        ];
+        for (const key of preferredKeys) {
+            if (key in value) {
+                const result = this.extractName((value as any)[key], depth + 1);
+                if (result) return result;
+            }
+        }
+        for (const key of Object.keys(value)) {
+            const candidate = (value as any)[key];
+            if (typeof candidate === 'string' && candidate.trim()) {
+                return candidate;
+            }
+        }
+        return '';
     }
 
     protected persistSelectedDatabase(dbName: string): void {

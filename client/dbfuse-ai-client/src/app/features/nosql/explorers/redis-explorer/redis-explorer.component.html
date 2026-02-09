@@ -1,27 +1,4 @@
-<div class="flex h-full flex-col bg-background">
-    <div class="border-b border-border px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-lg font-semibold text-foreground">Redis Explorer</h2>
-            <p class="text-sm text-muted-foreground">
-                Inspect keyspace patterns, preview values, and run Redis commands.
-            </p>
-        </div>
-        <div class="flex items-center gap-3">
-            <div class="text-xs text-muted-foreground">
-                <div *ngIf="selectedDatabase">Keyspace: {{ selectedDatabase }}</div>
-                <div *ngIf="selectedCollection">Key group: {{ selectedCollection }}</div>
-            </div>
-            <button
-                (click)="refreshDatabases()"
-                [disabled]="loadingDatabases"
-                class="btn btn-secondary btn-sm"
-            >
-                <span class="icon-[mdi--refresh] w-3 h-3 mr-1" [class.animate-spin]="loadingDatabases"></span>
-                Refresh
-            </button>
-        </div>
-    </div>
-
+﻿<div class="flex h-full flex-col bg-background">
     <div
         *ngIf="errorMessage"
         class="px-6 py-2 text-xs text-destructive border-b border-destructive/20 bg-destructive/10"
@@ -36,191 +13,245 @@
     </div>
 
     <div class="flex-1 min-h-0 overflow-hidden p-4">
-        <div class="grid h-full grid-cols-12 gap-4">
-            <div class="col-span-12 xl:col-span-3 h-full flex flex-col gap-4">
+        <div class="grid h-full grid-cols-1 xl:grid-cols-[280px,1fr] gap-4">
+            <aside class="h-full flex flex-col gap-4">
                 <div class="ui-card flex-1 overflow-hidden flex flex-col">
-                    <div class="px-4 py-2 border-b border-border text-xs font-semibold text-muted-foreground">
-                        Keyspaces
-                    </div>
-                    <div class="flex-1 min-h-0 p-2">
-                        <app-virtual-list
-                            [items]="availableDatabases"
-                            [trackByFn]="trackByDatabase"
-                            [loading]="loadingDatabases"
-                            loadingText="Loading keyspaces..."
-                            emptyText="No keyspaces found."
-                            emptyIcon="icon-[mdi--database]"
-                            [itemSize]="virtualItemSize"
-                        >
-                            <ng-template let-db>
+                    <div class="px-4 py-2 border-b border-border space-y-2">
+                        <div class="flex items-center justify-between">
+                            <div class="text-xs font-semibold text-muted-foreground">Keyspaces</div>
+                            <div class="flex items-center gap-1">
                                 <button
-                                    (click)="selectDatabase(db.name)"
-                                    class="ui-list-item"
-                                    [ngClass]="{
-                                        'bg-muted text-foreground': selectedDatabase === db.name,
-                                        'text-muted-foreground': selectedDatabase !== db.name
-                                    }"
+                                    (click)="toggleAddKeyspace()"
+                                    class="btn btn-ghost btn-xs"
+                                    title="Add keyspace"
                                 >
-                                    <div class="flex items-center justify-between">
-                                        <span class="truncate">{{ db.name }}</span>
-                                        <span class="text-xs text-muted-foreground">{{ db.tables?.length || 0 }}</span>
-                                    </div>
+                                    <span class="icon-[mdi--database-plus] w-4 h-4"></span>
                                 </button>
-                            </ng-template>
-                        </app-virtual-list>
-                    </div>
-                </div>
-
-                <div class="ui-card flex-1 overflow-hidden flex flex-col">
-                    <div class="px-4 py-2 border-b border-border">
-                        <div class="text-xs font-semibold text-muted-foreground">Key groups</div>
+                                <button
+                                    (click)="toggleAddGroup()"
+                                    class="btn btn-ghost btn-xs"
+                                    title="Add key group"
+                                >
+                                    <span class="icon-[mdi--folder-plus-outline] w-4 h-4"></span>
+                                </button>
+                            </div>
+                        </div>
                         <div class="mt-2 relative">
                             <span class="icon-[mdi--magnify] w-3 h-3 absolute left-2 top-2 text-muted-foreground"></span>
                             <input
                                 [(ngModel)]="filterText"
                                 (input)="filterCollectionsList()"
                                 type="text"
-                                placeholder="Filter groups"
+                                placeholder="Search key groups"
                                 class="w-full pl-7 pr-2 py-1 text-xs border border-border rounded bg-background text-foreground"
                             />
+                        </div>
+                        <div *ngIf="showAddKeyspace" class="space-y-2">
+                            <input
+                                [(ngModel)]="newKeyspaceName"
+                                type="text"
+                                placeholder="Keyspace (e.g. 0 or db0)"
+                                class="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                            />
+                            <button (click)="createKeyspace()" class="btn btn-secondary btn-xs w-full">
+                                Create keyspace
+                            </button>
+                        </div>
+                        <div *ngIf="showAddGroup" class="space-y-2">
+                            <input
+                                [(ngModel)]="newKeyGroupName"
+                                type="text"
+                                placeholder="Key group name"
+                                class="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                            />
+                            <input
+                                [(ngModel)]="newKeyGroupValue"
+                                type="text"
+                                placeholder="Seed value (optional)"
+                                class="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                            />
+                            <button (click)="createKeyGroup()" class="btn btn-secondary btn-xs w-full">
+                                Create key group
+                            </button>
                         </div>
                     </div>
                     <div class="flex-1 min-h-0 p-2">
                         <app-virtual-list
-                            [items]="filteredCollections"
-                            [trackByFn]="trackByCollection"
-                            [loading]="loadingCollections"
-                            loadingText="Loading key groups..."
-                            emptyText="No key groups found."
+                            class="h-full w-full"
+                            [items]="redisTreeItems"
+                            [trackByFn]="trackByTreeItem"
+                            [loading]="loadingDatabases"
+                            loadingText="Loading keyspaces..."
+                            emptyText="No keyspaces found."
                             emptyIcon="icon-[mdi--database]"
                             [itemSize]="virtualItemSize"
+                            containerClass="h-full w-full min-h-[240px]"
+                            viewportClass="h-full w-full scrollbar-hidden"
                         >
-                            <ng-template let-name>
+                            <ng-template let-item>
                                 <button
-                                    (click)="selectCollection(name)"
-                                    class="ui-list-item"
+                                    *ngIf="item.type === 'db'"
+                                    (click)="toggleKeyspaceNode(item.name)"
+                                    class="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors"
                                     [ngClass]="{
-                                        'bg-muted text-foreground': selectedCollection === name,
-                                        'text-muted-foreground': selectedCollection !== name
+                                        'bg-emerald-500/15 text-foreground ring-1 ring-emerald-500/30':
+                                            selectedDatabase === item.name,
+                                        'text-muted-foreground hover:bg-muted/40 hover:text-foreground':
+                                            selectedDatabase !== item.name
                                     }"
                                 >
-                                    <span class="truncate">{{ name }}</span>
+                                    <div class="flex items-center gap-2">
+                                        <span
+                                            class="icon-[mdi--chevron-right] w-4 h-4 text-muted-foreground"
+                                            [ngClass]="{ 'rotate-90': item.expanded }"
+                                        ></span>
+                                        <span class="icon-[mdi--database] w-4 h-4 text-muted-foreground"></span>
+                                        <span class="truncate font-medium">{{ item.name }}</span>
+                                    </div>
+                                    <span class="text-[11px] text-muted-foreground">
+                                        {{ item.count ?? 0 }}
+                                    </span>
                                 </button>
+                                <button
+                                    *ngIf="item.type === 'group'"
+                                    (click)="selectCollection(item.name)"
+                                    class="ml-8 mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1 text-[11px] transition-colors"
+                                    [ngClass]="{
+                                        'bg-emerald-500/5 text-foreground ring-1 ring-emerald-500/10':
+                                            selectedCollection === item.name,
+                                        'text-muted-foreground hover:bg-muted/30 hover:text-foreground':
+                                            selectedCollection !== item.name
+                                    }"
+                                >
+                                    <span class="icon-[mdi--folder-outline] w-4 h-4 text-muted-foreground"></span>
+                                    <span class="truncate">{{ item.name }}</span>
+                                </button>
+                                <div
+                                    *ngIf="item.type === 'loading' || item.type === 'empty'"
+                                    class="px-2 py-1 text-xs text-muted-foreground ml-6"
+                                >
+                                    {{ item.name }}
+                                </div>
                             </ng-template>
                         </app-virtual-list>
                     </div>
                 </div>
-            </div>
+            </aside>
 
-            <div class="col-span-12 xl:col-span-6 h-full overflow-hidden ui-card flex flex-col">
-                <div class="px-4 py-3 border-b border-border flex items-center justify-between">
-                    <div>
-                        <div class="text-xs font-semibold text-muted-foreground">Keyspace details</div>
-                        <div class="text-sm text-foreground truncate">
-                            {{ selectedCollection || 'Select a key group' }}
+            <section class="ui-card h-full overflow-hidden flex flex-col">
+                <div class="px-4 py-3 border-b border-border space-y-2">
+                    <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-semibold text-foreground">Keyspace</span>
+                            <span>›</span>
+                            <span class="font-semibold text-foreground">{{ selectedDatabase || 'db0' }}</span>
+                            <span>›</span>
+                            <span class="font-semibold text-foreground">{{ selectedCollection || 'Group' }}</span>
                         </div>
+                        <div>{{ filteredSampleKeys.length }} keys</div>
                     </div>
                 </div>
+
                 <div class="flex-1 overflow-auto p-4 space-y-4 scrollbar-hidden">
-                    <div *ngIf="loadingDetails" class="text-xs text-muted-foreground">
-                        Loading details...
-                    </div>
-                    <div *ngIf="!loadingDetails && !collectionInfo" class="text-xs text-muted-foreground">
-                        Select a key group to view details.
-                    </div>
-
-                    <ng-container *ngIf="collectionInfo">
-                        <div>
-                            <div class="text-xs font-semibold text-foreground">Key type breakdown</div>
-                            <div class="mt-2 flex flex-wrap gap-2">
-                                <span *ngFor="let stat of redisKeyTypeStats" class="badge">
-                                    {{ stat.type }}: {{ stat.count }}
-                                </span>
-                                <span *ngIf="redisKeyTypeStats.length === 0" class="text-xs text-muted-foreground">
-                                    No key types detected.
-                                </span>
+                    <div class="border border-border/70 rounded-md bg-muted/30 px-3 py-2 space-y-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex min-w-[260px] flex-1 items-center gap-2 text-xs text-muted-foreground">
+                                <span class="icon-[mdi--console] w-4 h-4"></span>
+                                <input
+                                    [(ngModel)]="redisCommand"
+                                    class="flex-1 min-w-[200px] text-xs border border-border/70 rounded bg-background/80 text-foreground px-2 py-1 font-mono"
+                                    placeholder="Command (e.g. GET key)"
+                                />
+                                <input
+                                    [(ngModel)]="redisCommandArgs"
+                                    class="flex-1 min-w-[200px] text-xs border border-border/70 rounded bg-background/80 text-foreground px-2 py-1 font-mono"
+                                    placeholder="arg1 arg2"
+                                />
                             </div>
-                        </div>
-
-                        <div>
-                            <div class="text-xs font-semibold text-foreground">Key prefix patterns</div>
-                            <div class="mt-2 flex flex-wrap gap-2">
-                                <span *ngFor="let stat of redisKeyPrefixStats" class="badge">
-                                    {{ stat.prefix }}: {{ stat.count }}
-                                </span>
-                                <span *ngIf="redisKeyPrefixStats.length === 0" class="text-xs text-muted-foreground">
-                                    No key prefixes detected.
-                                </span>
-                            </div>
-                        </div>
-
-                        <div>
-                            <div class="text-xs font-semibold text-foreground">Key samples</div>
-                            <div class="mt-2 space-y-2">
-                                <div
-                                    *ngFor="let key of collectionInfo.sampleKeys"
-                                    class="border border-border rounded p-2 bg-muted"
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button
+                                    (click)="runRedisCommand()"
+                                    class="btn btn-primary btn-sm"
+                                    [disabled]="!supportsCommands"
                                 >
-                                    <div class="flex items-center justify-between text-xs text-foreground">
-                                        <span class="font-semibold truncate">{{ key.key }}</span>
-                                        <span class="text-muted-foreground">{{ key.type || 'unknown' }}</span>
-                                    </div>
-                                    <div class="mt-1 text-[11px] text-muted-foreground">
-                                        TTL: {{ key.ttl !== null ? key.ttl : 'n/a' }}
-                                    </div>
-                                    <pre
-                                        *ngIf="key.valuePreview"
-                                        class="mt-2 text-[11px] whitespace-pre-wrap text-muted-foreground"
-                                    >{{ key.valuePreview }}</pre>
-                                </div>
-                                <div
-                                    *ngIf="!collectionInfo.sampleKeys || collectionInfo.sampleKeys.length === 0"
-                                    class="text-xs text-muted-foreground"
-                                >
-                                    No keys sampled.
-                                </div>
+                                    Run
+                                </button>
+                                <button (click)="clearRedisCommand()" class="btn btn-ghost btn-sm">Reset</button>
                             </div>
                         </div>
-                    </ng-container>
-                </div>
-            </div>
-
-            <div class="col-span-12 xl:col-span-3 h-full overflow-hidden ui-card flex flex-col">
-                <div class="px-4 py-3 border-b border-border">
-                    <div class="text-xs font-semibold text-muted-foreground">Actions</div>
-                </div>
-                <div class="flex-1 overflow-auto p-4 space-y-4 scrollbar-hidden">
-                    <div *ngIf="!supportsCrud" class="text-xs text-muted-foreground">
-                        Write operations are disabled for this database.
-                    </div>
-                    <div *ngIf="supportsCommands">
-                        <div class="text-xs font-semibold text-foreground">Command</div>
-                        <input
-                            [(ngModel)]="redisCommand"
-                            type="text"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Command"
-                        />
-                        <input
-                            [(ngModel)]="redisCommandArgs"
-                            type="text"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Args"
-                        />
-                        <button (click)="runRedisCommand()" class="btn btn-secondary btn-sm mt-2">
-                            Run command
-                        </button>
+                        <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span *ngIf="actionLoading">Running command...</span>
+                        </div>
                     </div>
 
-                    <div *ngIf="supportsTtl">
-                        <div class="text-xs font-semibold text-foreground">TTL batch update</div>
-                        <input
-                            [(ngModel)]="redisExpirePattern"
-                            type="text"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Pattern"
-                        />
-                        <div class="mt-2 flex items-center gap-2">
+                    <div class="border border-border rounded-lg bg-background px-3 py-2 space-y-3">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button (click)="toggleSetPanel()" class="btn btn-secondary btn-sm uppercase">
+                                <span class="icon-[mdi--plus] w-4 h-4 mr-1"></span>
+                                Add key
+                            </button>
+                            <button (click)="toggleDeletePanel()" class="btn btn-secondary btn-sm uppercase">
+                                <span class="icon-[mdi--trash-can-outline] w-4 h-4 mr-1"></span>
+                                Delete key
+                            </button>
+                            <button
+                                (click)="toggleTtlPanel()"
+                                class="btn btn-secondary btn-sm uppercase"
+                                [disabled]="!supportsTtl"
+                            >
+                                <span class="icon-[mdi--timer-outline] w-4 h-4 mr-1"></span>
+                                TTL batch
+                            </button>
+                        </div>
+                        <div *ngIf="showSetPanel" class="grid grid-cols-1 lg:grid-cols-[1fr,1fr,140px,auto] gap-2">
+                            <input
+                                [(ngModel)]="redisKey"
+                                type="text"
+                                class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                placeholder="Key"
+                            />
+                            <input
+                                [(ngModel)]="redisValue"
+                                type="text"
+                                class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                                placeholder="Value"
+                            />
+                            <input
+                                [(ngModel)]="redisTtl"
+                                type="number"
+                                class="w-full text-xs border border-border rounded bg-background text-foreground p-2"
+                                placeholder="TTL (sec)"
+                            />
+                            <button
+                                (click)="runRedisSet()"
+                                class="btn btn-primary btn-sm"
+                                [disabled]="!supportsCrud"
+                            >
+                                Save
+                            </button>
+                        </div>
+                        <div *ngIf="showDeletePanel" class="flex flex-wrap items-center gap-2">
+                            <input
+                                [(ngModel)]="redisDeleteKey"
+                                type="text"
+                                class="flex-1 min-w-[180px] text-xs border border-border rounded bg-background text-foreground p-2"
+                                placeholder="Key to delete"
+                            />
+                            <button
+                                (click)="runRedisDelete()"
+                                class="btn btn-danger btn-sm"
+                                [disabled]="!supportsCrud"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                        <div *ngIf="showTtlPanel" class="flex flex-wrap items-center gap-2">
+                            <input
+                                [(ngModel)]="redisExpirePattern"
+                                type="text"
+                                class="flex-1 min-w-[180px] text-xs border border-border rounded bg-background text-foreground p-2"
+                                placeholder="Pattern"
+                            />
                             <input
                                 [(ngModel)]="redisExpireTtl"
                                 type="number"
@@ -233,68 +264,208 @@
                                 class="w-28 text-xs border border-border rounded bg-background text-foreground p-2"
                                 placeholder="Limit"
                             />
+                            <button (click)="runRedisExpireMany()" class="btn btn-secondary btn-sm">
+                                Apply TTL
+                            </button>
                         </div>
-                        <button (click)="runRedisExpireMany()" class="btn btn-secondary btn-sm mt-2">
-                            Apply TTL
-                        </button>
                     </div>
 
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Set key</div>
-                        <input
-                            [(ngModel)]="redisKey"
-                            type="text"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Key"
-                        />
-                        <textarea
-                            [(ngModel)]="redisValue"
-                            rows="2"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Value"
-                        ></textarea>
-                        <input
-                            [(ngModel)]="redisTtl"
-                            type="number"
-                            class="mt-2 w-32 text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="TTL (sec)"
-                        />
-                        <button
-                            (click)="runRedisSet()"
-                            class="btn btn-primary btn-sm mt-2"
-                            [disabled]="!supportsCrud"
+                    <div class="border border-border rounded-lg bg-background px-3 py-2 space-y-3">
+                        <div class="text-xs font-semibold text-muted-foreground">Key insights</div>
+                        <div class="flex flex-wrap gap-2">
+                            <span *ngFor="let stat of redisKeyTypeStats" class="badge">
+                                {{ stat.type }}: {{ stat.count }}
+                            </span>
+                            <span *ngIf="redisKeyTypeStats.length === 0" class="text-xs text-muted-foreground">
+                                No key types detected.
+                            </span>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <span *ngFor="let stat of redisKeyPrefixStats" class="badge">
+                                {{ stat.prefix }}: {{ stat.count }}
+                            </span>
+                            <span *ngIf="redisKeyPrefixStats.length === 0" class="text-xs text-muted-foreground">
+                                No key prefixes detected.
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="border border-border rounded-lg bg-background px-3 py-2 space-y-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="text-xs font-semibold text-muted-foreground">Keys</div>
+                            <div class="relative w-full sm:w-64">
+                                <span class="icon-[mdi--magnify] w-3 h-3 absolute left-2 top-2 text-muted-foreground"></span>
+                                <input
+                                    [(ngModel)]="keyFilterText"
+                                    type="text"
+                                    placeholder="Search keys"
+                                    class="w-full pl-7 pr-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                                />
+                            </div>
+                        </div>
+                        <div *ngIf="loadingDetails" class="text-xs text-muted-foreground">
+                            Loading details...
+                        </div>
+                        <div *ngIf="!loadingDetails && !collectionInfo" class="text-xs text-muted-foreground">
+                            Select a key group to view keys.
+                        </div>
+                        <app-virtual-list
+                            *ngIf="collectionInfo"
+                            [items]="filteredSampleKeys"
+                            [trackByFn]="trackByRedisKey"
+                            [loading]="loadingDetails"
+                            loadingText="Loading keys..."
+                            emptyText="No keys matched your filter."
+                            emptyIcon="icon-[mdi--key-outline]"
+                            [itemSize]="redisKeyItemSize"
+                            containerClass="h-[40vh] w-full"
+                            viewportClass="h-full w-full scrollbar-hidden"
                         >
-                            Set
-                        </button>
+                            <ng-template let-key>
+                                <button
+                                    (click)="openEditModal(key)"
+                                    class="w-full text-left border border-border rounded-lg p-3 transition-colors mb-2"
+                                    [ngClass]="{
+                                        'bg-emerald-500/10 border-emerald-200 dark:border-emerald-700/40':
+                                            activeRedisKey?.key === key.key,
+                                        'bg-muted hover:bg-accent': activeRedisKey?.key !== key.key
+                                    }"
+                                >
+                                    <div class="flex items-center justify-between text-xs text-foreground">
+                                        <span class="font-semibold truncate">{{ key.key }}</span>
+                                        <span class="text-muted-foreground">{{ key.type || 'unknown' }}</span>
+                                    </div>
+                                    <div class="mt-1 text-[11px] text-muted-foreground">
+                                        TTL: {{ key.ttl !== null ? key.ttl : 'n/a' }}
+                                    </div>
+                                    <div
+                                        *ngIf="key.valuePreview"
+                                        class="mt-2 max-h-10 overflow-hidden text-[11px] text-muted-foreground font-mono whitespace-pre-wrap"
+                                    >
+                                        {{ key.valuePreview }}
+                                    </div>
+                                </button>
+                            </ng-template>
+                        </app-virtual-list>
+                        <div *ngIf="activeRedisKey" class="ui-card p-3">
+                            <div class="text-xs font-semibold text-muted-foreground">Key details</div>
+                            <div class="mt-2 text-sm font-semibold text-foreground truncate">{{ activeRedisKey.key }}</div>
+                            <div class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                                <span class="badge badge-muted">Type: {{ activeRedisKey.type || 'unknown' }}</span>
+                                <span class="badge badge-muted">TTL: {{ activeRedisKey.ttl !== null ? activeRedisKey.ttl : 'n/a' }}</span>
+                            </div>
+                            <div class="mt-2 text-xs text-muted-foreground">Value preview</div>
+                            <pre class="mt-1 text-xs whitespace-pre-wrap bg-muted border border-border rounded p-3 text-foreground font-mono">{{ activeRedisKey.valuePreview || 'No preview available.' }}</pre>
+                        </div>
                     </div>
 
-                    <div>
-                        <div class="text-xs font-semibold text-foreground">Delete key</div>
-                        <input
-                            [(ngModel)]="redisDeleteKey"
-                            type="text"
-                            class="mt-2 w-full text-xs border border-border rounded bg-background text-foreground p-2"
-                            placeholder="Key"
-                        />
-                        <button
-                            (click)="runRedisDelete()"
-                            class="btn btn-danger btn-sm mt-2"
-                            [disabled]="!supportsCrud"
-                        >
-                            Delete
-                        </button>
-                    </div>
-
-                    <div *ngIf="actionResult">
-                        <div class="text-xs font-semibold text-foreground">Last action result</div>
-                        <pre class="mt-2 text-xs whitespace-pre-wrap bg-muted border border-border rounded p-2 text-foreground">{{ actionResult | json }}</pre>
-                    </div>
                 </div>
+            </section>
+        </div>
+    </div>
+
+    <div
+        *ngIf="showEditModal"
+        class="fixed inset-0 z-[10002] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+        (click)="closeEditModal()"
+        aria-labelledby="redis-edit-title"
+        role="dialog"
+        aria-modal="true"
+    >
+        <div
+            class="relative ui-card w-full max-w-xl max-h-[80vh] flex flex-col overflow-hidden"
+            (click)="$event.stopPropagation()"
+        >
+            <div class="flex items-center justify-between border-b border-border px-6 py-4">
+                <div>
+                    <h3 class="text-lg font-semibold text-foreground" id="redis-edit-title">
+                        Edit Key
+                    </h3>
+                    <p class="text-xs text-muted-foreground">Update the key value and optional TTL.</p>
+                </div>
+                <button type="button" (click)="closeEditModal()" class="btn btn-ghost btn-sm">
+                    <span class="sr-only">Close</span>
+                    <span class="icon-[mdi--close] h-5 w-5"></span>
+                </button>
+            </div>
+
+            <div class="flex-1 min-h-0 overflow-auto scrollbar-hidden px-6 py-4 space-y-4">
+                <div *ngIf="editError" class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-destructive text-xs">
+                    {{ editError }}
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-xs font-semibold text-muted-foreground">Key</label>
+                    <input
+                        [value]="editKeyName"
+                        disabled
+                        class="w-full text-xs border border-border rounded bg-muted text-foreground p-2"
+                    />
+                </div>
+
+                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span class="badge badge-muted">Type: {{ editKeyType || 'unknown' }}</span>
+                    <span *ngIf="editLoading">Loading value...</span>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-xs font-semibold text-muted-foreground">Value</label>
+                    <textarea
+                        [(ngModel)]="editValue"
+                        rows="6"
+                        class="w-full text-xs border border-border rounded bg-background text-foreground p-2 font-mono"
+                        placeholder="Enter value"
+                        [disabled]="editLoading"
+                    ></textarea>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-xs font-semibold text-muted-foreground">TTL (seconds)</label>
+                    <input
+                        [(ngModel)]="editTtl"
+                        type="number"
+                        class="w-40 text-xs border border-border rounded bg-background text-foreground p-2"
+                        placeholder="Optional"
+                        [disabled]="editLoading"
+                    />
+                </div>
+
+                <div class="text-xs text-muted-foreground">
+                    Editing is supported for string keys. Use the command bar for list/set/hash types.
+                </div>
+            </div>
+
+            <div class="border-t border-border px-6 py-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button type="button" (click)="closeEditModal()" class="btn btn-secondary w-full sm:w-auto">
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    (click)="saveEditModal()"
+                    class="btn btn-primary w-full sm:w-auto"
+                    [disabled]="editLoading"
+                >
+                    Save
+                </button>
             </div>
         </div>
     </div>
+
+    <div class="border-t border-border px-4 py-2 flex flex-wrap items-center justify-between text-xs text-muted-foreground">
+        <div class="flex flex-wrap items-center gap-3">
+            <span class="badge badge-muted">
+                {{ selectedDatabase ? 'Connected' : 'No keyspace selected' }}
+            </span>
+            <span *ngIf="selectedDatabase">Keyspace: {{ selectedDatabase }}</span>
+            <span *ngIf="selectedCollection">Group: {{ selectedCollection }}</span>
+        </div>
+        <button
+            (click)="refreshDatabases()"
+            [disabled]="loadingDatabases"
+            class="btn btn-secondary btn-sm"
+        >
+            <span class="icon-[mdi--refresh] w-3 h-3 mr-1" [class.animate-spin]="loadingDatabases"></span>
+            Refresh
+        </button>
+    </div>
 </div>
-
-
-
-

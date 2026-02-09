@@ -1,6 +1,7 @@
 const { RAGService, QueryOrchestrator, storageManager } = require("../rag");
 const { HEADERS, HEADER_VARIANTS, HTTP_STATUS } = require("../core/constants");
 const { getHeaderValue } = require("../utils/http");
+const { compactTaskSteps } = require("../utils/compactTaskSteps");
 
 const BaseController = require("./base/BaseController");
 
@@ -115,6 +116,7 @@ class RAGController extends BaseController {
   async query(req, res) {
     try {
       const { databaseName: bodyDbName, prompt, model, apiKey } = req.body;
+      const responseMode = req.body?.responseMode === "compact" ? "compact" : "full";
       const dbType = this._getDbType(req);
       const connectionId = this._getConnectionId(req);
 
@@ -157,6 +159,10 @@ class RAGController extends BaseController {
         apiKey,
         options,
       });
+
+      if (responseMode === "compact") {
+        result.taskSteps = compactTaskSteps(result.taskSteps);
+      }
 
       return this.sendSuccess(res, result);
     } catch (error) {

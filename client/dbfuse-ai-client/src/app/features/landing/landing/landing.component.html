@@ -4,53 +4,47 @@
     <div class="flex-1 min-h-0 overflow-hidden">
         <div class="h-full min-h-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col gap-4">
         <section class="ui-card p-5 shrink-0">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div class="space-y-2">
-                    <span class="ui-chip">Connections</span>
-                    <h1 class="text-2xl font-semibold text-foreground">Database Connections</h1>
-                    <p class="text-sm text-muted-foreground">
-                        Manage and launch saved connections before exploring your data.
-                    </p>
-                    <div class="flex flex-wrap gap-2">
-                        <button
-                            (click)="openAddModal()"
-                            class="btn btn-primary gap-2"
-                        >
-                            <svg
-                                class="w-4 h-4 mr-2"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                                ></path>
-                            </svg>
-                            New Connection
-                        </button>
-                        <button
-                            (click)="resetConnectionStore()"
-                            [disabled]="loading || isResettingStore"
-                            class="btn btn-secondary"
-                        >
-                            Reset Saved Connections
-                        </button>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+                        <span>Total Connections: </span>
+                        <span class="text-sm font-semibold text-foreground">{{ connections.length }}</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+                        <span>Status: </span>
+                        <span class="text-sm text-foreground">
+                            {{ loading ? 'Syncing' : error ? 'Needs attention' : 'Ready' }}
+                        </span>
                     </div>
                 </div>
-                <div class="flex flex-wrap gap-3">
-                    <div class="rounded-md border border-border bg-card px-3 py-2">
-                        <p class="text-xs text-muted-foreground">Total</p>
-                        <p class="text-lg font-semibold text-foreground">{{ connections.length }}</p>
-                    </div>
-                    <div class="rounded-md border border-border bg-card px-3 py-2">
-                        <p class="text-xs text-muted-foreground">Status</p>
-                        <p class="text-sm text-foreground">
-                            {{ loading ? 'Syncing' : error ? 'Needs attention' : 'Ready' }}
-                        </p>
-                    </div>
+                <div class="flex items-center flex-nowrap gap-2">
+                    <button
+                        (click)="openAddModal()"
+                        class="btn btn-primary gap-2"
+                    >
+                        <svg
+                            class="w-4 h-4 mr-2"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                            ></path>
+                        </svg>
+                        New Connection
+                    </button>
+                    <button
+                        (click)="resetConnectionStore()"
+                        [disabled]="loading || isResettingStore"
+                        class="btn btn-secondary"
+                    >
+                        Reset Saved Connections
+                    </button>
+                    
                 </div>
             </div>
         </section>
@@ -159,15 +153,6 @@
             *ngIf="connections.length > 0"
             class="ui-card p-4 flex flex-col min-h-0"
         >
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
-                <div>
-                    <h2 class="text-lg font-semibold text-foreground">Saved Connections</h2>
-                    <p class="text-sm text-muted-foreground">
-                        Select a connection to enter the workspace.
-                    </p>
-                </div>
-                <span class="ui-chip">{{ connections.length }} total</span>
-            </div>
             <div class="flex-1 min-h-0 overflow-auto scrollbar-hidden">
                 <app-connection-list
                     [connections]="connections"

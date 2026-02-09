@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const { connectionManager } = require("../config");
 const llmService = require("../services/LLMService");
 const QueryGenerationService = require("../services/QueryGenerationService");
+const { getDbTypeEntry, getDbTypeCategory } = require("../core/dbTypeRegistry");
 const logger = require("../utils/logger");
 const QueryAnalyzer = require("../rag/orchestrator/QueryAnalyzer");
 const QueryOrchestrator = require("../rag/orchestrator/QueryOrchestrator");
@@ -32,6 +33,7 @@ const CHAT_SAMPLE_MAX_TABLES = Number(process.env.CHAT_SAMPLE_MAX_TABLES) || 3;
 const CHAT_SAMPLE_CACHE_TTL_MS = Number(process.env.CHAT_SAMPLE_CACHE_TTL_MS) || 120000;
 const CHAT_FOLLOWUP_ENABLED = process.env.CHAT_FOLLOWUP_ENABLED !== "false";
 const CHAT_FOLLOWUP_MAX = Number(process.env.CHAT_FOLLOWUP_MAX) || 3;
+const CHAT_STEP_EMIT_INTERVAL_MS = Number(process.env.CHAT_STEP_EMIT_INTERVAL_MS) || 150;
 
 const DEFAULT_STEP_DEFS = [
   { id: "plan", label: "Plan request" },
@@ -141,6 +143,11 @@ class ChatService {
     if (!prompt) throw new Error("prompt is required");
 
     const normalizedDbType = String(dbType).toLowerCase();
+    const compact = options.compact === true;
+    const includeEntities = options.includeEntities !== false;
+    const entityPreviewLimit = Number.isFinite(Number(options.entityPreviewLimit))
+      ? Number(options.entityPreviewLimit)
+      : 20;
     // CRITICAL FIX: Include prompt hash in cache key so different queries don't return same cached result
     const promptHash = prompt.toLowerCase().replace(/\s+/g, "_").substring(0, 50);
     const cacheKey = `${connectionId}:${dbName}:${normalizedDbType}:${promptHash}`;
@@ -157,7 +164,12 @@ class ChatService {
           cachedIntent: cached.queryIntent,
           cachedTopEntity: cached.relevantEntities?.[0]?.name,
         });
-        return { ...cached, fromCache: true };
+        const finalContext = this._compactEnrichedContext(cached, {
+          compact,
+          includeEntities,
+          entityPreviewLimit,
+        });
+        return { ...finalContext, fromCache: true };
       }
     }
 
@@ -262,7 +274,11 @@ class ChatService {
       });
 
       this._setCachedContext(cacheKey, enrichedContext);
-      return enrichedContext;
+      return this._compactEnrichedContext(enrichedContext, {
+        compact,
+        includeEntities,
+        entityPreviewLimit,
+      });
     }
 
     // Phase 2: Fetch available entities
@@ -509,7 +525,11 @@ class ChatService {
       })),
     });
 
-    return enrichedContext;
+    return this._compactEnrichedContext(enrichedContext, {
+      compact,
+      includeEntities,
+      entityPreviewLimit,
+    });
   }
 
   _getCachedContext(cacheKey) {
@@ -922,9 +942,10 @@ class ChatService {
 
     llmService.initialize(model, apiKey);
 
+    const emitSteps = this._createStepEmitter(onStep);
     const tracker = new ChatStepTracker((steps) => {
-      if (typeof onStep === "function") {
-        onStep(this._sanitizeSteps(steps));
+      if (emitSteps) {
+        emitSteps(steps);
       }
     });
 
@@ -1792,17 +1813,21 @@ class ChatService {
     timeoutMs,
   } = {}) {
     const normalized = String(dbType || "").toLowerCase();
-    const dbCategory = this.sqlDbTypes.has(normalized)
-      ? "SQL"
-      : this.noSqlDbTypes.has(normalized)
-        ? "NoSQL"
-        : this.cacheDbTypes.has(normalized)
-          ? "Cache"
-          : "Unknown";
+    const dbCategory = getDbTypeCategory(normalized);
+    const categoryLabel =
+      dbCategory === "sql"
+        ? "SQL"
+        : dbCategory === "nosql"
+          ? "NoSQL"
+          : dbCategory === "cache"
+            ? "Cache"
+            : "Unknown";
+    const entry = getDbTypeEntry(normalized);
+    const planHints = entry?.planHints?.length ? entry.planHints.join(" ") : "";
 
     const system = [
       "You are a planner for a database assistant supporting SQL, NoSQL, and Cache databases.",
-      `Current database type: ${dbType} (${dbCategory}).`,
+      `Current database type: ${dbType} (${categoryLabel}).`,
       enrichedContext
         ? `Query intent: ${enrichedContext.queryIntent}, Complexity: ${enrichedContext.complexity}, Strategy: ${enrichedContext.selectedStrategy}.`
         : "",
@@ -1812,13 +1837,7 @@ class ChatService {
       enrichedContext?.availableEntities?.length
         ? `Available entities: ${enrichedContext.availableEntities.slice(0, 5).join(", ")}${enrichedContext.availableEntities.length > 5 ? "..." : ""}.`
         : "",
-      "",
-      "Database-specific operations:",
-      "- SQL: SELECT, JOIN, GROUP BY, aggregate functions, views, procedures",
-      "- MongoDB: find(), aggregate(), $match, $group, $lookup pipelines",
-      "- Redis: GET, SET, SCAN, keys with patterns, TTL operations",
-      "- Cassandra/DynamoDB: partition key queries, range queries, GSI/LSI",
-      "- Firestore/CosmosDB: collection queries, document filters, subcollections",
+      planHints ? `Database-specific guidance: ${planHints}` : "",
       "",
       "Return STRICT JSON with fields:",
       "{",
@@ -1851,7 +1870,7 @@ class ChatService {
     const payload = {
       prompt,
       dbType: normalized,
-      dbCategory,
+      dbCategory: categoryLabel,
       dbName,
       clarification: clarificationContext?.answer || null,
       context: enrichedContext
@@ -2071,11 +2090,27 @@ class ChatService {
       return null;
     }
     const text = String(prompt).toLowerCase();
+    const normalizedText = text
+      .replace(/[^a-z0-9]+/gi, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+    const compactText = normalizedText.replace(/\s+/g, "");
     for (const name of tableNames) {
       if (!name) continue;
       const table = String(name).toLowerCase();
       const pattern = new RegExp(`\\b${table}\\b`, "i");
       if (pattern.test(text)) {
+        return name;
+      }
+      const normalizedTable = table
+        .replace(/[^a-z0-9]+/gi, " ")
+        .trim()
+        .replace(/\s+/g, " ");
+      if (normalizedTable && normalizedText.includes(normalizedTable)) {
+        return name;
+      }
+      const compactTable = normalizedTable.replace(/\s+/g, "");
+      if (compactTable && compactText.includes(compactTable)) {
         return name;
       }
     }
@@ -3463,6 +3498,66 @@ class ChatService {
         label: this._formatStepLabel(step),
         note: this._sanitizeStepNote(step.note),
       }));
+  }
+
+  _compactEnrichedContext(enrichedContext, { compact, includeEntities, entityPreviewLimit } = {}) {
+    if (!enrichedContext || typeof enrichedContext !== "object") {
+      return enrichedContext;
+    }
+    const availableEntities = Array.isArray(enrichedContext.availableEntities)
+      ? enrichedContext.availableEntities
+      : [];
+    const previewLimit = Number.isFinite(Number(entityPreviewLimit))
+      ? Math.max(0, Number(entityPreviewLimit))
+      : 20;
+    const availableEntitiesPreview =
+      previewLimit > 0 ? availableEntities.slice(0, previewLimit) : [];
+
+    const result = {
+      ...enrichedContext,
+      availableEntitiesCount: availableEntities.length,
+      availableEntitiesPreview,
+    };
+
+    if (compact || !includeEntities) {
+      delete result.availableEntities;
+    }
+
+    return result;
+  }
+
+  _createStepEmitter(onStep) {
+    if (typeof onStep !== "function") {
+      return null;
+    }
+    let lastEmit = 0;
+    let timer = null;
+    let pending = null;
+
+    const emit = (steps) => {
+      pending = steps;
+      const now = Date.now();
+      const elapsed = now - lastEmit;
+      if (elapsed >= CHAT_STEP_EMIT_INTERVAL_MS && !timer) {
+        lastEmit = now;
+        onStep(this._sanitizeSteps(pending));
+        pending = null;
+        return;
+      }
+      if (!timer) {
+        const wait = Math.max(0, CHAT_STEP_EMIT_INTERVAL_MS - elapsed);
+        timer = setTimeout(() => {
+          lastEmit = Date.now();
+          if (pending) {
+            onStep(this._sanitizeSteps(pending));
+          }
+          pending = null;
+          timer = null;
+        }, wait);
+      }
+    };
+
+    return emit;
   }
 
   _safeRowToString(row) {

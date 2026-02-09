@@ -92,6 +92,20 @@ const initializeChatGateway = (server) => {
     const dbName = getFirst(query?.dbName);
     const sessionId = getFirst(query?.sessionId);
     const authToken = getFirst(query?.auth);
+    const compactRaw = getFirst(query?.compact);
+    const entityPreviewLimitRaw = getFirst(query?.entityPreviewLimit);
+    const includeEntitiesRaw = getFirst(query?.includeEntities);
+    const compact =
+      String(compactRaw || "").toLowerCase() === "1" ||
+      String(compactRaw || "").toLowerCase() === "true";
+    const includeEntities =
+      includeEntitiesRaw === undefined || includeEntitiesRaw === null
+        ? undefined
+        : String(includeEntitiesRaw).toLowerCase() === "1" ||
+          String(includeEntitiesRaw).toLowerCase() === "true";
+    const entityPreviewLimit = Number.isFinite(Number(entityPreviewLimitRaw))
+      ? Number(entityPreviewLimitRaw)
+      : undefined;
     const clientInfo = {
       remoteAddress: request?.socket?.remoteAddress,
       userAgent: request?.headers?.["user-agent"],
@@ -273,6 +287,11 @@ const initializeChatGateway = (server) => {
             dbType,
             dbName: session.dbName || dbName,
             prompt: effectivePrompt,
+            options: {
+              compact,
+              includeEntities,
+              entityPreviewLimit,
+            },
           });
 
           sendEnvelope(socket, {

@@ -24,11 +24,13 @@ class RedisStrategy extends CacheStrategy {
     }
 
     const url = this._buildRedisUrl(config);
-    this.client = createClient({ url });
+    const socket = this._buildRedisSocketOptions(config);
+    this.client = createClient({ url, socket });
     this.client.on("error", (err) => logger.error("Redis client error:", err));
     await this.client.connect();
     this.connectionConfig = config;
-    this.currentDatabase = Number.isFinite(Number(config.database)) ? Number(config.database) : 0;
+    const parsedDb = this._parseDbIndex(config?.database);
+    this.currentDatabase = Number.isFinite(parsedDb) ? parsedDb : 0;
     logger.info("Redis connection established");
   }
 
@@ -40,7 +42,14 @@ class RedisStrategy extends CacheStrategy {
   }
 
   async validateConnection() {
-    return Boolean(this.client && this.client.isOpen);
+    if (!this.client) return false;
+    try {
+      await this.client.ping();
+      return true;
+    } catch (err) {
+      logger.error("Redis connection validation failed:", err);
+      return false;
+    }
   }
 
   async switchDatabase(dbName) {
@@ -78,6 +87,27 @@ class RedisStrategy extends CacheStrategy {
 
   async getDatabases() {
     if (!this.client) throw new Error("Redis connection not initialized");
+    let keyspaceInfo = "";
+    try {
+      keyspaceInfo = await this.client.info("keyspace");
+    } catch (error) {
+      logger.debug("Redis INFO keyspace failed:", error?.message || error);
+      keyspaceInfo = "";
+    }
+
+    const keyspaces = this._parseKeyspaceInfo(keyspaceInfo);
+    if (keyspaces.length > 0) {
+      return keyspaces.map((entry) => ({
+        name: entry.name,
+        sizeOnDisk: 0,
+        tables: [],
+        views: [],
+        keyCount: entry.keys,
+        expires: entry.expires,
+        avgTtl: entry.avgTtl,
+      }));
+    }
+
     const dbName = `db${this.currentDatabase || 0}`;
     return [
       {
@@ -99,6 +129,13 @@ class RedisStrategy extends CacheStrategy {
     return Array.from(groups);
   }
 
+  async getCollections(dbName) {
+    if (dbName && typeof this.switchDatabase === "function") {
+      await this.switchDatabase(dbName);
+    }
+    return this.getTables();
+  }
+
   async getTableInfo(dbName, tableName) {
     if (!this.client) throw new Error("Redis connection not initialized");
     const prefix = tableName || "default";
@@ -115,6 +152,9 @@ class RedisStrategy extends CacheStrategy {
       try {
         dataType = await this.client.type(key);
         ttl = await this.client.ttl(key);
+        if (ttl === -2) {
+          continue;
+        }
         valuePreview = await this._getValuePreview(key, dataType);
       } catch {
         // ignore
@@ -141,6 +181,10 @@ class RedisStrategy extends CacheStrategy {
       triggers: [],
       sampleKeys,
     };
+  }
+
+  async getCollectionInfo(dbName, collectionName) {
+    return this.getTableInfo(dbName, collectionName);
   }
 
   async getMultipleTablesInfo(dbName, tableNames) {
@@ -487,7 +531,14 @@ class RedisStrategy extends CacheStrategy {
 
   _buildRedisUrl(config = {}) {
     if (config.url) return config.url;
-    const host = config.host || "localhost";
+    const useTls =
+      config.protocol === "rediss" ||
+      config.protocol === "redis+tls" ||
+      config.ssl === true ||
+      config.tls === true ||
+      (typeof config.ssl === "object" && config.ssl !== null);
+    const protocol = useTls ? "rediss" : "redis";
+    const host = this.normalizeHost(config.host || "localhost");
     const port = config.port || 6379;
     const auth =
       config.username && config.password
@@ -495,8 +546,86 @@ class RedisStrategy extends CacheStrategy {
         : config.password
           ? `:${encodeURIComponent(config.password)}@`
           : "";
-    const dbIndex = Number.isFinite(Number(config.database)) ? `/${config.database}` : "";
-    return `redis://${auth}${host}:${port}${dbIndex}`;
+    const rawDb = config.database;
+    const numericDb = this._parseDbIndex(rawDb);
+    const dbIndex = Number.isFinite(numericDb) ? `/${numericDb}` : "";
+    return `${protocol}://${auth}${host}:${port}${dbIndex}`;
+  }
+
+  _buildRedisSocketOptions(config = {}) {
+    const socket = {};
+    const connectTimeout = Number(config.connectionTimeout);
+    if (Number.isFinite(connectTimeout) && connectTimeout > 0) {
+      socket.connectTimeout = connectTimeout;
+    }
+
+    const tlsOptions = this._resolveTlsOptions(config);
+    if (tlsOptions) {
+      socket.tls = true;
+      Object.assign(socket, tlsOptions);
+    }
+
+    return socket;
+  }
+
+  _resolveTlsOptions(config = {}) {
+    if (typeof config.ssl === "object" && config.ssl !== null) {
+      return config.ssl;
+    }
+    if (typeof config.tls === "object" && config.tls !== null) {
+      return config.tls;
+    }
+    if (
+      config.protocol === "rediss" ||
+      config.protocol === "redis+tls" ||
+      config.ssl === true ||
+      config.tls === true
+    ) {
+      return {};
+    }
+    return null;
+  }
+
+  _parseDbIndex(value) {
+    if (value === undefined || value === null) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const numericRaw = raw.startsWith("db") ? raw.slice(2) : raw;
+    const numeric = Number(numericRaw);
+    if (!Number.isFinite(numeric) || numeric < 0) return null;
+    return numeric;
+  }
+
+  _normalizeKeyGroup(key) {
+    if (!key) return "default";
+    const raw = String(key);
+    return raw.includes(":") ? raw.split(":")[0] : "default";
+  }
+
+  _parseKeyspaceInfo(info) {
+    const lines = String(info || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const entries = [];
+    for (const line of lines) {
+      if (!line.startsWith("db")) continue;
+      const [name, stats] = line.split(":", 2);
+      if (!name || !stats) continue;
+      const payload = {};
+      for (const part of stats.split(",")) {
+        const [key, value] = part.split("=");
+        if (!key) continue;
+        payload[key.trim()] = value;
+      }
+      entries.push({
+        name,
+        keys: Number(payload.keys) || 0,
+        expires: Number(payload.expires) || 0,
+        avgTtl: Number(payload.avg_ttl) || 0,
+      });
+    }
+    return entries.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async _getValuePreview(key, type) {

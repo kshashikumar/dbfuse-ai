@@ -26,7 +26,7 @@ export class VirtualListComponent<T = unknown> {
         return Array.isArray(this.items) && this.items.length > 0;
     }
 
-    trackBy(index: number, item: T): any {
+    readonly trackBy = (index: number, item: T): any => {
         return this.trackByFn ? this.trackByFn(index, item) : index;
-    }
+    };
 }

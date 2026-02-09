@@ -421,10 +421,13 @@ class DatabaseService {
     const startTime = Date.now();
     const dbType = this._resolveDbType(connectionId);
     try {
-      const cached = this.metadataCache.get(connectionId, "getDatabases", {});
-      if (cached) {
-        this._updateMetrics(true, 0, true, dbType);
-        return { ...cached, cached: true };
+      const useCache = dbType !== "redis";
+      if (useCache) {
+        const cached = this.metadataCache.get(connectionId, "getDatabases", {});
+        if (cached) {
+          this._updateMetrics(true, 0, true, dbType);
+          return { ...cached, cached: true };
+        }
       }
 
       const strategy = connectionManager.getConnection(connectionId);
@@ -438,7 +441,9 @@ class DatabaseService {
         retrievedAt: new Date().toISOString(),
         executionTime,
       };
-      this.metadataCache.set(connectionId, "getDatabases", {}, result);
+      if (useCache) {
+        this.metadataCache.set(connectionId, "getDatabases", {}, result);
+      }
 
       return {
         ...result,
@@ -465,10 +470,13 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
 
-      const cached = this.metadataCache.get(connectionId, "getTables", { dbName: currentDb });
-      if (cached) {
-        this._updateMetrics(true, 0, true, dbType);
-        return { ...cached, cached: true };
+      const useCache = dbType !== "redis";
+      if (useCache) {
+        const cached = this.metadataCache.get(connectionId, "getTables", { dbName: currentDb });
+        if (cached) {
+          this._updateMetrics(true, 0, true, dbType);
+          return { ...cached, cached: true };
+        }
       }
 
       if (currentDb && strategy.switchDatabase) {
@@ -486,7 +494,9 @@ class DatabaseService {
         retrievedAt: new Date().toISOString(),
         executionTime,
       };
-      this.metadataCache.set(connectionId, "getTables", { dbName: currentDb }, result);
+      if (useCache) {
+        this.metadataCache.set(connectionId, "getTables", { dbName: currentDb }, result);
+      }
 
       return {
         ...result,
@@ -513,10 +523,15 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
 
-      const cached = this.metadataCache.get(connectionId, "getCollections", { dbName: currentDb });
-      if (cached) {
-        this._updateMetrics(true, 0, true, dbType);
-        return { ...cached, cached: true };
+      const useCache = dbType !== "redis";
+      if (useCache) {
+        const cached = this.metadataCache.get(connectionId, "getCollections", {
+          dbName: currentDb,
+        });
+        if (cached) {
+          this._updateMetrics(true, 0, true, dbType);
+          return { ...cached, cached: true };
+        }
       }
 
       if (currentDb && strategy.switchDatabase) {
@@ -534,7 +549,9 @@ class DatabaseService {
         retrievedAt: new Date().toISOString(),
         executionTime,
       };
-      this.metadataCache.set(connectionId, "getCollections", { dbName: currentDb }, result);
+      if (useCache) {
+        this.metadataCache.set(connectionId, "getCollections", { dbName: currentDb }, result);
+      }
 
       return {
         ...result,
@@ -562,13 +579,16 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
 
-      const cached = this.metadataCache.get(connectionId, "getCollectionInfo", {
-        dbName: currentDb,
-        collection,
-      });
-      if (cached) {
-        this._updateMetrics(true, 0, true, dbType);
-        return { ...cached, cached: true };
+      const useCache = dbType !== "redis";
+      if (useCache) {
+        const cached = this.metadataCache.get(connectionId, "getCollectionInfo", {
+          dbName: currentDb,
+          collection,
+        });
+        if (cached) {
+          this._updateMetrics(true, 0, true, dbType);
+          return { ...cached, cached: true };
+        }
       }
 
       if (currentDb && strategy.switchDatabase) {
@@ -588,12 +608,14 @@ class DatabaseService {
         retrievedAt: new Date().toISOString(),
         executionTime,
       };
-      this.metadataCache.set(
-        connectionId,
-        "getCollectionInfo",
-        { dbName: currentDb, collection },
-        result,
-      );
+      if (useCache) {
+        this.metadataCache.set(
+          connectionId,
+          "getCollectionInfo",
+          { dbName: currentDb, collection },
+          result,
+        );
+      }
 
       return {
         ...result,
@@ -616,12 +638,15 @@ class DatabaseService {
     const dbType = this._resolveDbType(connectionId);
     try {
       const safePattern = pattern || "*";
-      const cached = this.metadataCache.get(connectionId, "getKeyPatterns", {
-        pattern: safePattern,
-      });
-      if (cached) {
-        this._updateMetrics(true, 0, true, dbType);
-        return { ...cached, cached: true };
+      const useCache = dbType !== "redis";
+      if (useCache) {
+        const cached = this.metadataCache.get(connectionId, "getKeyPatterns", {
+          pattern: safePattern,
+        });
+        if (cached) {
+          this._updateMetrics(true, 0, true, dbType);
+          return { ...cached, cached: true };
+        }
       }
 
       const strategy = connectionManager.getConnection(connectionId);
@@ -637,7 +662,9 @@ class DatabaseService {
         retrievedAt: new Date().toISOString(),
         executionTime,
       };
-      this.metadataCache.set(connectionId, "getKeyPatterns", { pattern: safePattern }, result);
+      if (useCache) {
+        this.metadataCache.set(connectionId, "getKeyPatterns", { pattern: safePattern }, result);
+      }
 
       return {
         ...result,
@@ -665,13 +692,16 @@ class DatabaseService {
       const info = connectionManager.getConnectionInfo(connectionId);
       const currentDb = this._resolveDbName(dbName, info);
 
-      const cached = this.metadataCache.get(connectionId, "getTableInfo", {
-        dbName: currentDb,
-        table,
-      });
-      if (cached) {
-        this._updateMetrics(true, 0, true, dbType);
-        return { ...cached, cached: true };
+      const useCache = dbType !== "redis";
+      if (useCache) {
+        const cached = this.metadataCache.get(connectionId, "getTableInfo", {
+          dbName: currentDb,
+          table,
+        });
+        if (cached) {
+          this._updateMetrics(true, 0, true, dbType);
+          return { ...cached, cached: true };
+        }
       }
 
       if (currentDb && strategy.switchDatabase) {
@@ -692,7 +722,9 @@ class DatabaseService {
         executionTime,
       };
 
-      this.metadataCache.set(connectionId, "getTableInfo", { dbName: currentDb, table }, result);
+      if (useCache) {
+        this.metadataCache.set(connectionId, "getTableInfo", { dbName: currentDb, table }, result);
+      }
 
       return { ...result, cached: false };
     } catch (error) {
