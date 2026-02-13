@@ -93,7 +93,6 @@ app.get("*", (req, res, next) => {
 app.use(authMiddleware.authentication);
 
 app.use(ROUTE_PATHS.AUTH, authRouter);
-app.use(ROUTE_PATHS.SQL, dbRouter);
 app.use(ROUTE_PATHS.DB, dbRouter);
 app.use(ROUTE_PATHS.CONNECTIONS, connectionRouter);
 app.use(ROUTE_PATHS.RAG, ragRouter);

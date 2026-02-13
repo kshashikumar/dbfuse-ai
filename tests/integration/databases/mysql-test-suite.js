@@ -18,17 +18,17 @@ class MySQLTester extends BaseTester {
   }
 
   async runTests() {
-    this.log("��� MySQL Strategy Test Suite", "info");
-    this.log("═".repeat(60), "info");
+    this.log("[TEST] MySQL Strategy Test Suite", "info");
+    this.log("=".repeat(60), "info");
     this.log(`Server: ${this.baseURL}`, "info");
     this.log(`Config: ${this.config.username}@${this.config.host}:${this.config.port}`, "info");
-    this.log("═".repeat(60), "info");
+    this.log("=".repeat(60), "info");
 
     await this.testConnection();
     await this.testListDatabases();
 
     await this.test("Switch Database", async () => {
-      const result = await this.request("POST", "/api/sql/switch-database", {
+      const result = await this.request("POST", "/api/db/switch-database", {
         dbName: "information_schema",
       });
       if (!result.success) throw new Error("Switch failed");
@@ -46,7 +46,7 @@ class MySQLTester extends BaseTester {
 if (require.main === module) {
   const tester = new MySQLTester();
   tester.runTests().catch((error) => {
-    console.error("❌ Test failed:", error);
+    console.error("Test failed:", error);
     process.exit(1);
   });
 }

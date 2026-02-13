@@ -5,11 +5,7 @@ const router = express.Router();
 const { connectionManager } = require("../config");
 const { getCapabilityModel } = require("../config/create-strategy");
 const DatabaseService = require("../services/DatabaseService");
-const {
-  buildEnvelope,
-  isUnifiedEnvelopeEnabled,
-  wrapLegacyEnvelope,
-} = require("../utils/responseEnvelope");
+const { buildEnvelope } = require("../utils/responseEnvelope");
 
 /**
  * POST /api/query/range
@@ -94,10 +90,6 @@ router.post("/range", async (req, res) => {
       data: result,
     };
 
-    if (!isUnifiedEnvelopeEnabled()) {
-      return res.json(payload);
-    }
-
     let capabilities = { type: "unknown", operations: [], features: [], limits: {} };
     try {
       const strategy = connectionManager.getConnection(connectionId);
@@ -119,7 +111,7 @@ router.post("/range", async (req, res) => {
       meta: { operation: "queryRange", capabilities },
     });
 
-    return res.json(wrapLegacyEnvelope(payload, envelope));
+    return res.json({ envelope });
   } catch (error) {
     console.error("Query range error:", error);
 

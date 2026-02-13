@@ -54,8 +54,6 @@ const ROUTE_PATHS = Object.freeze({
   AUTH_LOGIN: `${API_BASE}/auth/login`,
   AUTH_LOGOUT: `${API_BASE}/auth/logout`,
   AUTH_STATUS: `${API_BASE}/auth/isAuthenticated`,
-  SQL: `${API_BASE}/sql`,
-  SQL_HEALTH: `${API_BASE}/sql/health`,
   DB: `${API_BASE}/db`,
   CONNECTIONS: `${API_BASE}/connections`,
   CONFIG: `${API_BASE}/config`,

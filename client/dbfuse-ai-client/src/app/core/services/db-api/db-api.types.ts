@@ -27,15 +27,13 @@ export type DbEnvelope<T> = {
     contract: string;
     version: string;
     kind: DbEnvelopeKind;
-    legacyCompat: boolean;
-    versionNotes?: string;
     request?: DbEnvelopeRequest;
     meta?: DbEnvelopeMeta;
     data: T;
 };
 
-export type DbEnvelopeResponse<T> = T & {
-    envelope?: DbEnvelope<T>;
+export type DbEnvelopeResponse<T> = {
+    envelope: DbEnvelope<T>;
 };
 
 export type DbPagination = {

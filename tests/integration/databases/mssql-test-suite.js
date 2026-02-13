@@ -19,17 +19,17 @@ class MSSQLTester extends BaseTester {
   }
 
   async runTests() {
-    this.log("🧪 MSSQL Strategy Test Suite", "info");
-    this.log("═".repeat(60), "info");
+    this.log("[TEST] MSSQL Strategy Test Suite", "info");
+    this.log("=".repeat(60), "info");
     this.log(`Server: ${this.baseURL}`, "info");
     this.log(`Config: ${this.config.username}@${this.config.host}:${this.config.port}`, "info");
-    this.log("═".repeat(60), "info");
+    this.log("=".repeat(60), "info");
 
     await this.testConnection();
     await this.testListDatabases();
 
     await this.test("Switch Database", async () => {
-      const result = await this.request("POST", "/api/sql/switch-database", { dbName: "master" });
+      const result = await this.request("POST", "/api/db/switch-database", { dbName: "master" });
       if (!result.success) throw new Error("Switch failed");
       this.log("Switched to master", "success");
     });
@@ -45,7 +45,7 @@ class MSSQLTester extends BaseTester {
 if (require.main === module) {
   const tester = new MSSQLTester();
   tester.runTests().catch((error) => {
-    console.error("❌ Test failed:", error);
+    console.error("Test failed:", error);
     process.exit(1);
   });
 }

@@ -19,17 +19,17 @@ class OracleTester extends BaseTester {
   }
 
   async runTests() {
-    this.log("🧪 Oracle Strategy Test Suite", "info");
-    this.log("═".repeat(60), "info");
+    this.log("[TEST] Oracle Strategy Test Suite", "info");
+    this.log("=".repeat(60), "info");
     this.log(`Server: ${this.baseURL}`, "info");
     this.log(`Config: ${this.config.username}@${this.config.host}:${this.config.port}`, "info");
-    this.log("═".repeat(60), "info");
+    this.log("=".repeat(60), "info");
 
     await this.testConnection();
     await this.testListDatabases();
 
     await this.test("Switch Schema", async () => {
-      const result = await this.request("POST", "/api/sql/switch-database", { dbName: "SYSTEM" });
+      const result = await this.request("POST", "/api/db/switch-database", { dbName: "SYSTEM" });
       if (!result.success) throw new Error("Switch failed");
       this.log("Switched to SYSTEM schema", "success");
     });
@@ -45,7 +45,7 @@ class OracleTester extends BaseTester {
 if (require.main === module) {
   const tester = new OracleTester();
   tester.runTests().catch((error) => {
-    console.error("❌ Test failed:", error);
+    console.error("Test failed:", error);
     process.exit(1);
   });
 }

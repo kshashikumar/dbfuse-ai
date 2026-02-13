@@ -19,17 +19,17 @@ class PostgreSQLTester extends BaseTester {
   }
 
   async runTests() {
-    this.log("��� PostgreSQL Strategy Test Suite", "info");
-    this.log("═".repeat(60), "info");
+    this.log("[TEST] PostgreSQL Strategy Test Suite", "info");
+    this.log("=".repeat(60), "info");
     this.log(`Server: ${this.baseURL}`, "info");
     this.log(`Config: ${this.config.username}@${this.config.host}:${this.config.port}`, "info");
-    this.log("═".repeat(60), "info");
+    this.log("=".repeat(60), "info");
 
     await this.testConnection();
     await this.testListDatabases();
 
     await this.test("Switch Database", async () => {
-      const result = await this.request("POST", "/api/sql/switch-database", { dbName: "postgres" });
+      const result = await this.request("POST", "/api/db/switch-database", { dbName: "postgres" });
       if (!result.success) throw new Error("Switch failed");
       this.log("Switched to postgres", "success");
     });
@@ -45,7 +45,7 @@ class PostgreSQLTester extends BaseTester {
 if (require.main === module) {
   const tester = new PostgreSQLTester();
   tester.runTests().catch((error) => {
-    console.error("❌ Test failed:", error);
+    console.error("Test failed:", error);
     process.exit(1);
   });
 }

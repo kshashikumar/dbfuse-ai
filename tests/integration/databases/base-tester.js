@@ -62,13 +62,15 @@ class BaseTester {
 
       this.log(`${method} ${endpoint}`, "info");
       const response = await axios(config);
-      this.log(`✓ Status: ${response.status}`, "success");
-      return { success: true, data: response.data, status: response.status };
+      this.log(`OK Status: ${response.status}`, "success");
+      const envelope = response.data?.envelope;
+      const payload = envelope?.data || response.data;
+      return { success: true, data: payload, envelope, status: response.status };
     } catch (error) {
       const errorData = error.response?.data;
       const errorMsg =
         typeof errorData === "object" ? JSON.stringify(errorData) : errorData || error.message;
-      this.log(`✗ Error: ${error.response?.status || "No Response"} - ${errorMsg}`, "error");
+      this.log(`ERR Error: ${error.response?.status || "No Response"} - ${errorMsg}`, "error");
       return {
         success: false,
         error: error.response?.data || error.message,
@@ -131,16 +133,16 @@ class BaseTester {
   }
 
   async test(name, testFn) {
-    this.log(`\n🧪 ${name}`, "info");
-    this.log("─".repeat(50), "info");
+    this.log(`\n[TEST] ${name}`, "info");
+    this.log("-".repeat(50), "info");
     try {
       await testFn();
       this.passed++;
-      this.log(`✅ PASSED: ${name}`, "success");
+      this.log(`PASSED: ${name}`, "success");
     } catch (error) {
       this.failed++;
       this.errors.push({ test: name, error: error.message });
-      this.log(`❌ FAILED: ${name} - ${error.message}`, "error");
+      this.log(`FAILED: ${name} - ${error.message}`, "error");
     }
   }
 
@@ -149,7 +151,7 @@ class BaseTester {
     const successRate = total > 0 ? ((this.passed / total) * 100).toFixed(1) : 0;
 
     console.log("\n" + "=".repeat(60));
-    console.log("📊 TEST RESULTS");
+    console.log("TEST RESULTS");
     console.log("=".repeat(60));
     console.log(`Passed: ${this.passed}`);
     console.log(`Failed: ${this.failed}`);
@@ -157,7 +159,7 @@ class BaseTester {
     console.log(`Success Rate: ${successRate}%`);
 
     if (this.errors.length > 0) {
-      console.log("\n❌ FAILED TESTS:");
+      console.log("\nFAILED TESTS:");
       this.errors.forEach(({ test, error }, i) => {
         console.log(`  ${i + 1}. ${test}`);
         console.log(`     Error: ${error}`);
@@ -171,7 +173,7 @@ class BaseTester {
   // Common test patterns
   async testConnection() {
     await this.test("Database Connection", async () => {
-      const result = await this.request("POST", "/api/sql/connect", this.config);
+      const result = await this.request("POST", "/api/db/connect", this.config);
       if (!result.success || !result.data.connectionId) {
         throw new Error("Connection failed");
       }
@@ -182,7 +184,7 @@ class BaseTester {
 
   async testListDatabases() {
     await this.test("List Databases", async () => {
-      const result = await this.request("GET", "/api/sql/databases");
+      const result = await this.request("GET", "/api/db/databases");
       if (!result.success || !Array.isArray(result.data.databases)) {
         throw new Error("Failed to list databases");
       }
@@ -192,7 +194,7 @@ class BaseTester {
 
   async testListTables(dbName) {
     await this.test("List Tables", async () => {
-      const result = await this.request("GET", `/api/sql/tables?dbName=${dbName}`);
+      const result = await this.request("GET", `/api/db/tables?dbName=${dbName}`);
       if (!result.success || !Array.isArray(result.data.tables)) {
         throw new Error("Failed to list tables");
       }
@@ -202,7 +204,7 @@ class BaseTester {
 
   async testSimpleQuery(query, dbName) {
     await this.test("Simple SELECT Query", async () => {
-      const result = await this.request("POST", "/api/sql/query", {
+      const result = await this.request("POST", "/api/db/query", {
         query,
         dbName,
         page: 1,
@@ -218,7 +220,7 @@ class BaseTester {
 
   async testPagination(query, dbName) {
     await this.test("Query Pagination", async () => {
-      const result = await this.request("POST", "/api/sql/query", {
+      const result = await this.request("POST", "/api/db/query", {
         query,
         dbName,
         page: 1,
@@ -238,7 +240,7 @@ class BaseTester {
 
   async testDisconnect() {
     await this.test("Database Disconnect", async () => {
-      const result = await this.request("POST", "/api/sql/disconnect");
+      const result = await this.request("POST", "/api/db/disconnect");
       if (!result.success) {
         throw new Error("Disconnect failed");
       }

@@ -7,7 +7,7 @@ const sanitizeHtml = require("sanitize-html");
 
 const { HTTP_STATUS, GENERAL_ERRORS } = require("../../core/constants");
 const logger = require("../../utils/logger");
-const { buildEnvelope, isUnifiedEnvelopeEnabled } = require("../../utils/responseEnvelope");
+const { buildEnvelope } = require("../../utils/responseEnvelope");
 
 /**
  * Base controller class with common methods for all controllers
@@ -56,7 +56,7 @@ class BaseController {
     const status = options.status || HTTP_STATUS.OK;
     const payload = { ...data, timestamp: new Date().toISOString() };
 
-    if (!isUnifiedEnvelopeEnabled() || !options.kind) {
+    if (!options.kind) {
       return this.sendResponse(res, status, payload);
     }
 
@@ -72,7 +72,7 @@ class BaseController {
       meta,
     });
 
-    return this.sendResponse(res, status, { ...payload, envelope });
+    return this.sendResponse(res, status, { envelope });
   }
 
   /**

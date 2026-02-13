@@ -5,15 +5,6 @@ const RESPONSE_CONTRACTS = Object.freeze({
   QUERY: "dbfuse.query.v1",
 });
 
-const VERSION_NOTES = Object.freeze({
-  metadata:
-    "Legacy fields are preserved at the top level; envelope.data mirrors the legacy payload during migration.",
-  query:
-    "Legacy fields are preserved at the top level; envelope.data mirrors the legacy payload during migration.",
-});
-
-const isUnifiedEnvelopeEnabled = () => true;
-
 const buildEnvelope = ({ kind, payload, request, meta }) => {
   const normalizedKind = kind === "query" ? "query" : "metadata";
   const contract =
@@ -23,8 +14,6 @@ const buildEnvelope = ({ kind, payload, request, meta }) => {
     contract,
     version: RESPONSE_VERSION,
     kind: normalizedKind,
-    legacyCompat: true,
-    versionNotes: VERSION_NOTES[normalizedKind],
     request: {
       dbType: request?.dbType || null,
       connectionId: request?.connectionId || null,
@@ -37,12 +26,8 @@ const buildEnvelope = ({ kind, payload, request, meta }) => {
   };
 };
 
-const wrapLegacyEnvelope = (payload, envelope) => ({ ...payload, envelope });
-
 module.exports = {
   RESPONSE_VERSION,
   RESPONSE_CONTRACTS,
-  isUnifiedEnvelopeEnabled,
   buildEnvelope,
-  wrapLegacyEnvelope,
 };

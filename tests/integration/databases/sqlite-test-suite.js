@@ -14,17 +14,17 @@ class SQLiteTester extends BaseTester {
   }
 
   async runTests() {
-    this.log("🧪 SQLite Strategy Test Suite", "info");
-    this.log("═".repeat(60), "info");
+    this.log("[TEST] SQLite Strategy Test Suite", "info");
+    this.log("=".repeat(60), "info");
     this.log(`Server: ${this.baseURL}`, "info");
     this.log(`Config: In-memory database`, "info");
-    this.log("═".repeat(60), "info");
+    this.log("=".repeat(60), "info");
 
     await this.testConnection();
 
     // Create test table
     await this.test("Create Test Table", async () => {
-      const result = await this.request("POST", "/api/sql/query", {
+      const result = await this.request("POST", "/api/db/query", {
         query:
           "CREATE TABLE IF NOT EXISTS test_users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)",
         dbName: ":memory:",
@@ -35,7 +35,7 @@ class SQLiteTester extends BaseTester {
 
     // Insert test data
     await this.test("Insert Test Data", async () => {
-      const result = await this.request("POST", "/api/sql/query", {
+      const result = await this.request("POST", "/api/db/query", {
         query:
           "INSERT INTO test_users (name, email) VALUES ('Alice', 'alice@test.com'), ('Bob', 'bob@test.com')",
         dbName: ":memory:",
@@ -54,7 +54,7 @@ class SQLiteTester extends BaseTester {
 if (require.main === module) {
   const tester = new SQLiteTester();
   tester.runTests().catch((error) => {
-    console.error("❌ Test failed:", error);
+    console.error("Test failed:", error);
     process.exit(1);
   });
 }
